@@ -179,7 +179,12 @@ func TestUnknownPathReturns404(t *testing.T) {
 	}
 }
 
-func TestClientIPHeaderPreference(t *testing.T) {
+// TestClientIPIgnoresUntrustedHeaders pins the security property that
+// clientIP never honours caller-controlled forwarding headers — they
+// are spoofable and would compromise the future ip_allowlist auth
+// mode. Header-aware behaviour will return in Phase 1.4 alongside a
+// trusted_proxies config option.
+func TestClientIPIgnoresUntrustedHeaders(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -194,19 +199,24 @@ func TestClientIPHeaderPreference(t *testing.T) {
 			want:       "10.0.0.5",
 		},
 		{
-			name:       "x-real-ip wins over remote",
+			name:       "x-real-ip is ignored",
 			remoteAddr: "10.0.0.5:5432",
 			headers:    map[string]string{"X-Real-IP": "192.168.1.10"},
-			want:       "192.168.1.10",
+			want:       "10.0.0.5",
 		},
 		{
-			name:       "x-forwarded-for wins over x-real-ip",
+			name:       "x-forwarded-for is ignored even if x-real-ip is also set",
 			remoteAddr: "10.0.0.5:5432",
 			headers: map[string]string{
 				"X-Forwarded-For": "203.0.113.7, 10.0.0.1",
 				"X-Real-IP":       "192.168.1.10",
 			},
-			want: "203.0.113.7",
+			want: "10.0.0.5",
+		},
+		{
+			name:       "remote addr without port falls through unchanged",
+			remoteAddr: "unix",
+			want:       "unix",
 		},
 	}
 	for _, tc := range cases {

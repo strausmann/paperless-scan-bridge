@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -67,7 +68,25 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 
-	cfg, err := config.Load(*configPath, os.LookupEnv)
+	// If --config was not explicitly set and the default file does not
+	// exist, hand an empty path to Load so it falls back to defaults +
+	// env. An explicit --config that points at a missing file IS an
+	// error, so we forward it to Load unchanged in that case and let
+	// it fail loudly.
+	loadPath := *configPath
+	configExplicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configExplicit = true
+		}
+	})
+	if !configExplicit {
+		if _, statErr := os.Stat(loadPath); errors.Is(statErr, os.ErrNotExist) {
+			loadPath = ""
+		}
+	}
+
+	cfg, err := config.Load(loadPath, os.LookupEnv)
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
@@ -173,13 +192,23 @@ func shutdownAll(logger *slog.Logger, graceful, hard time.Duration,
 	gracefulCtx, cancel := context.WithTimeout(context.Background(), graceful)
 	defer cancel()
 
+	// Run Shutdown on every server in parallel so each one gets the
+	// full graceful budget; a slow public listener must not eat the
+	// metrics listener's deadline.
+	var wg sync.WaitGroup
 	for _, srv := range servers {
-		if err := srv.Shutdown(gracefulCtx); err != nil {
-			logger.Warn("graceful shutdown failed",
-				slog.String("addr", srv.Addr),
-				slog.Any("err", err))
-		}
+		srv := srv
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.Shutdown(gracefulCtx); err != nil {
+				logger.Warn("graceful shutdown failed",
+					slog.String("addr", srv.Addr),
+					slog.Any("err", err))
+			}
+		}()
 	}
+	wg.Wait()
 
 	if errors.Is(gracefulCtx.Err(), context.DeadlineExceeded) {
 		logger.Error("graceful shutdown deadline exceeded; forcing close",

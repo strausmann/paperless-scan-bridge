@@ -63,6 +63,10 @@ arm64 without extra setup:
 GOOS=linux GOARCH=arm64 go build -o scan-bridge.arm64 ./cmd/scan-bridge
 ```
 
+Toolchain floor is **Go 1.23**, raised from the originally targeted
+1.22 because `prometheus/client_golang` v1.23.x requires it. The
+Dockerfile's `GO_VERSION` ARG is pinned to match `go.mod`.
+
 Container image (multi-arch via `docker buildx bake` once the bake
 file lands; for now the equivalent direct command is):
 

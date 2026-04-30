@@ -114,15 +114,58 @@ level = "warn"
 	}
 }
 
-func TestLoadMissingPathFallsBackToDefaults(t *testing.T) {
+// TestLoadEmptyPathSkipsFile pins the contract that callers can opt
+// out of the file load by passing path == "". main.go relies on this
+// when the default config file does not exist on disk and --config
+// was not explicitly set.
+func TestLoadEmptyPathSkipsFile(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"), envFunc(nil))
+	cfg, err := Load("", envFunc(nil))
 	if err != nil {
-		t.Fatalf("Load on missing file: %v", err)
+		t.Fatalf("Load with empty path: %v", err)
 	}
 	if cfg.Server.Listen != ":8080" {
 		t.Errorf("Server.Listen = %q, want default :8080", cfg.Server.Listen)
+	}
+}
+
+// TestLoadMissingExplicitPathErrors locks in the fix for the silent-
+// fallback foot-gun: an explicitly supplied path that does not exist
+// is a configuration error, not a fall-through to defaults.
+func TestLoadMissingExplicitPathErrors(t *testing.T) {
+	t.Parallel()
+
+	_, err := Load(filepath.Join(t.TempDir(), "missing.toml"), envFunc(nil))
+	if err == nil {
+		t.Fatal("expected error on missing explicit config path")
+	}
+}
+
+// TestLoadRejectsUnknownTOMLKeys catches typos in the config file
+// the same way the profiles loader catches typos in the YAML schema.
+func TestLoadRejectsUnknownTOMLKeys(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	body := `
+[server]
+listen = ":8080"
+
+[serverz]
+listen = ":7000"
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path, envFunc(nil))
+	if err == nil {
+		t.Fatal("expected error on unknown TOML key")
+	}
+	if !strings.Contains(err.Error(), "unknown keys") {
+		t.Errorf("error %q did not mention unknown keys", err.Error())
 	}
 }
 

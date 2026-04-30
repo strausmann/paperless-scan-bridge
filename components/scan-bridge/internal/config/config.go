@@ -109,8 +109,13 @@ func Default() Config {
 // Load applies the loading precedence to produce a validated Config.
 //
 // path may be empty, in which case only defaults and the environment
-// are consulted. The environment is read from osLookupEnv (typically
-// os.LookupEnv); the indirection exists for tests.
+// are consulted. When path is non-empty the file must exist —
+// silently falling back to defaults makes typos in --config or env
+// overrides effectively undebuggable. main.go decides whether the
+// default config path is "expected" (and passes "" if not).
+//
+// The environment is read from osLookupEnv (typically os.LookupEnv);
+// the indirection exists for tests.
 func Load(path string, osLookupEnv func(string) (string, bool)) (Config, error) {
 	if osLookupEnv == nil {
 		osLookupEnv = os.LookupEnv
@@ -119,12 +124,18 @@ func Load(path string, osLookupEnv func(string) (string, bool)) (Config, error) 
 	cfg := Default()
 
 	if path != "" {
-		if _, err := os.Stat(path); err == nil {
-			if _, err := toml.DecodeFile(path, &cfg); err != nil {
-				return Config{}, fmt.Errorf("decode config %q: %w", path, err)
+		meta, err := toml.DecodeFile(path, &cfg)
+		if err != nil {
+			return Config{}, fmt.Errorf("decode config %q: %w", path, err)
+		}
+		if undecoded := meta.Undecoded(); len(undecoded) > 0 {
+			keys := make([]string, 0, len(undecoded))
+			for _, k := range undecoded {
+				keys = append(keys, k.String())
 			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return Config{}, fmt.Errorf("stat config %q: %w", path, err)
+			return Config{}, fmt.Errorf(
+				"config %q has unknown keys: %s",
+				path, strings.Join(keys, ", "))
 		}
 	}
 
