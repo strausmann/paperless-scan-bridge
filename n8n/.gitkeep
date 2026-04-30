@@ -1,0 +1,3 @@
+# n8n
+#
+# Exported n8n workflows for the alternative trigger path (webhook to scan-bridge). Spec: AGENTS.md "n8n/". Empty until Phase 2.

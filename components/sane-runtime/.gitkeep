@@ -1,0 +1,3 @@
+# components/sane-runtime
+#
+# Source for the sane-runtime container — Debian-slim image with SANE drivers, scanbd, and a thin Go health helper. Spec: CONTAINER_SUITE.md sec. 5. Empty until Phase 1.2.

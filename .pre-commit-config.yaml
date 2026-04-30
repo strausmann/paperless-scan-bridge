@@ -1,0 +1,79 @@
+# pre-commit configuration.
+#
+# Every hook is staged as `[manual]` for now (and `default_stages` is
+# pinned to `[manual]` too, so any hook added later without an explicit
+# stage inherits the same opt-in behaviour) so the suite does not fire
+# on commits before the code it would lint actually exists.
+# Contributors can opt in early with:
+#
+#     pre-commit run --hook-stage manual --all-files
+#
+# Per-component Phase 1 sessions will flip the relevant hooks to
+# `[pre-commit, pre-push]` as soon as they have real targets to lint.
+# See CONTRIBUTING.md and SECURITY.md.
+
+minimum_pre_commit_version: "3.5.0"
+default_stages: [manual]
+fail_fast: false
+
+repos:
+  # Generic hygiene — whitespace, EOF, large-file guard, merge markers.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [manual]
+      - id: end-of-file-fixer
+        stages: [manual]
+      - id: check-merge-conflict
+        stages: [manual]
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+        stages: [manual]
+      - id: check-case-conflict
+        stages: [manual]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        stages: [manual]
+
+  # Shell scripts under deploy/, backup/scripts/, components/sane-runtime/.
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["--severity=style", "--external-sources"]
+        stages: [manual]
+
+  # Markdown lint, scoped to the repo's 80-col + ATX-headings policy.
+  # The --config flag is intentionally omitted: markdownlint-cli falls
+  # back to the project default and a Phase 1 session will land a
+  # repo-level .markdownlint.json once we have real Markdown to lint.
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.42.0
+    hooks:
+      - id: markdownlint
+        stages: [manual]
+
+  # YAML lint for compose files, blueprints, n8n exports, CI workflows.
+  # The --config-file flag is intentionally omitted; yamllint will use
+  # its bundled defaults until a repo-level .yamllint config lands.
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ["--strict"]
+        stages: [manual]
+
+  # Dockerfile lint for the three custom container images.
+  - repo: https://github.com/AleksaC/hadolint-py
+    rev: v2.12.1b3
+    hooks:
+      - id: hadolint
+        stages: [manual]
+
+  # Secret scanning before anything reaches a remote.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        stages: [manual]

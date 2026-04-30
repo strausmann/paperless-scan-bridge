@@ -1,0 +1,30 @@
+# Dependabot configuration.
+#
+# Renovate is the project's primary update bot for container image
+# tags (per AGENTS.md). Dependabot covers the ecosystems Renovate
+# does not — Go modules, GitHub Actions, and Dockerfile base images
+# inside the three custom container components.
+#
+# Per-component gomod and docker entries are added by each component's
+# own Phase 1 session, once that component ships a go.mod and a
+# Dockerfile. Listing them here before the manifests exist makes
+# Dependabot emit a "manifest file not found" error on every run, so
+# we keep the file lean until the targets are real.
+
+version: 2
+updates:
+  # GitHub Actions used in CI / docs workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:ci"
+    commit-message:
+      prefix: "ci"
+      include: scope

@@ -1,0 +1,3 @@
+# components/scan-processor
+#
+# Source for the scan-processor container — Go service that deskews, blank-page-filters, assembles PDFs, and writes atomically to NFS. Spec: CONTAINER_SUITE.md sec. 6. Empty until Phase 1.3.

@@ -1,0 +1,115 @@
+name: Hardware compatibility report
+description: Report whether your scanner works (or does not) with paperless-scan-bridge.
+labels: ["type:hardware", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hardware reports are the most valuable contribution to this
+        project. Even a partially working scanner is useful — please
+        document what works, what does not, and which test stages you
+        completed. The schema below mirrors the
+        `HARDWARE_COMPATIBILITY.md` table.
+
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor
+      placeholder: "Kodak Alaris"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "ScanMate i1120"
+    validations:
+      required: true
+
+  - type: input
+    id: usb_id
+    attributes:
+      label: USB ID (vendor:product)
+      description: From `lsusb`.
+      placeholder: "040a:6001"
+    validations:
+      required: true
+
+  - type: input
+    id: sane_backend
+    attributes:
+      label: SANE backend
+      description: The backend reported by `scanimage -L` or your `dll.conf`.
+      placeholder: "kodakaio"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: compatibility_level
+    attributes:
+      label: Compatibility level reached
+      description: See HARDWARE_COMPATIBILITY.md for the rubric.
+      options:
+        - "Tier 1 — fully supported, including button triggers"
+        - "Tier 2 — basic scanning works, no button triggers"
+        - "Tier 3 — works with manual configuration"
+        - "Tier 4 — does not work"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: test_stages
+    attributes:
+      label: Test stages completed
+      description: Tick every stage you actually ran.
+      options:
+        - label: Device is detected by `scanimage -L` inside the sane-runtime container.
+        - label: A simplex grayscale scan produces a usable image.
+        - label: A simplex color scan produces a usable image.
+        - label: A duplex scan (if the device supports ADF duplex) produces both sides correctly.
+        - label: Hardware buttons trigger the configured scan profile.
+        - label: The scanned PDF lands in Paperless and OCR succeeds.
+        - label: The system survives an unplug/replug cycle without container restart.
+
+  - type: textarea
+    id: works
+    attributes:
+      label: What works
+      placeholder: "Single-sided scans at 300 dpi, color and grayscale. ADF reliably picks up batches up to ~25 sheets."
+    validations:
+      required: true
+
+  - type: textarea
+    id: does_not_work
+    attributes:
+      label: What does not work / needed workarounds
+      placeholder: "Duplex requires manual `--source ADF Duplex` flag; not yet exposed in profiles. Buttons not yet wired."
+
+  - type: input
+    id: pi_model
+    attributes:
+      label: Pi model
+      placeholder: "Raspberry Pi 5, 8 GB RAM, NVMe SSD"
+
+  - type: input
+    id: host_os
+    attributes:
+      label: Host OS / distribution
+      placeholder: "Ubuntu Server 24.04 arm64"
+
+  - type: textarea
+    id: extra_config
+    attributes:
+      label: Extra SANE / udev configuration applied
+      description: Paste any custom `dll.conf`, backend config, or udev rule you needed.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have checked `HARDWARE_COMPATIBILITY.md` for an existing entry.
+          required: true
+        - label: I am willing to open a follow-up PR adding this row to the table.

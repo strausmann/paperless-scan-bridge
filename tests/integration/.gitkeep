@@ -1,0 +1,3 @@
+# tests/integration
+#
+# End-to-end tests that bring the full compose stack up against a mocked SANE scanner. Spec: CONTRIBUTING.md, AGENTS.md "tests/". Empty until first integration test lands.

@@ -1,0 +1,3 @@
+# deploy/udev
+#
+# udev rules that map known scanner USB IDs to stable device paths and the scanner group. Spec: CONTAINER_SUITE.md sec. 10, AGENTS.md "deploy/udev/". Empty until first hardware support lands.

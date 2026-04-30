@@ -1,0 +1,3 @@
+# tests/bats
+#
+# bats tests for shell scripts under deploy/ and backup/. Spec: CONTRIBUTING.md, AGENTS.md "tests/". Empty until first script with tests lands.

@@ -1,0 +1,47 @@
+# Phase 1 CI stub.
+#
+# This workflow exists so the README badge does not 404 and so
+# branch protection can require it once real jobs land. Each job is
+# intentionally a placeholder with `echo "placeholder"`. Real lint,
+# test, and build steps arrive in subsequent Phase 1 sessions, one
+# component at a time.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "placeholder — real lint pipeline lands with the first component"
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "placeholder — real test pipeline lands with the first component"
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "placeholder — buildx bake pipeline lands with the first component"

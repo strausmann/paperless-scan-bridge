@@ -1,0 +1,3 @@
+# backup/systemd
+#
+# systemd timer/service units that drive the restic backup runs and PostgreSQL dumps. Spec: DISASTER_RECOVERY.md, AGENTS.md "backup/". Empty until Phase 3.

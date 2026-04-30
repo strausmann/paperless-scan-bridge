@@ -1,0 +1,3 @@
+# homeassistant/blueprints
+#
+# Importable Home Assistant blueprints for STYRBAR, SYMFONISK Gen 2, RODRET, and similar Zigbee remotes. Spec: AGENTS.md "homeassistant/", README.md. Empty until Phase 2.

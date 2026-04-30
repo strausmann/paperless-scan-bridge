@@ -1,0 +1,37 @@
+# Phase 1 documentation-build stub.
+#
+# Eventually this workflow runs Zensical to build the EN/DE site and
+# deploy it to GitHub Pages at scan-bridge.strausmann.de. For now it
+# only ensures the README badge resolves and that a docs job exists
+# in the workflow list. Real Zensical wiring lands when docs/ grows
+# its first navigation file.
+
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: echo "placeholder — Zensical build pipeline lands with the docs scaffolding"

@@ -1,0 +1,55 @@
+# Editor defaults aligned with CONTRIBUTING.md "Code style".
+# https://editorconfig.org/
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 80
+
+# Go: tabs, gofmt-controlled. Line length is not enforced by editor;
+# golangci-lint and gofmt own that.
+[*.go]
+indent_style = tab
+indent_size = 4
+max_line_length = off
+
+# Makefiles must use tabs for recipe lines.
+[{Makefile,*.mk}]
+indent_style = tab
+indent_size = 4
+max_line_length = off
+
+# Shell scripts: 2-space indent, but shellcheck/style checks own
+# the rest. Long lines are allowed where word-splitting makes
+# wrapping risky.
+[*.{sh,bash}]
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+# YAML: 2-space indent, sequence items aligned with the key.
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# Markdown: 80-column prose wrap, but trailing whitespace can be
+# meaningful (hard line break) — keep insertions trimmed but accept
+# manual two-space line breaks if a contributor uses them.
+[*.md]
+max_line_length = 80
+trim_trailing_whitespace = false
+
+# Documentation source for the Zensical site.
+[docs/**.md]
+max_line_length = 80
+
+# JSON / TOML — formatter-controlled, no extra rules.
+[*.{json,toml}]
+indent_style = space
+indent_size = 2

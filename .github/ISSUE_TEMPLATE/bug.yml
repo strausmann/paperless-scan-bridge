@@ -1,0 +1,110 @@
+name: Bug report
+description: Report a defect in scan-bridge, sane-runtime, scan-processor, or the deployment artefacts.
+labels: ["type:bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much as you can —
+        empty sections slow triage. For security issues, **do not**
+        open a public issue; follow the procedure in `SECURITY.md`.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences. What is broken?
+      placeholder: "scan-bridge returns 500 when scanning duplex with the color profile."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: A minimal sequence that triggers the bug.
+      placeholder: |
+        1. `docker compose -f deploy/compose/scan-bridge.yml up -d`
+        2. `curl -X POST http://pi:8080/scan -d '{"profile":"color-duplex"}'`
+        3. Observe …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include exact error messages.
+    validations:
+      required: true
+
+  - type: input
+    id: scanner_model
+    attributes:
+      label: Scanner model
+      placeholder: "Kodak ScanMate i1120"
+
+  - type: input
+    id: usb_id
+    attributes:
+      label: USB ID
+      description: Output of `lsusb` for the affected device.
+      placeholder: "040a:6001"
+
+  - type: input
+    id: sane_backend
+    attributes:
+      label: SANE backend
+      placeholder: "kodakaio"
+
+  - type: input
+    id: scan_bridge_version
+    attributes:
+      label: scan-bridge version
+      placeholder: "v0.2.0 or commit sha"
+    validations:
+      required: true
+
+  - type: input
+    id: host_os
+    attributes:
+      label: Host OS / distribution
+      placeholder: "Ubuntu Server 24.04 arm64 on Raspberry Pi 5"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scanimage_l
+    attributes:
+      label: scanimage -L output
+      description: Run `docker exec sane-runtime scanimage -L` and paste the output.
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        `docker logs scan-bridge`, `docker logs sane-runtime`,
+        `docker logs scan-processor`, `docker logs paperless` —
+        whichever is relevant. Trim aggressively.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have read `CONTRIBUTING.md` and `HARDWARE_COMPATIBILITY.md`.
+          required: true
+        - label: I have searched existing issues for duplicates.
+          required: true
+        - label: This is not a security report (those go via `SECURITY.md`).
+          required: true

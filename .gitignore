@@ -1,0 +1,62 @@
+# Go build artefacts
+bin/
+dist/
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go module download cache (only if vendored locally)
+/vendor/
+
+# Tilt
+.tiltbuild/
+tilt_modules/
+
+# Docker / compose runtime state
+**/docker-data/
+**/postgres-data/
+**/paperless-data/
+
+# Container volumes that may shadow the host layout during local dev
+/var/lib/scan-bridge/
+/var/lib/scan-processor/
+/var/lib/sane-runtime/
+
+# Decrypted secrets (SOPS leaves these behind on accidents)
+*.decrypted
+*.decrypted.*
+*.key
+!*.pub.key
+age.key
+sops.key
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# IDE / editor state
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Python (pre-commit cache, ad-hoc venvs)
+.venv/
+__pycache__/
+*.pyc
+
+# Documentation build output
+/site/
+/public/
+docs/.zensical-cache/
+
+# CI / coverage uploads
+.codecov.yml.local

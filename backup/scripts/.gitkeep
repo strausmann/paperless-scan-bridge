@@ -1,0 +1,3 @@
+# backup/scripts
+#
+# restic wrapper scripts, PostgreSQL dump/restore helpers, and the restore runbook glue. Spec: DISASTER_RECOVERY.md, AGENTS.md "backup/". Empty until Phase 3.
