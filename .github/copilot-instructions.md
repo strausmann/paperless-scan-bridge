@@ -115,6 +115,15 @@ Scopes are directories or component names: `scan-bridge`,
 `sane-runtime`, `scan-processor`, `compose`, `ansible`, `docs`, `ci`,
 `deploy`.
 
+## Code-review language
+
+**Pull-Request-Reviews und Review-Kommentare sind auf Deutsch zu
+verfassen.** Das gilt für Zusammenfassungen, Inline-Kommentare und
+Vorschläge. Code-Identifier, Commit-Message-Beispiele, CLI-Befehle und
+zitierte Log-Ausgaben bleiben unverändert in der Originalsprache.
+Inline-Code-Vervollständigungen und Commit-Messages selbst folgen
+weiterhin den Conventional-Commits-Regeln (englisch).
+
 ## Code-review focus areas
 
 When Copilot reviews PRs in this repo, prioritize:
