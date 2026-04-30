@@ -1,0 +1,72 @@
+name: Feature request
+description: Suggest an enhancement or new capability.
+labels: ["type:feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For larger changes, please **open this issue first** and let
+        us agree on the design before any code is written. Drive-by
+        feature PRs without a prior issue are likely to bounce. See
+        `CONTRIBUTING.md` for the workflow.
+
+        Please also check the scope guardrails in `AGENTS.md`
+        ("What this repository is not") — features that belong in
+        Paperless-ngx, SANE upstream, or Home Assistant proper will be
+        redirected.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What user need or operational pain is this trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Sketch the behavior you would like, ideally with example commands or API calls.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches and why you preferred this one.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected scope
+      multiple: true
+      options:
+        - scan-bridge (Go daemon)
+        - sane-runtime (SANE container)
+        - scan-processor (PDF pipeline)
+        - deploy/compose (Compose stacks)
+        - deploy/bootstrap (Pi bootstrap)
+        - deploy/ansible (Ansible roles)
+        - homeassistant (Blueprints)
+        - n8n (Workflows)
+        - backup / restore
+        - monitoring / alerting
+        - security / hardening
+        - docs
+        - other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I have read `AGENTS.md` "What this repository is not".
+          required: true
+        - label: I have searched existing issues and discussions for the same idea.
+          required: true
+        - label: For non-trivial features, I understand the design must be agreed in this issue before any PR is opened.
+          required: true

@@ -1,0 +1,121 @@
+# Dependabot configuration.
+#
+# Renovate is the project's primary update bot for container image
+# tags (per AGENTS.md). Dependabot covers the ecosystems Renovate
+# does not — Go modules, GitHub Actions, and Dockerfile base images
+# inside the three custom container components.
+
+version: 2
+updates:
+  # GitHub Actions used in CI / docs workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:ci"
+    commit-message:
+      prefix: "ci"
+      include: scope
+
+  # Go modules per component. Once each component grows a go.mod,
+  # Dependabot will start opening PRs against it. The directory
+  # entries are listed up-front so we do not have to revisit this
+  # file when each component lands.
+  - package-ecosystem: gomod
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:scan-bridge"
+    commit-message:
+      prefix: "build(scan-bridge)"
+      include: scope
+
+  - package-ecosystem: gomod
+    directory: /components/sane-runtime
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:sane-runtime"
+    commit-message:
+      prefix: "build(sane-runtime)"
+      include: scope
+
+  - package-ecosystem: gomod
+    directory: /components/scan-processor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:scan-processor"
+    commit-message:
+      prefix: "build(scan-processor)"
+      include: scope
+
+  # Dockerfile base images for the three custom containers. Renovate
+  # handles compose-file image pins; Dependabot covers the FROM lines
+  # inside our Dockerfiles.
+  - package-ecosystem: docker
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    labels:
+      - "type:chore"
+      - "scope:scan-bridge"
+    commit-message:
+      prefix: "build(scan-bridge)"
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /components/sane-runtime
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    labels:
+      - "type:chore"
+      - "scope:sane-runtime"
+    commit-message:
+      prefix: "build(sane-runtime)"
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /components/scan-processor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    labels:
+      - "type:chore"
+      - "scope:scan-processor"
+    commit-message:
+      prefix: "build(scan-processor)"
+      include: scope

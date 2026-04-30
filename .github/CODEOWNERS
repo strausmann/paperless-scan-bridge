@@ -1,0 +1,9 @@
+# CODEOWNERS for paperless-scan-bridge
+#
+# Default owner for everything in the repo. Per-area owners can be
+# added later (e.g. a hardware-tester for HARDWARE_COMPATIBILITY.md
+# entries) — for now the project has a single maintainer.
+#
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @strausmann
