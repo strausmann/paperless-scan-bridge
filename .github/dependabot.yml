@@ -28,3 +28,37 @@ updates:
     commit-message:
       prefix: "ci"
       include: scope
+
+  # Go modules for the scan-bridge component (added now that
+  # components/scan-bridge/go.mod has landed).
+  - package-ecosystem: gomod
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "scope:scan-bridge"
+    commit-message:
+      prefix: "build(scan-bridge)"
+      include: scope
+
+  # Dockerfile base images for scan-bridge (added now that
+  # components/scan-bridge/Dockerfile has landed).
+  - package-ecosystem: docker
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    labels:
+      - "type:chore"
+      - "scope:scan-bridge"
+    commit-message:
+      prefix: "build(scan-bridge)"
+      include: scope
