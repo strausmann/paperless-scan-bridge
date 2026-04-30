@@ -140,6 +140,23 @@ note the migration cost.
 - Run as non-root user where possible
 - Document every `RUN` step's purpose with a comment
 
+**Pre-merge review validation:**
+
+Before merging any PR, always fetch the PR's reviews and review
+comments and address every legitimate point. Never merge while
+unresolved, legitimate review feedback exists. This applies equally to
+bot reviewers (Gemini Code Assist, Copilot, Claude, …) and human
+reviewers. The user has stated explicitly: *"Das Feedback wollen wir
+IMMER haben."*
+
+**Code-review language:**
+
+PR-Reviews, Review-Kommentare und PR-Beschreibungen sind auf Deutsch zu
+verfassen. Code-Identifier, Commit-Message-Beispiele, CLI-Befehle und
+zitierte Log-Ausgaben bleiben in der Originalsprache.
+Commit-Messages selbst folgen weiterhin Conventional Commits
+(englisch).
+
 **Commit messages:** Conventional Commits format. Examples:
 
 - `feat(scan-bridge): add /profiles endpoint`

@@ -145,6 +145,16 @@ applies equally to bot reviewers (Gemini Code Assist, Copilot, …) and
 human reviewers. The user has stated explicitly: *"Das Feedback wollen
 wir IMMER haben."*
 
+## Code-review language
+
+**Pull-Request-Reviews, Review-Kommentare und PR-Beschreibungen sind
+auf Deutsch zu verfassen.** Das gilt für Zusammenfassungen,
+Inline-Kommentare und Vorschläge — sowohl für Claude Code als auch für
+Copilot, Gemini und andere KI-Assistenten. Code-Identifier,
+Commit-Message-Beispiele, CLI-Befehle und zitierte Log-Ausgaben bleiben
+unverändert in der Originalsprache. Commit-Messages selbst folgen
+weiterhin den Conventional-Commits-Regeln (englisch).
+
 ## Further reading inside the repo
 
 - [AGENTS.md](AGENTS.md) — the canonical brief for AI assistants; richer than this file
