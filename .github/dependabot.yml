@@ -10,6 +10,14 @@
 # Dockerfile. Listing them here before the manifests exist makes
 # Dependabot emit a "manifest file not found" error on every run, so
 # we keep the file lean until the targets are real.
+#
+# `labels:` entries are intentionally omitted: Dependabot validates
+# every label exists in the repo on every run and emits "could not be
+# found" errors otherwise. The project label taxonomy (type:*, scope:*,
+# needs-triage) needs to be created in the repo settings first; the
+# label refs can then be re-added in a follow-up PR. The Conventional-
+# Commits-shaped commit-message prefix already gives PR triage what it
+# needs in the meantime.
 
 version: 2
 updates:
@@ -22,9 +30,34 @@ updates:
       time: "06:00"
       timezone: Europe/Berlin
     open-pull-requests-limit: 5
-    labels:
-      - "type:chore"
-      - "scope:ci"
     commit-message:
       prefix: "ci"
+      include: scope
+
+  # Go modules for the scan-bridge component (added now that
+  # components/scan-bridge/go.mod has landed).
+  - package-ecosystem: gomod
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(scan-bridge)"
+      include: scope
+
+  # Dockerfile base images for scan-bridge (added now that
+  # components/scan-bridge/Dockerfile has landed).
+  - package-ecosystem: docker
+    directory: /components/scan-bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build(scan-bridge)"
       include: scope

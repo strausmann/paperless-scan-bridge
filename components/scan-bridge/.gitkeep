@@ -1,3 +1,0 @@
-# components/scan-bridge
-#
-# Source for the scan-bridge container — the Go REST daemon that owns profile dispatch, job tracking, and Prometheus metrics. Spec: CONTAINER_SUITE.md sec. 4, AGENTS.md "Three custom components". Empty until Phase 1.1.
