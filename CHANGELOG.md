@@ -46,6 +46,16 @@ between releases as a running list.
 
 ### Added
 
+- Repository scaffolding and GitHub configuration boilerplate: the
+  Phase 1 directory tree under `components/`, `deploy/`,
+  `homeassistant/`, `n8n/`, `backup/`, `monitoring/`, `security/`,
+  `ha/`, `docs/`, `tests/` (each preserved by an annotated
+  `.gitkeep`), plus `.gitignore`, `.gitattributes`, `.editorconfig`,
+  the `.github/` issue and PR templates, `CODEOWNERS`,
+  `dependabot.yml`, the `ci.yml` and `docs.yml` workflow stubs, the
+  `.pre-commit-config.yaml` (hooks staged manual), and a `Makefile`
+  orchestrator that lists every Phase 1 test target.
+
 ### Changed
 
 ### Fixed
