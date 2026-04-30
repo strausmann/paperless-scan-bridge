@@ -1,0 +1,72 @@
+# Default scan profiles shipped with the scan-bridge container.
+#
+# These cover the common cases for the reference Kodak ScanMate i1120
+# deployment: simplex/duplex, color/gray, with sensible Paperless tags.
+# Operators are expected to override or extend these by mounting their
+# own profiles.yaml at /etc/scan-bridge/profiles.yaml. The schema is
+# documented in CONTAINER_SUITE.md sec. 4.6.
+
+profiles:
+  - name: private-duplex
+    description: "Private documents, duplex, color, 300 DPI"
+    source: "ADF Duplex"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    target_subdir: "private/"
+    deskew: true
+    remove_blank: true
+    rotate_pages: true
+    page_size: "A4"
+    timeout_seconds: 300
+    metadata_template:
+      paperless_tags: ["private"]
+      paperless_correspondent: null
+
+  - name: private-simplex
+    description: "Private documents, single-sided, color, 300 DPI"
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    target_subdir: "private/"
+    deskew: true
+    remove_blank: false
+    rotate_pages: true
+    page_size: "A4"
+    timeout_seconds: 180
+    metadata_template:
+      paperless_tags: ["private"]
+      paperless_correspondent: null
+
+  - name: receipts
+    description: "Receipts and small slips, grayscale, 200 DPI"
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    target_subdir: "receipts/"
+    deskew: true
+    remove_blank: true
+    rotate_pages: false
+    page_size: "auto"
+    timeout_seconds: 120
+    metadata_template:
+      paperless_tags: ["receipt"]
+      paperless_correspondent: null
+
+  - name: archive
+    description: "High-resolution archive scans, duplex, 600 DPI"
+    source: "ADF Duplex"
+    resolution: 600
+    mode: "Color"
+    format: "pdf"
+    target_subdir: "archive/"
+    deskew: true
+    remove_blank: true
+    rotate_pages: true
+    page_size: "A4"
+    timeout_seconds: 600
+    metadata_template:
+      paperless_tags: ["archive"]
+      paperless_correspondent: null
