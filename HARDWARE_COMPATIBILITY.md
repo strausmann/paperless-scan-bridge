@@ -1,7 +1,7 @@
 # Hardware Compatibility
 
 > **Status:** Living document
-> **Last updated:** 2026-04-30
+> **Last updated:** 2026-04-30 (i1120 hardware-button findings re-verified)
 > **Maintainer:** Björn Strausmann + community contributors
 
 This document tracks scanner hardware verified to work with
@@ -115,20 +115,51 @@ reference are noted per-entry in the tables below where relevant.
 
 | Model | USB ID | SANE backend | Level | Verified by | Date | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| ScanMate i1120 | 040a:6013 | avision | A | Björn Strausmann | 2026-03 | Reference device. ADF, duplex, 600 DPI, hardware buttons via scanbd. |
+| ScanMate i1120 | 040a:6013 | avision | A | Björn Strausmann | 2026-04 | Reference device. ADF + duplex via `ADF Duplex` source, 75–600 DPI. Hardware-button support is **asymmetric** — see notes below. |
 
-**Model-specific notes for i1120:**
+**Model-specific notes for i1120 (re-verified 2026-04-30):**
 
 - The `avision` backend has been marked unmaintained since 2020 but
-  works reliably for this device on kernel 5.15+.
-- The hardware "Scan" button reliably triggers scanbd. The LCD
-  profile counter (1-9) is exposed via `function_knob` in scanbd
-  and was empirically verified during the 2026-03 testing run.
-- Maximum scanning speed: 20 ppm simplex, 10 ppm duplex on USB 2.0.
-  USB 3.0 host port does not increase speed (scanner is USB 2.0).
-- Paper handling: deterministic with the original IKEA-tier paper
-  weights (60-105 g/m²). Heavier stock (cardboard, glossy
-  photographs) requires manual feed via the front slot.
+  works reliably for this device on Linux kernel 5.15+ (verified
+  2026-04 on Ubuntu Server 24.04 with the 6.8 kernel series).
+- **Hardware-button support is partial.** The LCD function-indicator
+  wheel (the 1–9 selector) generates SANE events on the read-only
+  `--message` option as strings of the form `<n>:button1`. These
+  events are reliably captured by scanbd's stock `function_knob`
+  filter at 250 ms polling and were empirically verified across
+  all nine indicator positions during the 2026-04-30 testing run.
+- **The hardware "Start" (scan-trigger) button generates no
+  SANE-visible event** — neither via the avision backend's options,
+  nor via direct enumeration with `scanimage -A`, nor via scanbd
+  polling. Multiple Start-button presses during a 60-second scanbd
+  capture session produced zero events while indicator-wheel turns
+  produced 21 events. See `docs/research/scanner-hardware-events.md`
+  for the captured logs and the open question of whether a USB-level
+  signal exists that the avision backend simply does not decode.
+- **The ADF paper sensor is similarly opaque to SANE.** Paper
+  insertion and removal change neither `scanimage -A` output nor
+  the `--message` field — verified by snapshot diff and live
+  scanbd polling on 2026-04-30. The scanner *does* report
+  paper-empty as a `SANE_STATUS_NO_DOCS` error during a scan
+  attempt; that is the only signal callers can rely on for
+  "is there paper?".
+- **Practical consequence for triggering on this device:** webhook
+  triggering (HTTP) and Zigbee remotes via Home Assistant are the
+  primary paths. The indicator wheel works as a *secondary*
+  hardware trigger via scanbd's `function_knob` mapping. The Start
+  button does not work today; that is upstream-tracked in the
+  research doc above.
+- **Useful diagnostic data via `--nvram-values`:** the avision
+  backend exposes scanner model, firmware version, serial number,
+  manufacturing date, first-scan date, and total pad/ADF scan
+  counters as a read-only string. The bridge's monitoring stack
+  reads this for ops dashboards.
+- Maximum scanning speed (vendor spec): 20 ppm simplex, 10 ppm
+  duplex on USB 2.0. USB 3.0 host port does not increase speed
+  (the scanner itself is USB 2.0).
+- Paper handling: deterministic with standard office paper weights
+  (60–105 g/m²). Heavier stock (cardboard, glossy photographs)
+  requires manual feed via the front slot.
 - ADF capacity: 50 sheets nominal, 30 sheets reliable.
 - Cleaning: rollers should be cleaned monthly with a lint-free
   cloth and isopropyl alcohol; documented in
@@ -283,7 +314,7 @@ blueprints we ship are tested against specific Zigbee remote devices.
 | Source | Status | Notes |
 | --- | --- | --- |
 | HTTP webhook (curl, Python script, mobile app) | Universal | The canonical interface; if you can speak HTTP and bearer auth, you can trigger |
-| Scanner hardware buttons via scanbd | Reference (i1120) | Verified for Kodak i1120; behavior depends on SANE backend support for the specific scanner |
+| Scanner hardware buttons via scanbd | Partial (i1120) | Per-scanner reality; the avision backend on the i1120 surfaces the LCD indicator wheel via `function_knob` but not the Start button or paper sensor (see i1120 notes in section 4.1). Other backends may differ — document per-button results when adding a scanner |
 | n8n workflow | Documented | Example workflows under `n8n/`; n8n is itself a webhook caller |
 | Node-RED | Untested but trivial | Node-RED HTTP request node configures in 30 seconds |
 
@@ -491,12 +522,26 @@ If your scanner has hardware buttons and you want to use them:
 
 1. Configure scanbd in `etc/scanbd/scanner.d/<your-vendor>-<model>.conf`
 2. Restart the sane-runtime container
-3. Press the scan button on the scanner
-4. Verify the scan triggers via the same path as a webhook call
+3. Press *each* hardware button on the scanner in turn
+4. Verify which presses produce events in the scanbd log and
+   trigger configured actions
 
-This stage is optional. Many users prefer Zigbee remotes to scanner
-hardware buttons, and the lack of hardware button support does not
-preclude listing your scanner at Level B or C.
+**Per-button reality check.** "Hardware buttons" is a fuzzy phrase.
+A scanner may have several buttons (Scan, Cancel, +/-, function
+wheels, profile presets) and the SANE backend may surface some,
+all, or none of them. The reference Kodak i1120 surfaces the LCD
+function wheel but not the Start/Scan button — see section 4.1.
+When you contribute a scanner entry, document which specific
+buttons produced SANE-visible events and which did not. A scanner
+with a working function wheel and a non-working Scan button is
+still a fine Level B candidate; the doc just needs to be honest
+about the asymmetry.
+
+This stage is optional in the sense that the bridge does not
+require any hardware-button support — webhook callers (HA, Paperless,
+n8n, curl) cover all use cases. Zigbee remotes via Home Assistant
+are often a more reliable physical trigger than scanner buttons,
+because the SANE button surface is hardware-dependent.
 
 ### 10.5 Reporting your results
 
