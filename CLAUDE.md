@@ -128,12 +128,45 @@ template at `docs/.templates/blog-post.md`; assets in
 
 Feature requests crossing these boundaries belong in another project.
 
+## Pre-merge review validation
+
+Before merging any PR, **always** fetch the PR's reviews and review
+comments and address every legitimate point. Use the GitHub MCP tools
+(`pull_request_read` with `method=get_reviews` and
+`method=get_review_comments`) to enumerate them. For each item:
+
+- If the point is correct → fix it on the PR branch and push, then
+  re-check that no new comments arrived.
+- If the point is wrong, outdated, or out of scope → reply on the
+  thread explaining why before merging.
+
+Never merge while unresolved, legitimate review feedback exists. This
+applies equally to bot reviewers (Gemini Code Assist, Copilot, …) and
+human reviewers. The user has stated explicitly: *"Das Feedback wollen
+wir IMMER haben."*
+
+## Code-review language
+
+**Pull-Request-Reviews, Review-Kommentare und PR-Beschreibungen sind
+auf Deutsch zu verfassen.** Das gilt für Zusammenfassungen,
+Inline-Kommentare und Vorschläge — sowohl für Claude Code als auch für
+Copilot, Gemini und andere KI-Assistenten. Code-Identifier,
+Commit-Message-Beispiele, CLI-Befehle und zitierte Log-Ausgaben bleiben
+unverändert in der Originalsprache. Commit-Messages selbst folgen
+weiterhin den Conventional-Commits-Regeln (englisch).
+
 ## Further reading inside the repo
 
-- `AGENTS.md` — the canonical brief for AI assistants; richer than this file
-- `ARCHITECTURE.md` — full data-flow diagram and component
-  responsibilities, including the three supported storage topologies
-- `CONTRIBUTING.md` — human-facing workflow, full lint/test commands
-- `CONCEPT.md`, `CONTAINER_SUITE.md` — long-form design notes
-- `THREAT_MODEL.md`, `DISASTER_RECOVERY.md` — security and recovery posture
-- `ROADMAP.md` — current phase and what is in flight
+- [AGENTS.md](AGENTS.md) — the canonical brief for AI assistants;
+  richer than this file
+- [ARCHITECTURE.md](ARCHITECTURE.md) — full data-flow diagram and
+  component responsibilities, including the three supported storage
+  topologies
+- [CONTRIBUTING.md](CONTRIBUTING.md) — human-facing workflow, full
+  lint/test commands
+- [CONCEPT.md](CONCEPT.md),
+  [CONTAINER_SUITE.md](CONTAINER_SUITE.md) — long-form design notes
+- [THREAT_MODEL.md](THREAT_MODEL.md),
+  [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) — security and recovery
+  posture
+- [ROADMAP.md](ROADMAP.md) — current phase and what is in flight
