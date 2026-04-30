@@ -1,0 +1,3 @@
+# monitoring/prometheus
+#
+# Prometheus scrape configs, alerting rules, and synthetic health-check targets. Spec: AGENTS.md "monitoring/". Empty until Phase 3.

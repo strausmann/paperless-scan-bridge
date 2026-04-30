@@ -1,0 +1,3 @@
+# monitoring/grafana-dashboards
+#
+# Grafana dashboard JSON for scan-bridge, sane-runtime, and the host-level node-exporter view. Spec: AGENTS.md "monitoring/". Empty until Phase 3.

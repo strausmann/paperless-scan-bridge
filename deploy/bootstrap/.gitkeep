@@ -1,0 +1,3 @@
+# deploy/bootstrap
+#
+# One-shot bootstrap script that prepares a fresh Pi (Docker, NFS mount, udev rules, container pull). Spec: README.md Quickstart, AGENTS.md "deploy/bootstrap/". Empty until Phase 1.4.

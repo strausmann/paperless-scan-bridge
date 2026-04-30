@@ -1,0 +1,3 @@
+# deploy/compose
+#
+# Docker Compose stacks for the supported storage topologies (local FS, NFS, iSCSI). Spec: ARCHITECTURE.md (storage topologies), AGENTS.md "deploy/compose/". Empty until first compose stack lands.

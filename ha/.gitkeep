@@ -1,0 +1,3 @@
+# ha
+#
+# Cold-standby setup, failover runbook, and witness-Pi pattern artefacts. Spec: AGENTS.md "ha/", DISASTER_RECOVERY.md. Empty until Phase 3.

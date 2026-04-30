@@ -1,0 +1,3 @@
+# deploy/ansible
+#
+# Optional Ansible layer for fleet deployment, with Molecule tests for Ubuntu 22.04, Ubuntu 24.04, and Debian 12. Spec: CONTRIBUTING.md "deploy/ansible/", AGENTS.md. Empty until Phase 1.5.
