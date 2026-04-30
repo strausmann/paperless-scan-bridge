@@ -1,0 +1,2 @@
+#!/bin/bash
+echo "[SCRIPT-FIRED] $(date +%H:%M:%S.%3N) DEVICE=$SCANBD_DEVICE ACTION=$SCANBD_ACTION FUNCTION=$SCANBD_FUNCTION" >> /tmp/scanbd-events.log

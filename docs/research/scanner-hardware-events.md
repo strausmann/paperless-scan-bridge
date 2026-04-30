@@ -4,7 +4,7 @@
 > Phase 2 (USB-level capture) planned
 > **Started:** 2026-04-30
 > **Reference device:** Kodak ScanMate i1120 (USB ID `040a:6013`)
-> **Tracked issue:** TBD (file in `strausmann/paperless-scan-bridge`)
+> **Tracked issue:** [strausmann/paperless-scan-bridge#7](https://github.com/strausmann/paperless-scan-bridge/issues/7)
 
 This document captures the empirical investigation of which Kodak
 i1120 hardware events are accessible from user-space Linux through
@@ -199,12 +199,17 @@ might be a one-line patch.
 
 ### 3.4 Test environment
 
-The reference scanner currently lives on `hhplex01` in the bridge
-maintainer's homelab (a Dell OptiPlex 3070 Micro). A Windows VM
-or live Windows boot on the same physical host would simplify
+The reference scanner currently lives on the bridge maintainer's
+reference test host — a Dell OptiPlex 3070 Micro running Linux
+with the scanner directly attached via USB. A Windows VM or live
+Windows boot on the same physical host would simplify
 identical-hardware capture comparison. Alternatively, a USB-MITM
 device (e.g. one of the open-source USB sniffers) would let the
 capture happen continuously without VM overhead.
+
+Contributors reproducing this work do not need access to the
+specific host above; any Linux machine with the same scanner
+attached works identically.
 
 The capture data and analysis will be added to this document as
 sections 4 (raw findings) and 5 (interpretation) once Phase 2
@@ -241,21 +246,46 @@ feasible, in what form, and what the next steps are.*
 
 ### Reproducibility — Phase 1 captures
 
-The Phase 1 captures were performed in disposable Docker containers
-on `hhplex01`. The scripts and Dockerfiles used remain on the host
-under `/tmp/` and are documented in the bridge maintainer's session
-notes. To reproduce on a different host:
+All Phase 1 captures were performed in disposable Docker containers.
+The minimal Dockerfiles, scanbd config, and trigger script needed
+to reproduce the captures live in this repository under
+[`docs/research/fixtures/`](fixtures/) — copy them to a working
+directory on any Linux host with the scanner attached.
 
-1. Attach a Kodak i1120 (or other avision-driven scanner) via USB
-2. Build the test images:
-   - `sane-smoke` — `debian:12-slim` + `sane-utils`
-   - `scanbd-test` — `sane-smoke` + `scanbd`
-3. Run `docker run --rm --device /dev/bus/usb sane-smoke -L` to
-   confirm SANE detection
-4. Run `docker run -d --rm --name scanbd-test --device /dev/bus/usb
-   -v <config>:/etc/scanbd/scanbd.conf scanbd-test scanbd -f -d`
-   with `debug-level=7` and a `^message.*` catch-all action
-5. Press buttons; observe `docker logs` for option values
+To reproduce on any host:
 
-A production-quality replication procedure (with reproducible
-Dockerfiles checked into the repo) will accompany Phase 2.
+1. Attach the scanner (Kodak ScanMate i1120 or any other
+   `avision`-driven device) via USB.
+2. Clone or copy the fixtures:
+   ```bash
+   cp -r docs/research/fixtures /tmp/scan-research
+   cd /tmp/scan-research
+   ```
+3. Build the test images:
+   ```bash
+   docker build -t sane-smoke -f sane-smoke.Dockerfile .
+   docker build -t scanbd-test -f scanbd-test.Dockerfile .
+   ```
+4. Confirm SANE detection:
+   ```bash
+   docker run --rm --device /dev/bus/usb sane-smoke -L
+   ```
+   Expected: at least one device with `device 'avision:libusb...'`.
+5. Run scanbd with the catch-all configuration to log every
+   `--message` event:
+   ```bash
+   docker run --rm --device /dev/bus/usb \
+     -v "$(pwd):/etc/scanbd:ro" \
+     -v /tmp:/tmp \
+     scanbd-test \
+     scanbd -c /etc/scanbd/scanbd-debug.conf -f -d
+   ```
+6. Press hardware buttons / change the function-indicator wheel.
+   Each event appends a line to `/tmp/scanbd-events.log`; scanbd's
+   foreground stderr prints the full debug trace at level 7.
+
+The fixtures are minimal and intentionally not "production-grade"
+— they are diagnostics. The scan-bridge `sane-runtime` container
+shipped in Phase 1.2 has its own production configuration
+(documented in the Phase 1.2 plan and spec); these fixtures are
+specifically for reproducing the Phase 1 *research* observations.

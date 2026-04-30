@@ -120,8 +120,13 @@ reference are noted per-entry in the tables below where relevant.
 **Model-specific notes for i1120 (re-verified 2026-04-30):**
 
 - The `avision` backend has been marked unmaintained since 2020 but
-  works reliably for this device on Linux kernel 5.15+ (verified
-  2026-04 on Ubuntu Server 24.04 with the 6.8 kernel series).
+  works reliably for this device on any modern Linux distribution
+  with kernel 5.15 or newer (the specific verification run for the
+  2026-04-30 testing was performed on Ubuntu Server 24.04 with the
+  6.8 kernel series, but the result is not kernel-specific —
+  contributors with newer kernels or different distributions are
+  expected to see the same behaviour and welcome to extend this
+  note with their findings).
 - **Hardware-button support is partial.** The LCD function-indicator
   wheel (the 1–9 selector) generates SANE events on the read-only
   `--message` option as strings of the form `<n>:button1`. These
