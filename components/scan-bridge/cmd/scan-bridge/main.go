@@ -152,8 +152,11 @@ func run(args []string, stdout, stderr io.Writer) error {
 	select {
 	case err := <-srvErrs:
 		logger.Error("listener exited unexpectedly", slog.Any("err", err))
-		shutdownAll(logger, cfg.SIGTERMTimeout(), cfg.HardTimeout(),
-			publicSrv, metricsSrv)
+		if shutdownErr := shutdownAll(logger,
+			cfg.SIGTERMTimeout(), cfg.HardTimeout(),
+			publicSrv, metricsSrv); shutdownErr != nil {
+			return errors.Join(err, shutdownErr)
+		}
 		return err
 
 	case sig := <-sigCh:
@@ -161,9 +164,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		logger.Info("shutdown signal received",
 			slog.String("signal", name),
 			slog.Duration("graceful_timeout", timeout))
-		shutdownAll(logger, timeout, cfg.HardTimeout(),
+		// shutdownAll returns non-nil only when the hard deadline is
+		// breached; per CONTAINER_SUITE.md sec. 4.11 that is exit 1.
+		return shutdownAll(logger, timeout, cfg.HardTimeout(),
 			publicSrv, metricsSrv)
-		return nil
 	}
 }
 
@@ -179,8 +183,14 @@ func listenAndServe(out chan<- error, srv *http.Server, label string,
 }
 
 // shutdownAll runs http.Server.Shutdown on every listener with the
-// supplied graceful timeout, then enforces the hard deadline by
-// calling Close on whatever did not finish in time.
+// supplied graceful timeout. If shutdown does not complete within
+// `hard`, it forces every listener closed and returns a non-nil error
+// so main can propagate exit code 1.
+//
+// CONTAINER_SUITE.md sec. 4.11 specifies "If shutdown takes longer
+// than 60 seconds, log an error and exit 1"; the dual-deadline shape
+// implements that contract: graceful first, then a hard window for
+// in-flight requests to drain, then forced close.
 //
 // TODO(phase 1.4): once the jobs and dispatch subsystems land, the
 // shutdown sequence also needs to mark queued jobs as
@@ -188,7 +198,7 @@ func listenAndServe(out chan<- error, srv *http.Server, label string,
 // flush metrics one last time, and close the BoltDB store. The hooks
 // belong here.
 func shutdownAll(logger *slog.Logger, graceful, hard time.Duration,
-	servers ...*http.Server) {
+	servers ...*http.Server) error {
 	gracefulCtx, cancel := context.WithTimeout(context.Background(), graceful)
 	defer cancel()
 
@@ -210,14 +220,54 @@ func shutdownAll(logger *slog.Logger, graceful, hard time.Duration,
 	}
 	wg.Wait()
 
-	if errors.Is(gracefulCtx.Err(), context.DeadlineExceeded) {
-		logger.Error("graceful shutdown deadline exceeded; forcing close",
-			slog.Duration("graceful_timeout", graceful),
-			slog.Duration("hard_timeout", hard))
-		for _, srv := range servers {
-			_ = srv.Close()
+	if !errors.Is(gracefulCtx.Err(), context.DeadlineExceeded) {
+		return nil
+	}
+
+	// Graceful budget exhausted. Open the second deadline window —
+	// the hard timeout, less the graceful seconds we already spent —
+	// and let any straggler in-flight request drain before we force
+	// the connection closed.
+	remainder := hard - graceful
+	if remainder <= 0 {
+		remainder = time.Second
+	}
+	logger.Error("graceful shutdown deadline exceeded; entering hard window",
+		slog.Duration("graceful_timeout", graceful),
+		slog.Duration("hard_remaining", remainder))
+
+	hardCtx, hardCancel := context.WithTimeout(context.Background(), remainder)
+	defer hardCancel()
+
+	wg = sync.WaitGroup{}
+	for _, srv := range servers {
+		srv := srv
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := srv.Shutdown(hardCtx); err != nil &&
+				!errors.Is(err, context.Canceled) {
+				logger.Warn("hard shutdown failed",
+					slog.String("addr", srv.Addr),
+					slog.Any("err", err))
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Force-close anything still alive. Any error here means the
+	// kernel kept a socket around; loud-log it so operators see why
+	// the process exited 1.
+	for _, srv := range servers {
+		if err := srv.Close(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			logger.Error("forced close failed",
+				slog.String("addr", srv.Addr),
+				slog.Any("err", err))
 		}
 	}
+
+	return fmt.Errorf("shutdown exceeded hard deadline of %s", hard)
 }
 
 func signalDetails(sig os.Signal, cfg *config.Config) (string, time.Duration) {

@@ -91,8 +91,11 @@ The container expects:
   your own.
 - `/var/lib/scan-bridge` — declared `VOLUME` for the future BoltDB
   job store. Empty in Phase 1.1.
-- `SCAN_BRIDGE_API_TOKEN_HASH` — SHA-256 hex digest of the bearer
-  token, when running in token-auth mode (the default).
+- `SCAN_BRIDGE_API_TOKEN` — plaintext bearer token (token-auth
+  mode, the default). The daemon SHA-256-hashes it on load and
+  retains only the hash in memory. Alternatively the hash can be
+  put directly into `[auth] token_hash` in the TOML file for
+  declarative SOPS-encrypted deployments.
 
 Local smoke run without Docker:
 
@@ -126,7 +129,7 @@ Recognised env variables:
 | `SCAN_BRIDGE_LISTEN`           | Public REST API listener address     |
 | `SCAN_BRIDGE_METRICS_LISTEN`   | Prometheus listener address          |
 | `SCAN_BRIDGE_AUTH_MODE`        | `token` or `ip_allowlist`            |
-| `SCAN_BRIDGE_API_TOKEN_HASH`   | SHA-256 hex of bearer token          |
+| `SCAN_BRIDGE_API_TOKEN`        | Plaintext bearer token; SHA-256-hashed on load (CONTAINER_SUITE.md sec. 4.5). The TOML `[auth] token_hash` field is the alternative for declarative deployments. |
 | `SCAN_BRIDGE_PROFILES_PATH`    | Path to profiles YAML                |
 | `SCAN_BRIDGE_STATE_DIR`        | Directory for the future job store   |
 | `SCAN_BRIDGE_SANE_SOCKET`      | Path to the sane-runtime Unix socket |

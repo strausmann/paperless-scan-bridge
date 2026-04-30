@@ -252,6 +252,31 @@ func TestIPAllowed(t *testing.T) {
 	}
 }
 
+// TestAPITokenEnvIsHashed pins the contract that
+// SCAN_BRIDGE_API_TOKEN carries plaintext on the wire (per
+// CONTAINER_SUITE.md sec. 4.5) and is SHA-256-hashed before it
+// reaches Config.Auth.TokenHash. Plaintext must never linger.
+func TestAPITokenEnvIsHashed(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("", envFunc(map[string]string{
+		"SCAN_BRIDGE_API_TOKEN": "plaintext-secret-value",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.TokenHash == "" {
+		t.Fatal("TokenHash empty after env-supplied plaintext token")
+	}
+	if cfg.Auth.TokenHash == "plaintext-secret-value" {
+		t.Fatal("TokenHash equals plaintext — must be hashed")
+	}
+	if len(cfg.Auth.TokenHash) != 64 {
+		t.Errorf("TokenHash len = %d, want 64 (SHA-256 hex)",
+			len(cfg.Auth.TokenHash))
+	}
+}
+
 func TestDescriptionDoesNotLeakSecrets(t *testing.T) {
 	t.Parallel()
 

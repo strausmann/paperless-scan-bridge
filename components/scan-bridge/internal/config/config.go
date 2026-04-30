@@ -10,6 +10,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -158,8 +160,12 @@ func applyEnv(cfg *Config, look func(string) (string, bool)) {
 	if v, ok := look("SCAN_BRIDGE_AUTH_MODE"); ok {
 		cfg.Auth.Mode = AuthMode(v)
 	}
-	if v, ok := look("SCAN_BRIDGE_API_TOKEN_HASH"); ok {
-		cfg.Auth.TokenHash = v
+	// SCAN_BRIDGE_API_TOKEN carries the plaintext token per
+	// CONTAINER_SUITE.md sec. 4.5; we hash it on load and never
+	// retain the plaintext on the Config struct.
+	if v, ok := look("SCAN_BRIDGE_API_TOKEN"); ok && v != "" {
+		sum := sha256.Sum256([]byte(v))
+		cfg.Auth.TokenHash = hex.EncodeToString(sum[:])
 	}
 	if v, ok := look("SCAN_BRIDGE_PROFILES_PATH"); ok {
 		cfg.Paths.Profiles = v
@@ -194,6 +200,13 @@ func (c *Config) Validate() error {
 	if c.Auth.Mode == AuthModeIPAllowlist && len(c.Auth.AllowedCIDRs) == 0 {
 		return errors.New("auth.allowed_cidrs must be non-empty when auth.mode = ip_allowlist")
 	}
+
+	// TODO(phase 1.4): once the auth middleware actually consumes
+	// TokenHash, Validate must also reject auth.mode = token with an
+	// empty TokenHash. We do not enforce it yet because Phase 1.1
+	// ships the daemon without active authentication, and a
+	// non-empty hash requirement here would block local development
+	// and CI smoke runs that do not need auth.
 
 	parsed := make([]*net.IPNet, 0, len(c.Auth.AllowedCIDRs))
 	for _, raw := range c.Auth.AllowedCIDRs {

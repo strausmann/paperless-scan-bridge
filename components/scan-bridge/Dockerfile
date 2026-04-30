@@ -35,6 +35,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         ./cmd/scan-bridge
 
 # ---- Runtime stage ----
+# TODO(phase 1.4): pin this base image by digest once Renovate is
+# wired (AGENTS.md "Coding conventions" requires digests in
+# production-track images). Pinning a digest manually here without
+# Renovate keeping it fresh would silently leave the base image
+# behind on security updates.
 FROM gcr.io/distroless/static-debian12:nonroot
 
 USER nonroot:nonroot

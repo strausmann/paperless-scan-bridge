@@ -1,10 +1,20 @@
 // Package profiles loads and validates scan-profile definitions.
 //
-// The on-disk schema is documented in CONTAINER_SUITE.md sec. 4.6;
-// the JSON Schema mirror at api/schema/profile.json is the canonical
-// machine-readable spec. This package owns the in-process Go types
-// and the validation that runs at daemon startup. Invalid profiles
-// fail load with an error pointing at the offending name.
+// The on-disk schema is documented in CONTAINER_SUITE.md sec. 4.6.
+// This package owns the in-process Go types and the validation that
+// runs at daemon startup. Invalid profiles fail load with an error
+// identifying the offending profile by name.
+//
+// TODO(phase 1.4): a JSON Schema mirror at api/schema/profile.json
+// will become the canonical machine-readable spec once the OpenAPI
+// surface lands; until then this package's struct tags are the
+// reference.
+//
+// TODO(phase 1.4): surface YAML line numbers on validation errors
+// per CONTAINER_SUITE.md sec. 4.6. Implementing that requires
+// decoding into yaml.Node and threading position information through
+// validateProfile, which is a larger refactor than this Phase 1.1
+// session targets.
 package profiles
 
 import (

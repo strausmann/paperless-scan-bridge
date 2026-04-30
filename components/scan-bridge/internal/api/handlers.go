@@ -2,19 +2,36 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
+	"syscall"
 )
 
 // writeJSON serialises body as JSON and writes it with the supplied
-// status code. The caller is responsible for not having already
-// written headers.
-func writeJSON(w http.ResponseWriter, status int, body any) {
+// status code. Encode errors are logged at warn level — by the time
+// json.Encoder fails we have already written the status line, so we
+// cannot recover the response, but the failure must not be silent
+// (per the project's "no swallowed errors" rule). EPIPE / connection-
+// reset errors are common when a client hangs up mid-response and
+// are noisy; we log them at debug.
+func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	if body == nil {
 		return
 	}
-	_ = json.NewEncoder(w).Encode(body)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		level := slog.LevelWarn
+		if errors.Is(err, syscall.EPIPE) ||
+			errors.Is(err, syscall.ECONNRESET) {
+			level = slog.LevelDebug
+		}
+		s.Logger.LogAttrs(r.Context(), level, "json encode failed",
+			slog.String("path", r.URL.Path),
+			slog.Int("status", status),
+			slog.Any("err", err))
+	}
 }
 
 // healthResponse is the small payload returned by /health. The schema
@@ -23,8 +40,8 @@ type healthResponse struct {
 	Status string `json:"status"`
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, r, http.StatusOK, healthResponse{Status: "ok"})
 }
 
 // versionResponse mirrors the /version contract from CONTAINER_SUITE.md
@@ -35,8 +52,8 @@ type versionResponse struct {
 	BuildDate string `json:"build_date"`
 }
 
-func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, versionResponse{
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, r, http.StatusOK, versionResponse{
 		Version:   s.Build.Version,
 		Commit:    s.Build.Commit,
 		BuildDate: s.Build.BuildDate,
@@ -50,7 +67,7 @@ type profileSummary struct {
 	Description string `json:"description"`
 }
 
-func (s *Server) handleProfilesList(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleProfilesList(w http.ResponseWriter, r *http.Request) {
 	all := s.Profiles.All()
 	out := make([]profileSummary, 0, len(all))
 	for _, p := range all {
@@ -59,20 +76,20 @@ func (s *Server) handleProfilesList(w http.ResponseWriter, _ *http.Request) {
 			Description: p.Description,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
+	s.writeJSON(w, r, http.StatusOK, map[string]any{"profiles": out})
 }
 
 func (s *Server) handleProfileDetail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	p, ok := s.Profiles.Get(name)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, errorResponse{
+		s.writeJSON(w, r, http.StatusNotFound, errorResponse{
 			Error: "profile_not_found",
 			Hint:  "GET /profiles to list configured profile names.",
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeJSON(w, r, http.StatusOK, p)
 }
 
 // errorResponse is the canonical error envelope used by 4xx and 5xx
@@ -87,8 +104,8 @@ type errorResponse struct {
 // can rely on the schema even before the full daemon is feature
 // complete.
 func (s *Server) notImplemented(reason string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, errorResponse{
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.writeJSON(w, r, http.StatusNotImplemented, errorResponse{
 			Error: "not_implemented",
 			Hint:  reason,
 		})
