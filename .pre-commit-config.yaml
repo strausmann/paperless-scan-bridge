@@ -1,17 +1,19 @@
 # pre-commit configuration.
 #
-# Every hook is staged as `[manual]` for now so the suite does not
-# fire on commits before the code it would lint actually exists.
+# Every hook is staged as `[manual]` for now (and `default_stages` is
+# pinned to `[manual]` too, so any hook added later without an explicit
+# stage inherits the same opt-in behaviour) so the suite does not fire
+# on commits before the code it would lint actually exists.
 # Contributors can opt in early with:
 #
 #     pre-commit run --hook-stage manual --all-files
 #
-# Per-component Phase 1 sessions will flip the relevant hooks back
-# to the default stages (`pre-commit`, `pre-push`) as soon as they
-# have real targets to lint. See CONTRIBUTING.md and SECURITY.md.
+# Per-component Phase 1 sessions will flip the relevant hooks to
+# `[pre-commit, pre-push]` as soon as they have real targets to lint.
+# See CONTRIBUTING.md and SECURITY.md.
 
 minimum_pre_commit_version: "3.5.0"
-default_stages: [pre-commit, pre-push]
+default_stages: [manual]
 fail_fast: false
 
 repos:
@@ -43,19 +45,23 @@ repos:
         stages: [manual]
 
   # Markdown lint, scoped to the repo's 80-col + ATX-headings policy.
+  # The --config flag is intentionally omitted: markdownlint-cli falls
+  # back to the project default and a Phase 1 session will land a
+  # repo-level .markdownlint.json once we have real Markdown to lint.
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.42.0
     hooks:
       - id: markdownlint
-        args: ["--config=.markdownlint.json"]
         stages: [manual]
 
   # YAML lint for compose files, blueprints, n8n exports, CI workflows.
+  # The --config-file flag is intentionally omitted; yamllint will use
+  # its bundled defaults until a repo-level .yamllint config lands.
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.35.1
     hooks:
       - id: yamllint
-        args: ["--strict", "--config-file=.yamllint"]
+        args: ["--strict"]
         stages: [manual]
 
   # Dockerfile lint for the three custom container images.
