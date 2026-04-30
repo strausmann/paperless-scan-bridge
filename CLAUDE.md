@@ -157,10 +157,16 @@ weiterhin den Conventional-Commits-Regeln (englisch).
 
 ## Further reading inside the repo
 
-- [AGENTS.md](AGENTS.md) — the canonical brief for AI assistants; richer than this file
-- [ARCHITECTURE.md](ARCHITECTURE.md) — full data-flow diagram and component
-  responsibilities, including the three supported storage topologies
-- [CONTRIBUTING.md](CONTRIBUTING.md) — human-facing workflow, full lint/test commands
-- [CONCEPT.md](CONCEPT.md), [CONTAINER_SUITE.md](CONTAINER_SUITE.md) — long-form design notes
-- [THREAT_MODEL.md](THREAT_MODEL.md), [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) — security and recovery posture
+- [AGENTS.md](AGENTS.md) — the canonical brief for AI assistants;
+  richer than this file
+- [ARCHITECTURE.md](ARCHITECTURE.md) — full data-flow diagram and
+  component responsibilities, including the three supported storage
+  topologies
+- [CONTRIBUTING.md](CONTRIBUTING.md) — human-facing workflow, full
+  lint/test commands
+- [CONCEPT.md](CONCEPT.md),
+  [CONTAINER_SUITE.md](CONTAINER_SUITE.md) — long-form design notes
+- [THREAT_MODEL.md](THREAT_MODEL.md),
+  [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) — security and recovery
+  posture
 - [ROADMAP.md](ROADMAP.md) — current phase and what is in flight
