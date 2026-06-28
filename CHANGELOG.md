@@ -10,14 +10,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 Each release entry uses some or all of these categories:
 
-- **Added** — for new features
-- **Changed** — for changes in existing functionality
-- **Deprecated** — for soon-to-be-removed features
-- **Removed** — for removed features
-- **Fixed** — for bug fixes
-- **Security** — for vulnerabilities and security-relevant changes
-- **Compatibility** — for compatibility constraints between component versions
-- **Documentation** — for documentation-only changes that affect the user
+- **✨ Added** — for new features
+- **♻️ Changed** — for changes in existing functionality
+- **⚠️ Deprecated** — for soon-to-be-removed features
+- **🗑️ Removed** — for removed features
+- **🐛 Fixed** — for bug fixes
+- **🔒 Security** — for vulnerabilities and security-relevant changes
+- **🔧 Compatibility** — for compatibility constraints between component versions
+- **📝 Documentation** — for documentation-only changes that affect the user
 
 ## Versioning notes
 

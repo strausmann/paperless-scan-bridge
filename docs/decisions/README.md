@@ -19,7 +19,9 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 ## Index
 | ADR | Title | Status |
 |-----|-------|--------|
-| _none yet_ | | |
+| [0001](0001-changelog-emoji-sections.md) | Emoji section headers in changelog & release notes | Proposed |
+
+<!-- ADR numbers are assigned in creation order; the architecture-backfill candidates below get 0002+. -->
 
 <!-- Candidate ADRs to backfill from the existing concept docs:
   0001 container-first / host-thin
