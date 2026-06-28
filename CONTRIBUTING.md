@@ -266,3 +266,14 @@ the procedure in SECURITY.md.
 When the project grows beyond what one person can maintain, this
 section will be updated with the maintainer team and decision-making
 process.
+
+## Commits, releases & AI review
+
+- **Conventional Commits** with a mandatory scope — see [`.github/SCOPES.md`](.github/SCOPES.md);
+  enforced by commitlint (husky `commit-msg` hook + CI). Run `npm install` once to enable the hook.
+- **Releases are automated, release-only:** semantic-release computes SemVer and creates the git tag +
+  GitHub Release from the commit history (weekly Sunday cron or manual `workflow_dispatch`, never on
+  push). It does **not** modify `CHANGELOG.md` — that stays a hand-curated Keep a Changelog.
+- **AI code review:** every Gemini/Copilot finding on a PR must be **fixed** or **replied to as a
+  false positive with reasoning** before merge (see `.claude/rules/pr-review.md`).
+- **No AI attribution** in commits or PRs.

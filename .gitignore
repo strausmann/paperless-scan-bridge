@@ -60,3 +60,6 @@ docs/.zensical-cache/
 
 # CI / coverage uploads
 .codecov.yml.local
+
+# Node tooling (commitlint / semantic-release / prettier)
+node_modules/

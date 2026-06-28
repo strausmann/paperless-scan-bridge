@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  schedule:
+    - cron: '0 2 * * 0' # weekly, Sunday 02:00 UTC — the only scheduled release; never on push
+  workflow_dispatch: # manual release any time
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Disable husky in CI so the semantic-release flow isn't intercepted by git hooks.
+    env:
+      HUSKY: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - run: npm install
+      - name: semantic-release (release-only — does not touch CHANGELOG.md)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
