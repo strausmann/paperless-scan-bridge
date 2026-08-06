@@ -1,15 +1,27 @@
 # Scan profiles
 
-A **profile** is a named bundle of scanner settings plus the routing
-metadata that tells the pipeline what to do with the result. Profiles
-are what makes "press one button, get the right outcome" possible: the
-trigger only carries a profile name, everything else is configuration.
+A **profile** is a named bundle of scanner settings plus the metadata
+hints that travel with the resulting document. Profiles are what makes
+"press one button, get the right outcome" possible: the trigger only
+carries a profile name, everything else is configuration.
 
 ## Where profiles live
 
-Profiles are declarative YAML. The shipped defaults are in
-`components/scan-bridge/internal/profiles/defaults.yaml`; user profiles
-are mounted into the container and merged over the defaults.
+Profiles are declarative YAML in a single file. The daemon reads the
+path configured as `paths.profiles`, which defaults to
+`/etc/scan-bridge/profiles.yaml`. The shipped defaults live in
+`components/scan-bridge/internal/profiles/defaults.yaml`.
+
+!!! warning "Mounting a profile file replaces the defaults"
+
+    There is no merge. The daemon loads exactly one file. If you mount
+    your own `profiles.yaml` over `/etc/scan-bridge/profiles.yaml`, the
+    shipped defaults are gone — copy the ones you want to keep into your
+    file. The daemon refuses to start if the file defines no profiles.
+
+Unknown keys are a hard error: the YAML decoder runs with strict field
+checking, so a typo or a field from a future schema version fails the
+load rather than being silently ignored.
 
 ## Reading profiles at runtime
 
@@ -18,56 +30,81 @@ are mounted into the container and merged over the defaults.
 curl -s http://your-pi-host:8080/profiles
 
 # Fetch one profile by name
-curl -s http://your-pi-host:8080/profiles/default
+curl -s http://your-pi-host:8080/profiles/private-duplex
 ```
 
 Both endpoints are implemented today.
 
-## What a profile controls
+## Schema
 
-| Group | Examples |
+This is the complete set of fields the daemon accepts right now.
+
+```yaml
+profiles:
+  - name: private-duplex
+    description: "Private documents, duplex, color, 300 DPI"
+    source: "ADF Duplex"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    target_subdir: "private/"
+    deskew: true
+    remove_blank: true
+    rotate_pages: true
+    page_size: "A4"
+    timeout_seconds: 300
+    metadata_template:
+      paperless_tags: ["private"]
+      paperless_correspondent: null
+```
+
+| Field | Values |
 | --- | --- |
-| Scanner settings | source (flatbed / ADF simplex / ADF duplex), resolution, mode (color / grayscale / lineart), page size |
-| Post-processing | deskew, blank-page removal, cropping, PDF assembly |
-| Splitting | one PDF per stack, or split on separator pages |
-| Routing | Paperless correspondent, document type, tags, storage path |
+| `name` | Unique, non-empty. Duplicate names fail the load. |
+| `description` | Free text. |
+| `source` | SANE source string, e.g. `ADF`, `ADF Duplex`, `Flatbed`. Spelled exactly as the backend reports it. |
+| `resolution` | DPI, 100–1200. |
+| `mode` | `Color`, `Gray`, `Lineart` |
+| `format` | `pdf`, `jpeg`, `tiff` |
+| `target_subdir` | Subdirectory under the consume directory. |
+| `deskew` | `true` / `false` |
+| `remove_blank` | `true` / `false` |
+| `rotate_pages` | `true` / `false` |
+| `page_size` | `A4`, `Letter`, `A5`, `auto` |
+| `timeout_seconds` | Scan timeout. |
+| `metadata_template.paperless_tags` | List of tag names. |
+| `metadata_template.paperless_correspondent` | Correspondent name, or `null`. |
 
-## Tag merge semantics
+The post-processing flags (`deskew`, `remove_blank`, `rotate_pages`) are
+part of the schema and validated, but nothing acts on them yet — the
+`scan-processor` container is not written.
 
-When a profile and the trigger both specify tags, the profile declares
-how they combine:
+## Not in the schema yet
 
-- `add` — union of profile tags and request tags
-- `override` — request tags replace profile tags entirely
-- `remove` — request tags are subtracted from the profile tags
+The Phase 1.2 design adds several things this page deliberately does not
+document as if they worked:
+
+- **Secret references.** Profiles will reference Paperless credentials
+  by name, resolved from a Docker secret file, an environment variable,
+  or a SOPS-encrypted file. There is no resolver in the code today, and
+  a `paperless:` block in a profile file would fail the strict decode.
+- **Tag-merge modes** (`add` / `override` / `remove`) for combining
+  profile tags with request tags.
+- **Separator-page splitting** and ASN-based splitting.
+- **Profile CRUD over the API**, including the JSON schema mirror at
+  `components/scan-bridge/api/schema/profile.json`.
+
+Until those land, keep credentials out of profile files entirely and
+configure Paperless access through the daemon's own configuration.
 
 ## Adding a profile
 
-The repository playbook for adding a profile is:
-
 1. Edit `components/scan-bridge/internal/profiles/defaults.yaml`
-2. Update the JSON schema at
-   `components/scan-bridge/api/schema/profile.json`
-3. Add a table-driven test in
+2. Add a table-driven test case in
    `components/scan-bridge/internal/profiles/profiles_test.go`
-4. Document the profile on this page
+3. Document the profile on this page
 
-!!! note "Schema file not written yet"
-
-    Step 2 refers to `components/scan-bridge/api/schema/profile.json`,
-    which does not exist yet. The loader and its tests do exist. The
-    schema lands with the profile CRUD work in Phase 1.2.
-
-## Secrets in profiles
-
-Profiles reference secrets **by name**, never by value:
-
-```yaml
-paperless:
-  api_token_secret: paperless_api_token
-```
-
-The daemon resolves the name through, in order: a Docker secret file
-under `/run/secrets/<name>`, an uppercase environment variable, then a
-SOPS-encrypted YAML file. A cleartext token in a profile file is
-rejected at parse time.
+Step 2 of the repository playbook — updating
+`components/scan-bridge/api/schema/profile.json` — does not apply yet:
+the file does not exist. Until it does, the Go struct tags in
+`internal/profiles/profiles.go` are the reference schema.

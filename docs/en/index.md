@@ -9,15 +9,17 @@ running anywhere on your network. Documents land on a Synology NAS, so
 your existing backup, snapshot, and off-site replication strategy
 applies to everything the system produces.
 
-!!! warning "Project status: Phase 1, work in progress"
+!!! warning "Project status: early Phase 1 — nothing scans yet"
 
-    This is a home-lab project under active development. The `scan-bridge`
-    daemon exposes `/health`, `/version` and `/profiles` today; `/scan` and
-    the job endpoints return `501 Not Implemented`. The `sane-runtime` and
+    This is a home-lab project under active development. Phase 0
+    (repository, documentation, this site) is done. Phase 1 has started:
+    the `scan-bridge` daemon serves `/health`, `/version`, `/profiles` and
+    `/profiles/{name}` today, while `/ready`, `/scan` and the `/jobs`
+    endpoints return `501 Not Implemented`. The `sane-runtime` and
     `scan-processor` containers, the compose stacks and the bootstrap
-    script are not written yet. See the
+    script are not written yet, so there is no working scan path. The
     [roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
-    for what exists and what does not.
+    tracks what exists and what does not.
 
 ## Why this exists
 

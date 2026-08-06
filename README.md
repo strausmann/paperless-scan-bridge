@@ -67,8 +67,13 @@ the host, no language runtimes on the host.
 git clone https://github.com/strausmann/paperless-scan-bridge.git
 cd paperless-scan-bridge
 
-# Bootstrap the Pi (Docker, NFS mount, udev rules, container pull)
-ssh pi@your-pi-host 'curl -sSL https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh | sudo bash'
+# Bootstrap the Pi (Docker, NFS mount, udev rules, container pull).
+# Download and read the script before running it — it edits /etc/fstab
+# and /etc/udev/rules.d/ as root.
+ssh pi@your-pi-host
+curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
+less install.sh
+sudo bash install.sh
 
 # Configure your environment
 cp deploy/compose/.env.example deploy/compose/.env

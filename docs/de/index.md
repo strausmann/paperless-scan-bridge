@@ -9,14 +9,16 @@ Paperless-ngx-Instanz irgendwo im Netz verbindet. Die Dokumente landen
 auf einer Synology-NAS — die vorhandene Backup-, Snapshot- und
 Off-Site-Strategie gilt damit für alles, was das System produziert.
 
-!!! warning "Projektstand: Phase 1, in Arbeit"
+!!! warning "Projektstand: frühe Phase 1 — es wird noch nichts gescannt"
 
-    Dies ist ein Home-Lab-Projekt in aktiver Entwicklung. Der
-    `scan-bridge`-Daemon liefert heute `/health`, `/version` und
-    `/profiles`; `/scan` und die Job-Endpunkte antworten mit
-    `501 Not Implemented`. Die Container `sane-runtime` und
-    `scan-processor`, die Compose-Stacks und das Bootstrap-Skript sind
-    noch nicht geschrieben.
+    Dies ist ein Home-Lab-Projekt in aktiver Entwicklung. Phase 0
+    (Repository, Dokumentation, diese Site) ist abgeschlossen. Phase 1 hat
+    begonnen: Der `scan-bridge`-Daemon liefert heute `/health`,
+    `/version`, `/profiles` und `/profiles/{name}`; `/ready`, `/scan` und
+    die `/jobs`-Endpunkte antworten mit `501 Not Implemented`. Die
+    Container `sane-runtime` und `scan-processor`, die Compose-Stacks und
+    das Bootstrap-Skript sind noch nicht geschrieben — einen
+    funktionierenden Scan-Pfad gibt es also noch nicht.
 
 !!! info "Deutsche Übersetzung im Aufbau"
 

@@ -28,9 +28,16 @@ Topology B (NFS direct) is the simplest starting point.
 
 ## 2. Bootstrap the Pi
 
+Download the script, read it, then run it. It modifies `/etc/fstab` and
+`/etc/udev/rules.d/` as root, so piping it straight into a shell is not
+worth the convenience — a truncated download would execute as a
+half-script.
+
 ```bash
-ssh pi@your-pi-host \
-  'curl -sSL https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh | sudo bash'
+ssh pi@your-pi-host
+curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
+less install.sh          # read what it is about to do
+sudo bash install.sh
 ```
 
 The script installs Docker and the compose plugin, adds the NFS mount to
