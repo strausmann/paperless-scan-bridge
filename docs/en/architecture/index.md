@@ -19,38 +19,36 @@ configuration for them, never forks.
 
 ## Data flow
 
-```text
-[ Trigger source ]                         [ Scanner hardware ]
-   Zigbee button                              Kodak ScanMate i1120
-   HA / n8n webhook                            ADF, USB
-   Web UI / curl                                 |
-        |                                         v
-        v                                  /dev/bus/usb (host)
-  POST /scan to scan-bridge                          |
-        |                                            v
-        v                              [ sane-runtime container ]
-   scan-bridge daemon  ------SANE-net-->   scanimage --batch
-   (Go, REST, profiles)                         |
-        |                                       v
-        |                              raw TIFF/JPEG batch
-        v                                       |
-   [ scan-processor container ] <----------------+
-   (Go, deskew, blank-page filter, PDF assembly)
-        |
-        v
-  /mnt/synology/consume/<profile>/<timestamp>.pdf
-        |
-        v
-  [ Paperless-ngx container ]
-   (consumes via inotify or polling)
-        |
-        v
-  PostgreSQL metadata + searchable PDF/A
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T as Trigger
+    participant B as scan-bridge
+    participant S as sane-runtime
+    participant P as scan-processor
+    participant N as Synology NAS
+    participant D as Paperless-ngx
+
+    T->>B: POST /scan {profile}
+    B->>B: resolve profile, enqueue job
+    B->>S: SANE-net scan request
+    S->>S: scanimage via avision backend
+    S-->>B: raw TIFF/JPEG batch
+    B->>P: pages + profile metadata
+    P->>P: deskew, drop blank pages, assemble PDF
+    P->>N: atomic write to the consume directory
+    N-->>D: pickup via inotify or polling
+    D->>D: OCR, index, apply tags
 ```
 
 Everything between the trigger and the final PDF is containerized. Only
 the USB device node and the NFS mount cross the host-container
 boundary.
+
+The trigger is any HTTP client: a Zigbee remote routed through Home
+Assistant, an n8n workflow, a web UI, or plain `curl`. The scanner is
+reached through `/dev/bus/usb` on the host, passed into `sane-runtime`
+by a udev rule — never with `--privileged`.
 
 ## Design principles
 
@@ -91,6 +89,13 @@ interchangeable:
 Three topologies are supported, each with different latency and backup
 characteristics. See
 [Storage topologies](storage-topologies.md) for the comparison.
+
+## Privacy of the documentation site
+
+The site itself follows the same no-cloud rule: it makes no third-party
+requests. Mermaid is self-hosted instead of loaded from a CDN and Google
+Fonts is off. See
+[No third-party requests](no-third-party-requests.md).
 
 ## Further reading
 

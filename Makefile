@@ -46,24 +46,32 @@ test-yaml: ## Run yamllint over the repository
 test-docker: ## Run hadolint over every Dockerfile under components/
 	@echo "TODO Phase 1: test-docker"
 
+# Fetch the Mermaid bundle so the site serves it from its own origin
+# instead of letting Zensical pull it from unpkg.com at runtime. The
+# file is gitignored, so this has to run before any docs build.
+.PHONY: docs-vendor
+docs-vendor: ## Download the pinned, digest-verified Mermaid bundle
+	./.github/scripts/vendor-mermaid.sh
+
 # Needs `markdownlint` (npm i -g markdownlint-cli) and `zensical`
 # (pip install -r requirements-docs.txt) on PATH. Build order is not
 # arbitrary: the English build clears site/, so it must run first or the
 # German site under site/de/ is deleted.
 .PHONY: test-docs
-test-docs: ## markdownlint the docs tree and build both language sites
+test-docs: docs-vendor ## markdownlint the docs tree and build both language sites
 	markdownlint docs/en docs/de docs/.templates
 	zensical build -f zensical.toml --strict
 	zensical build -f zensical.de.toml --strict
 	@test -f site/index.html || { echo "site/index.html missing"; exit 1; }
 	@test -f site/de/index.html || { echo "site/de/index.html missing"; exit 1; }
+	python3 .github/scripts/check_no_external_assets.py site
 
 .PHONY: docs-serve
-docs-serve: ## Serve the English site locally on :8000
+docs-serve: docs-vendor ## Serve the English site locally on :8000
 	zensical serve -f zensical.toml
 
 .PHONY: docs-serve-de
-docs-serve-de: ## Serve the German site locally on :8001
+docs-serve-de: docs-vendor ## Serve the German site locally on :8001
 	zensical serve -f zensical.de.toml --dev-addr localhost:8001
 
 # ---------------------------------------------------------------------------

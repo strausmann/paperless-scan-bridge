@@ -26,8 +26,18 @@ nav = [
   { "Start" = "index.md" },
 ]
 
+# Same self-hosted Mermaid setup as the English site; see zensical.toml
+# for why this replaces the unpkg.com load.
+extra_javascript = ["javascripts/mermaid.min.js"]
+
 [project.theme]
 language = "de"
+
+# No Google Fonts. The default theme pulls Inter and JetBrains Mono
+# from fonts.googleapis.com, which sends every visitor's IP to a
+# third party — the same objection as the unpkg Mermaid load, and a
+# well-litigated one in Germany. System fonts instead.
+font = false
 
 features = [
   "announce.dismiss",

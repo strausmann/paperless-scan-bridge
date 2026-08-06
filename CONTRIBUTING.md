@@ -64,13 +64,23 @@ If you only want to work on documentation:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-docs.txt
+./.github/scripts/vendor-mermaid.sh                # once, see below
 .venv/bin/zensical serve -f zensical.toml          # English, :8000
 .venv/bin/zensical serve -f zensical.de.toml \
   --dev-addr localhost:8001                        # German, :8001
 ```
 
-Or via the Makefile: `make docs-serve` and `make docs-serve-de`. The
-site reloads on file save.
+Or via the Makefile: `make docs-serve` and `make docs-serve-de`, which
+run the vendoring step for you. The site reloads on file save.
+
+**Why the vendoring step.** The published site must not make
+third-party requests. Zensical lazy-loads Mermaid from `unpkg.com` when
+it meets a diagram, so `vendor-mermaid.sh` downloads a pinned,
+digest-verified copy into `docs/en/javascripts/` and
+`docs/de/javascripts/` and the site serves it from its own origin. The
+file is ~3.5 MB and gitignored — it is a build artifact, not source.
+Google Fonts is off for the same reason (`font = false`). CI asserts
+both, so a regression fails the build rather than going unnoticed.
 
 To reproduce what CI does, including the strict-mode build of both
 languages, run `make test-docs`. Build order matters: the English build

@@ -5,6 +5,11 @@
 # English build writes to site/ and clears it first, which would delete
 # site/de/. English must run before German, never the other way round.
 # Tracked in issue #13; upstream in zensical/backlog#2 and #1.
+#
+# The site makes no third-party requests at runtime. Mermaid is vendored
+# (Zensical would otherwise fetch it from unpkg.com) and Google Fonts is
+# off via `font = false`. Both are asserted below, because a silent
+# regression here is exactly the kind that nobody notices.
 
 name: Docs
 
@@ -52,6 +57,9 @@ jobs:
       - name: Install Zensical
         run: pip install -r requirements-docs.txt
 
+      - name: Vendor Mermaid
+        run: ./.github/scripts/vendor-mermaid.sh
+
       - name: Build English site
         run: zensical build -f zensical.toml --strict
 
@@ -68,6 +76,9 @@ jobs:
             echo "::error::site/de/index.html missing - build order wrong?"
             exit 1
           fi
+
+      - name: Assert no third-party assets are referenced
+        run: python3 .github/scripts/check_no_external_assets.py site
 
       - name: Assert internal working documents were not published
         run: |

@@ -38,6 +38,7 @@ nav = [
   { "Architecture" = [
     "architecture/index.md",
     "architecture/storage-topologies.md",
+    "architecture/no-third-party-requests.md",
   ] },
   { "Hardware" = [
     "hardware/index.md",
@@ -50,8 +51,22 @@ nav = [
   { "Blog" = "blog/index.md" },
 ]
 
+# Mermaid is loaded from our own domain, not from unpkg.com. Zensical
+# lazy-loads it from the CDN only when the global `mermaid` is still
+# undefined; the upstream bundle assigns `globalThis["mermaid"]` itself,
+# so listing it here satisfies that guard and no third-party request is
+# ever made. Fetched at build time by .github/scripts/vendor-mermaid.sh
+# (pinned version + sha384), gitignored, see issue #13.
+extra_javascript = ["javascripts/mermaid.min.js"]
+
 [project.theme]
 language = "en"
+
+# No Google Fonts. The default theme pulls Inter and JetBrains Mono
+# from fonts.googleapis.com, which sends every visitor's IP to a
+# third party — the same objection as the unpkg Mermaid load, and a
+# well-litigated one in Germany. System fonts instead.
+font = false
 
 features = [
   "announce.dismiss",
@@ -130,15 +145,10 @@ pymdownx.magiclink = {}
 pymdownx.mark = {}
 pymdownx.smartsymbols = {}
 
-# Mermaid fence kept configured for future use, but no page uses it
-# today: Zensical lazy-loads mermaid from https://unpkg.com at runtime,
-# which would send every visitor's IP to a third-party CDN. Diagrams are
-# plain ASCII code blocks instead, matching ARCHITECTURE.md.
-#
-# https://github.com/zensical/backlog/issues/155 would pre-render
-# diagrams at build time and drop the extra JavaScript entirely. Until
-# that ships, the alternative is vendoring mermaid.min.js locally and
-# wiring it up via extra_javascript rather than accepting the CDN call.
+# Mermaid diagrams. The renderer is self-hosted — see extra_javascript
+# above. https://github.com/zensical/backlog/issues/155 would render
+# diagrams at build time and remove the 3.5 MB client-side bundle
+# entirely; until then, self-hosting is what keeps visitors off unpkg.
 pymdownx.superfences = {
   custom_fences = [
     {

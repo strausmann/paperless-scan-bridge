@@ -146,6 +146,15 @@ is deleted.
 `docs/learnings/` are internal working documents. They live outside
 both `docs_dir` values and must never be published; CI asserts this.
 
+**The site makes no third-party requests.** Zensical would fetch
+Mermaid from `unpkg.com` and fonts from `fonts.googleapis.com`;
+`.github/scripts/vendor-mermaid.sh` self-hosts Mermaid (pinned +
+sha384, gitignored, run it before any local build) and
+`font = false` drops the Google Fonts link. CI asserts both. Do not add
+an asset that loads from a CDN. The one remaining exception is the
+GitHub repo-stats call the theme makes when `repo_url` is set — it has
+no config switch upstream.
+
 Zensical is alpha and pinned exactly in `requirements-docs.txt`. It has
 neither native i18n nor a blog plugin. Upstream tracks these in a
 separate backlog repository — `zensical/backlog#2` and `#1` (i18n),
