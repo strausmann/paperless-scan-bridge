@@ -11,13 +11,11 @@
 # Dependabot emit a "manifest file not found" error on every run, so
 # we keep the file lean until the targets are real.
 #
-# `labels:` entries are intentionally omitted: Dependabot validates
-# every label exists in the repo on every run and emits "could not be
-# found" errors otherwise. The project label taxonomy (type:*, scope:*,
-# needs-triage) needs to be created in the repo settings first; the
-# label refs can then be re-added in a follow-up PR. The Conventional-
-# Commits-shaped commit-message prefix already gives PR triage what it
-# needs in the meantime.
+# `labels:` entries are still omitted, but the original reason no
+# longer applies: the type:*, scope:* and needs-triage taxonomy exists
+# in the repo now. Re-adding the label refs is a small follow-up change
+# and deliberately kept out of unrelated PRs. The Conventional-Commits-
+# shaped commit-message prefix gives PR triage what it needs meanwhile.
 
 version: 2
 updates:
@@ -46,6 +44,22 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "build(scan-bridge)"
+      include: scope
+
+  # Documentation toolchain (requirements-docs.txt). Zensical is pinned
+  # exactly because it is still alpha; every bump PR from this entry is
+  # the scheduled checkpoint for the i18n and blog workarounds tracked
+  # in issue #13.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "docs"
       include: scope
 
   # Dockerfile base images for scan-bridge (added now that

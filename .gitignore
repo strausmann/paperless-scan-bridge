@@ -63,3 +63,8 @@ docs/.zensical-cache/
 
 # Node tooling (commitlint / semantic-release / prettier)
 node_modules/
+
+# Vendored Mermaid bundle (~3.5 MB, fetched by
+# .github/scripts/vendor-mermaid.sh, pinned + digest-verified).
+# Not committed: it is a reproducible build artifact, not source.
+docs/*/javascripts/mermaid.min.js

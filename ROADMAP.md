@@ -14,23 +14,26 @@ issues.
 
 ## Phase 0 — Foundation
 
-**Status: in progress**
+**Status: complete except the launch blog post**
 
-The repository exists, the documentation skeleton is in place, and the
-project can be cited and linked. This phase produces no working
-software but ensures contributors and early users can orient themselves.
+The repository exists, the documentation site is live, and the project
+can be cited and linked. This phase produces no working software of its
+own — that starts in Phase 1 — but ensures contributors and early users
+can orient themselves.
 
 - `[x]` Repository created at `github.com/strausmann/paperless-scan-bridge`
 - `[x]` MIT license, README, ARCHITECTURE, this ROADMAP
 - `[x]` AGENTS.md and CONTRIBUTING.md
 - `[x]` CODE_OF_CONDUCT, SECURITY, THREAT_MODEL, DISASTER_RECOVERY
 - `[x]` Initial HARDWARE_COMPATIBILITY table with Kodak ScanMate i1120 reference entry
-- `[ ]` Custom domain `scan-bridge.strausmann.de` configured for GitHub Pages
-- `[ ]` Zensical site skeleton with EN content, DE placeholder
+- `[~]` Custom domain `scan-bridge.strausmann.de` configured for GitHub
+   Pages — the workflow writes the `CNAME`; the DNS record and the
+   Pages source setting are manual steps outside the repository
+- `[x]` Zensical site skeleton with EN content, DE placeholder
 - `[ ]` First blog post draft on the project motivation
-- `[ ]` GitHub issue templates for bug, hardware, feature
-- `[ ]` GitHub Actions for documentation build and deploy
-- `[ ]` Pre-commit hook configuration for shellcheck, markdownlint, yamllint
+- `[x]` GitHub issue templates for bug, hardware, feature
+- `[x]` GitHub Actions for documentation build and deploy
+- `[x]` Pre-commit hook configuration for shellcheck, markdownlint, yamllint
 
 **Definition of done for Phase 0:** A visitor lands on the docs site,
 understands what the project is, sees a clear roadmap, and can click
@@ -38,7 +41,14 @@ through to the architecture and contribution guides.
 
 ## Phase 1 — Minimum viable stack
 
-**Status: planned**
+**Status: in progress**
+
+Phase 1 is split into sub-phases. 1.1 (the `scan-bridge` HTTP surface,
+configuration and profile loading) is merged. 1.2 (the webhook-triggered
+scan path: SANE-net client, job store, PDF output, Paperless upload) is
+specified and planned under `docs/superpowers/`, gated on the SANE-net
+protocol spike. 1.3 covers image processing and OCR, 1.4 the web UI and
+the remaining API surface.
 
 A working stack that successfully scans a document via webhook and
 delivers it to Paperless-ngx. No hardware buttons, no Zigbee, no
@@ -46,8 +56,11 @@ backup yet. Just the core path from trigger to document.
 
 - `[ ]` `sane-runtime` container, Debian slim base, with SANE and
    the Kodak i1120 verified working
-- `[ ]` `scan-bridge` daemon in Go: `POST /scan`, `GET /health`,
-   `GET /profiles` endpoints
+- `[~]` `scan-bridge` daemon in Go: `POST /scan`, `GET /health`,
+   `GET /profiles` endpoints — `GET /health`, `GET /version`,
+   `GET /profiles` and `GET /profiles/{name}` are implemented
+   (Phase 1.1). `GET /ready`, `POST /scan` and the `/jobs` endpoints
+   return `501 Not Implemented` until Phase 1.2 lands.
 - `[ ]` `scan-processor` container, basic ImageMagick wrapper,
    atomic NFS write
 - `[ ]` Bash bootstrap script that installs Docker, mounts NFS,

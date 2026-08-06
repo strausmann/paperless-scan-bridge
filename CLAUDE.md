@@ -4,22 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repository is currently in **Phase 0** (foundation / documentation
-skeleton — see `ROADMAP.md`). The directory tree described in
-`README.md` and `AGENTS.md` (`components/`, `deploy/`, `tests/`, etc.)
-does **not yet exist on disk**. Most documents here are forward-looking
-specifications for the code that will be written in Phase 1+.
+Phase 0 is complete. The repository is in **early Phase 1** — see
+`ROADMAP.md`, which splits it into sub-phases 1.1 to 1.4.
 
-When asked to "add a feature" or "implement X", first verify whether the
-target file/directory exists. If it does not, scaffolding the layout
-described in `AGENTS.md` is usually the right first step — but flag the
-fact that you are creating new structure rather than editing existing
-code.
+What exists on disk:
 
-There is no `Makefile`, no `go.work`, no Compose files, and no CI
-workflows committed yet. Commands listed in `CONTRIBUTING.md`
-(`make test`, `tilt up`, `go work sync`, …) describe the *intended*
-developer workflow once Phase 1 lands; do not assume they currently run.
+- `components/scan-bridge/` — a real Go daemon (Phase 1.1). `GET /health`,
+  `GET /version`, `GET /profiles` and `GET /profiles/{name}` are
+  implemented. `GET /ready`, `POST /scan` and the `/jobs` endpoints
+  return `501 Not Implemented`; `dispatch`, `jobs`, `healthcheck` and
+  `metrics` are stubs marked `TODO(phase 1.4)`.
+- The documentation site: `zensical.toml`, `zensical.de.toml`,
+  `docs/en/`, `docs/de/`, `requirements-docs.txt`.
+- `Makefile`, `.pre-commit-config.yaml`, `.markdownlint.json`, the
+  `.github/` templates and workflows.
+- Phase 1.2 spec and implementation plan under `docs/superpowers/`,
+  hardware research under `docs/research/`.
+
+What does **not** exist yet: `components/sane-runtime/`,
+`components/scan-processor/`, `deploy/` (compose, bootstrap, udev,
+ansible), `tests/`, `monitoring/`, `backup/`, `ha/`, `homeassistant/`,
+`n8n/`, `security/` — all still `.gitkeep` only. There is no `go.work`,
+no `Tiltfile`, no `docker-bake.hcl`, and no Compose file.
+
+`make test-docs` is real. The other `make` targets and `ci.yml` are
+still `echo` placeholders — the Go code is currently **not** built or
+tested in CI. `tilt up` and `go work sync` from `CONTRIBUTING.md` do not
+run yet.
+
+When asked to "add a feature" or "implement X", verify whether the
+target file exists first. If it does not, say so rather than silently
+creating new structure.
 
 ## Project identity
 
@@ -105,18 +120,47 @@ When asked to add a **scan profile**:
 1. Edit `components/scan-bridge/internal/profiles/defaults.yaml`
 2. Update JSON schema at `components/scan-bridge/api/schema/profile.json`
 3. Add a test in `components/scan-bridge/internal/profiles/profiles_test.go`
-4. Document in `docs/getting-started/scan-profiles.md`
+4. Document in `docs/en/getting-started/scan-profiles.md`
 
 When asked to add **hardware compatibility**:
 1. Add a row to `HARDWARE_COMPATIBILITY.md`
 2. Add the udev rule to `deploy/udev/99-paperless-scan-bridge.rules`
 3. If SANE config is needed, add it under `components/sane-runtime/config/`
-4. Add model notes in `docs/hardware/<vendor>-<model>.md`
+4. Add model notes in `docs/en/hardware/<vendor>-<model>.md`
 
 When asked to write a **blog post**: parallel files in
-`docs/blog/posts/en/` and `docs/blog/posts/de/` using the front matter
+`docs/en/blog/posts/` and `docs/de/blog/posts/` using the front matter
 template at `docs/.templates/blog-post.md`; assets in
-`docs/static/images/blog/<slug>/`.
+`docs/static/images/blog/<slug>/`. List the post in the matching
+`blog/index.md` and in `nav` — Zensical has no blog plugin yet.
+
+## Documentation site
+
+The site is two separate Zensical builds, not one i18n-aware build:
+`zensical.toml` (EN, `docs/en/` → `site/`) and `zensical.de.toml`
+(DE, `docs/de/` → `site/de/`). **Build order matters** — the EN build
+clears `site/`, so it must run before the DE build or the German site
+is deleted.
+
+`docs/research/`, `docs/superpowers/`, `docs/decisions/` and
+`docs/learnings/` are internal working documents. They live outside
+both `docs_dir` values and must never be published; CI asserts this.
+
+**The site makes no third-party requests.** Zensical would fetch
+Mermaid from `unpkg.com` and fonts from `fonts.googleapis.com`;
+`.github/scripts/vendor-mermaid.sh` self-hosts Mermaid (pinned +
+sha384, gitignored, run it before any local build) and
+`font = false` drops the Google Fonts link. CI asserts both. Do not add
+an asset that loads from a CDN. The one remaining exception is the
+GitHub repo-stats call the theme makes when `repo_url` is set — it has
+no config switch upstream.
+
+Zensical is alpha and pinned exactly in `requirements-docs.txt`. It has
+neither native i18n nor a blog plugin. Upstream tracks these in a
+separate backlog repository — `zensical/backlog#2` and `#1` (i18n),
+`#30` and `#38` (blog, tags), `#155` (pre-rendered diagrams, which would
+let us use Mermaid again). Our side is issue #13, revisited on every
+Dependabot bump of the pin.
 
 ## Scope guardrails — what this repo deliberately is not
 
