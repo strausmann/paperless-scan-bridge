@@ -1,6 +1,6 @@
 # 0010 — Scan profiles are declarative YAML, validated at startup
 
-- **Status:** Proposed
+- **Status:** Accepted   <!-- accepted 2026-08-06; rationale: docs/superpowers/plans/2026-08-06-phase-1.2-adr-reconciliation.md (D-6), tracking issue #19 -->
 - **Date:** 2026-06-28
 - **Deciders:** strausmann
 - **Tags:** profiles, scan-bridge
