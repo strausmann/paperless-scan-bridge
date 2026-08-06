@@ -23,16 +23,17 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 | [0002](0002-container-first-host-thin.md) | Container-first, host-thin | Proposed |
 | [0003](0003-three-custom-images.md) | Exactly three custom images | Proposed |
 | [0004](0004-synology-source-of-truth.md) | Synology NAS = single source of truth for documents | Proposed |
-| [0005](0005-trigger-agnostic-scan-endpoint.md) | Trigger-agnostic `POST /scan` is canonical | Proposed |
-| [0006](0006-auth-model.md) | Auth: bearer token (SHA-256) or IP allowlist | Proposed |
+| [0005](0005-trigger-agnostic-scan-endpoint.md) | Trigger-agnostic `POST /scan` is canonical | Accepted |
+| [0006](0006-auth-model.md) | Auth: bearer token (SHA-256) or IP allowlist | Accepted |
 | [0007](0007-go-for-scan-bridge.md) | scan-bridge in Go (static, distroless) | Proposed |
 | [0008](0008-sane-runtime-owns-scanner.md) | sane-runtime owns the scanner; no `--privileged` | Proposed |
-| [0009](0009-bridge-sane-unix-socket.md) | bridge ↔ sane-runtime over a Unix socket | Proposed |
+| [0009](0009-bridge-sane-unix-socket.md) | bridge ↔ sane-runtime over a Unix socket | Accepted |
 | [0010](0010-profiles-declarative-yaml.md) | Scan profiles as declarative YAML | Proposed |
 | [0011](0011-no-latest-pinned-versions.md) | No `latest`; pinned versions + Renovate | Proposed |
 | [0012](0012-release-only-semantic-release.md) | Release-only semantic-release; manual changelog | Proposed |
 | [0013](0013-container-hardening-baseline.md) | Container hardening baseline | Proposed |
 | [0014](0014-governance-hierarchy.md) | Governance hierarchy: ADR > AGENTS > code | Proposed |
+| [0015](0015-per-profile-token-optional-authz.md) | Per-profile token = optional authz over canonical `/scan` | Accepted |
 
 <!-- Backfill candidates still pending clarification (95% rule): ESP32 panel (#9) · profile storage
      YAML-vs-DB · scanbd hardware-button path (ARCHITECTURE vs #7) · secrets SOPS-vs-env · storage

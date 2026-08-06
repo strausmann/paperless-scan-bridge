@@ -1,6 +1,6 @@
 # 0009 — scan-bridge ↔ sane-runtime communicate over HTTP on a Unix socket
 
-- **Status:** Proposed
+- **Status:** Accepted   <!-- accepted 2026-08-06 via #19 (Phase 1.2 reconciliation) -->
 - **Date:** 2026-06-28
 - **Deciders:** strausmann
 - **Tags:** scan-bridge, sane-runtime, dispatch
