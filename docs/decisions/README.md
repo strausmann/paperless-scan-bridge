@@ -24,7 +24,7 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 | [0003](0003-three-custom-images.md) | Exactly three custom images | Proposed |
 | [0004](0004-synology-source-of-truth.md) | Synology NAS = single source of truth for documents | Proposed |
 | [0005](0005-trigger-agnostic-scan-endpoint.md) | Trigger-agnostic `POST /scan` is canonical | Accepted |
-| [0006](0006-auth-model.md) | Auth: bearer token (SHA-256) or IP allowlist | Proposed |
+| [0006](0006-auth-model.md) | Auth: bearer token (SHA-256) or IP allowlist | Accepted |
 | [0007](0007-go-for-scan-bridge.md) | scan-bridge in Go (static, distroless) | Proposed |
 | [0008](0008-sane-runtime-owns-scanner.md) | sane-runtime owns the scanner; no `--privileged` | Proposed |
 | [0009](0009-bridge-sane-unix-socket.md) | bridge ↔ sane-runtime over a Unix socket | Accepted |

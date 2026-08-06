@@ -1,6 +1,6 @@
 # 0006 — Auth model: bearer token (SHA-256 hash) or IP allowlist
 
-- **Status:** Proposed
+- **Status:** Accepted   <!-- accepted 2026-08-06 via #19 (Phase 1.2 reconciliation) -->
 - **Date:** 2026-06-28
 - **Deciders:** strausmann
 - **Tags:** scan-bridge, config
