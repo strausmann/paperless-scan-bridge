@@ -58,6 +58,16 @@ between releases as a running list.
 
 ### Documentation
 
+- Documentation site at
+  [scan-bridge.strausmann.de](https://scan-bridge.strausmann.de):
+  Zensical configuration, the English content tree under `docs/en/`
+  (getting started, architecture, hardware, operations, blog), a German
+  placeholder under `docs/de/`, the blog front-matter template, and a
+  real build-and-deploy pipeline in `.github/workflows/docs.yml`
+  replacing the previous stub. Zensical has neither native i18n nor a
+  blog plugin yet, so English and German are two separate builds and
+  the blog index is hand-maintained; both workarounds are tracked in
+  [#13](https://github.com/strausmann/paperless-scan-bridge/issues/13).
 - Corrected the Kodak ScanMate i1120 capability claims in
   `HARDWARE_COMPATIBILITY.md`: the Start button and the ADF paper
   sensor are **not** detectable through the `avision` SANE backend.

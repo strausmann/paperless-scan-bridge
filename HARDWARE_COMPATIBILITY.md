@@ -168,7 +168,7 @@ reference are noted per-entry in the tables below where relevant.
 - ADF capacity: 50 sheets nominal, 30 sheets reliable.
 - Cleaning: rollers should be cleaned monthly with a lint-free
   cloth and isopropyl alcohol; documented in
-  `docs/hardware/kodak-i1120/maintenance.md`.
+  `docs/en/hardware/kodak-scanmate-i1120.md`.
 
 ### 4.2 Other verified scanners
 
@@ -408,7 +408,7 @@ just to grow the list.
 5. If your scanner has an unusual udev requirement, add the rule
    to `deploy/udev/99-paperless-scan-bridge.rules`
 6. If model-specific notes warrant a dedicated page, add a file at
-   `docs/hardware/<vendor>-<model>.md`
+   `docs/en/hardware/<vendor>-<model>.md`
 7. Open a PR with the title `feat(hardware): add <vendor> <model>
    compatibility (level <X>)`
 

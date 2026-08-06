@@ -60,3 +60,8 @@ docs/.zensical-cache/
 
 # CI / coverage uploads
 .codecov.yml.local
+
+# Vendored Mermaid bundle (~3.5 MB, fetched by
+# .github/scripts/vendor-mermaid.sh, pinned + digest-verified).
+# Not committed: it is a reproducible build artifact, not source.
+docs/*/javascripts/mermaid.min.js

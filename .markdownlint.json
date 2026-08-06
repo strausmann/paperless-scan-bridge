@@ -1,0 +1,30 @@
+{
+  "$comment": "Markdown policy per CLAUDE.md: 80-column prose wrap, ATX headings, one-sentence-per-line acceptable in long-form docs.",
+
+  "default": true,
+
+  "MD013": {
+    "line_length": 80,
+    "code_blocks": false,
+    "tables": false,
+    "headings": false
+  },
+
+  "MD033": {
+    "$comment": "Inline HTML is needed for the front-matter template's checklist comment and for admonition markup.",
+    "allowed_elements": ["br", "kbd", "sup", "sub", "details", "summary"]
+  },
+
+  "$comment-MD046": "Disabled: markdownlint parses the indented body of a Zensical/Material admonition (!!! note) as an indented code block, so every admonition would be a false positive. There is no way to distinguish the two, and admonitions are used throughout the docs tree.",
+  "MD046": false,
+
+  "MD025": {
+    "$comment": "Pages may carry a front-matter `title` (browser/nav title) AND a body H1 (rendered heading). Zensical does not inject a heading from front matter, so both are needed and must not count as two titles.",
+    "front_matter_title": ""
+  },
+
+  "MD024": {
+    "$comment": "Repeated headings are fine across different sections (e.g. 'Pros' under each topology).",
+    "siblings_only": true
+  }
+}
