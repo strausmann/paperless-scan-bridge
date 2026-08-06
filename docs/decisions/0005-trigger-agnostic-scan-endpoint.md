@@ -1,6 +1,6 @@
 # 0005 — Trigger-source-agnostic `POST /scan` is the canonical interface
 
-- **Status:** Proposed
+- **Status:** Accepted   <!-- accepted 2026-08-06 via #19 (Phase 1.2 reconciliation) -->
 - **Date:** 2026-06-28
 - **Deciders:** strausmann
 - **Tags:** api, scan-bridge
