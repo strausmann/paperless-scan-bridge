@@ -27,9 +27,12 @@ additions, hardware compatibility entries, blueprint improvements, and
 bug fixes. For new features, please open an issue first.
 
 **Documentation translations.** The site is English-first with German
-as the second language. If you want to translate posts or guides into
-another language, open an issue to coordinate — Zensical's i18n setup
-expects a specific directory structure.
+as the second language. Zensical has no native multi-language support
+yet, so each language is a separate build with its own `docs_dir`:
+English lives in `docs/en/` and is served at the domain root, German
+lives in `docs/de/` and is served under `/de/`. If you want to add
+another language, open an issue to coordinate — it means a third
+config file and a third build step. Tracked in issue #13.
 
 ## Local development
 
@@ -57,10 +60,19 @@ the affected container in seconds when you save a file.
 If you only want to work on documentation:
 
 ```bash
-docker run --rm -p 8000:8000 -v ${PWD}/docs:/docs zensical/zensical:latest serve --dev-addr=0.0.0.0:8000
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-docs.txt
+.venv/bin/zensical serve -f zensical.toml          # English, :8000
+.venv/bin/zensical serve -f zensical.de.toml \
+  --dev-addr localhost:8001                        # German, :8001
 ```
 
-The site reloads on file save.
+Or via the Makefile: `make docs-serve` and `make docs-serve-de`. The
+site reloads on file save.
+
+To reproduce what CI does, including the strict-mode build of both
+languages, run `make test-docs`. Build order matters: the English build
+clears `site/`, so it has to run before the German build.
 
 ## Test suite
 
@@ -205,7 +217,7 @@ process:
 3. If your scanner needs a custom udev rule, add it to
    `deploy/udev/99-paperless-scan-bridge.rules`
 4. If there are model-specific notes, add a short page to
-   `docs/hardware/<vendor>-<model>.md`
+   `docs/en/hardware/<vendor>-<model>.md`
 5. Open the PR with the title `feat(hardware): add <vendor> <model>
    compatibility`
 
@@ -223,7 +235,8 @@ But default profile templates ship with the project:
    `components/scan-bridge/api/schema/profile.json`
 3. Add a test case in
    `components/scan-bridge/internal/profiles/profiles_test.go`
-4. Document the new profile in `docs/getting-started/scan-profiles.md`
+4. Document the new profile in
+   `docs/en/getting-started/scan-profiles.md`
 
 ## Writing a blog post
 
@@ -236,14 +249,17 @@ especially in these themes:
 
 Process:
 
-1. Add a Markdown file to `docs/blog/posts/en/<YYYY-MM-DD>-slug.md`
+1. Add a Markdown file to `docs/en/blog/posts/<YYYY-MM-DD>-slug.md`
    for the English version
-2. Add a parallel file to `docs/blog/posts/de/<YYYY-MM-DD>-slug.md`
+2. Add a parallel file to `docs/de/blog/posts/<YYYY-MM-DD>-slug.md`
    for the German version (or open an issue requesting translation
    help if you only speak one language)
 3. Use the front matter template at `docs/.templates/blog-post.md`
 4. Image assets go in `docs/static/images/blog/<slug>/`
-5. Open a PR; the docs build will preview the post automatically
+5. List the post in the matching `blog/index.md` and add it to `nav`
+   in `zensical.toml` (and `zensical.de.toml`). Zensical has no blog
+   plugin yet, so nothing is picked up automatically
+6. Open a PR; the docs workflow builds both language sites
 
 ## Security
 

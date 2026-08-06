@@ -46,9 +46,25 @@ test-yaml: ## Run yamllint over the repository
 test-docker: ## Run hadolint over every Dockerfile under components/
 	@echo "TODO Phase 1: test-docker"
 
+# Needs `markdownlint` (npm i -g markdownlint-cli) and `zensical`
+# (pip install -r requirements-docs.txt) on PATH. Build order is not
+# arbitrary: the English build clears site/, so it must run first or the
+# German site under site/de/ is deleted.
 .PHONY: test-docs
-test-docs: ## Run markdownlint over the documentation tree
-	@echo "TODO Phase 1: test-docs"
+test-docs: ## markdownlint the docs tree and build both language sites
+	markdownlint docs/en docs/de docs/.templates
+	zensical build -f zensical.toml --strict
+	zensical build -f zensical.de.toml --strict
+	@test -f site/index.html || { echo "site/index.html missing"; exit 1; }
+	@test -f site/de/index.html || { echo "site/de/index.html missing"; exit 1; }
+
+.PHONY: docs-serve
+docs-serve: ## Serve the English site locally on :8000
+	zensical serve -f zensical.toml
+
+.PHONY: docs-serve-de
+docs-serve-de: ## Serve the German site locally on :8001
+	zensical serve -f zensical.de.toml --dev-addr localhost:8001
 
 # ---------------------------------------------------------------------------
 # Ansible — optional layer under deploy/ansible/

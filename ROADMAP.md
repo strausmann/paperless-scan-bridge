@@ -25,12 +25,14 @@ software but ensures contributors and early users can orient themselves.
 - `[x]` AGENTS.md and CONTRIBUTING.md
 - `[x]` CODE_OF_CONDUCT, SECURITY, THREAT_MODEL, DISASTER_RECOVERY
 - `[x]` Initial HARDWARE_COMPATIBILITY table with Kodak ScanMate i1120 reference entry
-- `[ ]` Custom domain `scan-bridge.strausmann.de` configured for GitHub Pages
-- `[ ]` Zensical site skeleton with EN content, DE placeholder
+- `[~]` Custom domain `scan-bridge.strausmann.de` configured for GitHub
+   Pages — the workflow writes the `CNAME`; the DNS record and the
+   Pages source setting are manual steps outside the repository
+- `[x]` Zensical site skeleton with EN content, DE placeholder
 - `[ ]` First blog post draft on the project motivation
-- `[ ]` GitHub issue templates for bug, hardware, feature
-- `[ ]` GitHub Actions for documentation build and deploy
-- `[ ]` Pre-commit hook configuration for shellcheck, markdownlint, yamllint
+- `[x]` GitHub issue templates for bug, hardware, feature
+- `[x]` GitHub Actions for documentation build and deploy
+- `[x]` Pre-commit hook configuration for shellcheck, markdownlint, yamllint
 
 **Definition of done for Phase 0:** A visitor lands on the docs site,
 understands what the project is, sees a clear roadmap, and can click

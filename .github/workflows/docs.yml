@@ -1,10 +1,10 @@
-# Phase 1 documentation-build stub.
+# Documentation build and deploy for scan-bridge.strausmann.de.
 #
-# Eventually this workflow runs Zensical to build the EN/DE site and
-# deploy it to GitHub Pages at scan-bridge.strausmann.de. For now it
-# only ensures the README badge resolves and that a docs job exists
-# in the workflow list. Real Zensical wiring lands when docs/ grows
-# its first navigation file.
+# Zensical has no native multi-language support yet, so the site is two
+# separate builds stitched into one artifact. BUILD ORDER MATTERS: the
+# English build writes to site/ and clears it first, which would delete
+# site/de/. English must run before German, never the other way round.
+# Tracked in issue #13.
 
 name: Docs
 
@@ -13,10 +13,16 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "zensical.toml"
+      - "zensical.de.toml"
+      - "requirements-docs.txt"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
+      - "zensical.toml"
+      - "zensical.de.toml"
+      - "requirements-docs.txt"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -27,11 +33,78 @@ concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SITE_DOMAIN: scan-bridge.strausmann.de
+
 jobs:
   build:
     name: Build site
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Placeholder
-        run: echo "placeholder — Zensical build pipeline lands with the docs scaffolding"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install Zensical
+        run: pip install --require-hashes=false -r requirements-docs.txt
+
+      - name: Build English site
+        run: zensical build -f zensical.toml --strict
+
+      - name: Build German site
+        run: zensical build -f zensical.de.toml --strict
+
+      - name: Assert both languages are present
+        run: |
+          if [ ! -f site/index.html ]; then
+            echo "::error::site/index.html missing"
+            exit 1
+          fi
+          if [ ! -f site/de/index.html ]; then
+            echo "::error::site/de/index.html missing - build order wrong?"
+            exit 1
+          fi
+
+      - name: Assert internal working documents were not published
+        run: |
+          for d in research superpowers decisions learnings; do
+            if [ -e "site/$d" ]; then
+              echo "::error::site/$d published - keep it out of docs_dir"
+              exit 1
+            fi
+          done
+
+      - name: Write CNAME
+        run: echo "$SITE_DOMAIN" > site/CNAME
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        continue-on-error: true
+        with:
+          args: --no-progress --accept 200,206,429 'site/**/*.html'
+          fail: false
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

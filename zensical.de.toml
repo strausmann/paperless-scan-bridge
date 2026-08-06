@@ -1,0 +1,118 @@
+# Zensical configuration — German site, served under /de/.
+#
+# Second build of the same project; see zensical.toml for the English
+# site and for why two configs exist instead of one i18n-aware one.
+# Keep the two files in sync: theme features, palette, markdown
+# extensions and social links must not drift apart, or the two halves
+# of the site start looking like different projects.
+
+[project]
+site_name = "paperless-scan-bridge"
+site_url = "https://scan-bridge.strausmann.de/de/"
+site_description = "Ein SANE-kompatibler USB-Scanner wird zur freihändigen Ingestion-Pipeline für Paperless-ngx."
+site_author = "Björn Strausmann"
+copyright = "Copyright &copy; 2026 Björn Strausmann"
+repo_url = "https://github.com/strausmann/paperless-scan-bridge"
+repo_name = "strausmann/paperless-scan-bridge"
+edit_uri = "edit/main/docs/de/"
+
+docs_dir = "docs/de"
+site_dir = "site/de"
+
+nav = [
+  { "Start" = "index.md" },
+]
+
+[project.theme]
+language = "de"
+
+features = [
+  "announce.dismiss",
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Zu hellem Design wechseln"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Zu dunklem Design wechseln"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Systemeinstellung übernehmen"
+
+[project.extra]
+alternate = [
+  { name = "English", link = "/", lang = "en" },
+  { name = "Deutsch", link = "/de/", lang = "de" },
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/strausmann/paperless-scan-bridge"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc = { permalink = true }
+
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+
+pymdownx.emoji = {
+  emoji_generator = "zensical.extensions.emoji.to_svg",
+  emoji_index = "zensical.extensions.emoji.twemoji",
+}
+
+pymdownx.highlight = {
+  anchor_linenums = true,
+  line_spans = "__span",
+  pygments_lang_class = true,
+}
+
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+
+pymdownx.superfences = {
+  custom_fences = [
+    {
+      name = "mermaid",
+      class = "mermaid",
+      format = "pymdownx.superfences.fence_code_format",
+    },
+  ],
+}
+
+pymdownx.tabbed = { alternate_style = true, combine_header_slug = true }
+pymdownx.tasklist = { custom_checkbox = true }
+pymdownx.tilde = {}

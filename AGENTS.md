@@ -209,7 +209,8 @@ When asked to add a scan profile:
    the profile entry
 2. Update the JSON schema under `components/scan-bridge/api/schema/profile.json`
 3. Add a test case in `components/scan-bridge/internal/profiles/profiles_test.go`
-4. Document the new profile in `docs/getting-started/scan-profiles.md`
+4. Document the new profile in
+   `docs/en/getting-started/scan-profiles.md`
 
 When asked to add hardware compatibility:
 
@@ -217,14 +218,17 @@ When asked to add hardware compatibility:
 2. Add the udev rule in `deploy/udev/99-paperless-scan-bridge.rules`
 3. If the scanner needs SANE configuration, add it to
    `components/sane-runtime/config/`
-4. Update `docs/hardware/` with any model-specific notes
+4. Update `docs/en/hardware/` with any model-specific notes
 
 When asked to write a blog post:
 
-1. Add a Markdown file to `docs/blog/posts/en/` for the English version
-2. Add a parallel file to `docs/blog/posts/de/` for the German version
+1. Add a Markdown file to `docs/en/blog/posts/` for the English version
+2. Add a parallel file to `docs/de/blog/posts/` for the German version
 3. Use the front matter template from `docs/.templates/blog-post.md`
 4. Image assets go in `docs/static/images/blog/<slug>/`
+5. List the post in the matching `blog/index.md` and in the `nav` of
+   the corresponding config — Zensical has no blog plugin yet, so
+   nothing is discovered automatically
 
 ## Security-relevant notes
 

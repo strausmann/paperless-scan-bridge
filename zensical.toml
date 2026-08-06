@@ -1,0 +1,147 @@
+# Zensical configuration — English site, served at the domain root.
+#
+# The German site is a second, separate build; see zensical.de.toml.
+# Zensical has no native multi-language support yet (the `alternate`
+# setting below only renders the header language switcher), so each
+# language gets its own docs_dir and site_dir and CI stitches the two
+# outputs together. Tracked in issue #13.
+#
+# Note which directories are deliberately NOT part of docs_dir:
+# docs/research/, docs/superpowers/, docs/decisions/ and
+# docs/learnings/ are internal working documents and must not be
+# published. Keeping docs_dir at docs/en excludes them by construction.
+
+[project]
+site_name = "paperless-scan-bridge"
+site_url = "https://scan-bridge.strausmann.de/"
+site_description = "Turn a SANE-compatible USB scanner into a hands-free ingestion pipeline for Paperless-ngx."
+site_author = "Björn Strausmann"
+copyright = "Copyright &copy; 2026 Björn Strausmann"
+repo_url = "https://github.com/strausmann/paperless-scan-bridge"
+repo_name = "strausmann/paperless-scan-bridge"
+edit_uri = "edit/main/docs/en/"
+
+docs_dir = "docs/en"
+site_dir = "site"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting started" = [
+    "getting-started/index.md",
+    "getting-started/quickstart.md",
+    "getting-started/scan-profiles.md",
+  ] },
+  { "Architecture" = [
+    "architecture/index.md",
+    "architecture/storage-topologies.md",
+  ] },
+  { "Hardware" = [
+    "hardware/index.md",
+    "hardware/kodak-scanmate-i1120.md",
+  ] },
+  { "Operations" = [
+    "operations/index.md",
+    "operations/troubleshooting.md",
+  ] },
+  { "Blog" = "blog/index.md" },
+]
+
+[project.theme]
+language = "en"
+
+features = [
+  "announce.dismiss",
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.extra]
+alternate = [
+  { name = "English", link = "/", lang = "en" },
+  { name = "Deutsch", link = "/de/", lang = "de" },
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/strausmann/paperless-scan-bridge"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+tables = {}
+toc = { permalink = true }
+
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+
+pymdownx.emoji = {
+  emoji_generator = "zensical.extensions.emoji.to_svg",
+  emoji_index = "zensical.extensions.emoji.twemoji",
+}
+
+pymdownx.highlight = {
+  anchor_linenums = true,
+  line_spans = "__span",
+  pygments_lang_class = true,
+}
+
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+
+# Mermaid fence kept configured for future use, but no page uses it
+# today: Zensical lazy-loads mermaid from https://unpkg.com at runtime,
+# which would send every visitor's IP to a third-party CDN. Diagrams are
+# plain ASCII code blocks instead, matching ARCHITECTURE.md. If a real
+# mermaid diagram is ever needed, vendor mermaid.min.js locally and wire
+# it up via extra_javascript rather than accepting the CDN call.
+pymdownx.superfences = {
+  custom_fences = [
+    {
+      name = "mermaid",
+      class = "mermaid",
+      format = "pymdownx.superfences.fence_code_format",
+    },
+  ],
+}
+
+pymdownx.tabbed = { alternate_style = true, combine_header_slug = true }
+pymdownx.tasklist = { custom_checkbox = true }
+pymdownx.tilde = {}

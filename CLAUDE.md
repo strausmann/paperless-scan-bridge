@@ -105,18 +105,35 @@ When asked to add a **scan profile**:
 1. Edit `components/scan-bridge/internal/profiles/defaults.yaml`
 2. Update JSON schema at `components/scan-bridge/api/schema/profile.json`
 3. Add a test in `components/scan-bridge/internal/profiles/profiles_test.go`
-4. Document in `docs/getting-started/scan-profiles.md`
+4. Document in `docs/en/getting-started/scan-profiles.md`
 
 When asked to add **hardware compatibility**:
 1. Add a row to `HARDWARE_COMPATIBILITY.md`
 2. Add the udev rule to `deploy/udev/99-paperless-scan-bridge.rules`
 3. If SANE config is needed, add it under `components/sane-runtime/config/`
-4. Add model notes in `docs/hardware/<vendor>-<model>.md`
+4. Add model notes in `docs/en/hardware/<vendor>-<model>.md`
 
 When asked to write a **blog post**: parallel files in
-`docs/blog/posts/en/` and `docs/blog/posts/de/` using the front matter
+`docs/en/blog/posts/` and `docs/de/blog/posts/` using the front matter
 template at `docs/.templates/blog-post.md`; assets in
-`docs/static/images/blog/<slug>/`.
+`docs/static/images/blog/<slug>/`. List the post in the matching
+`blog/index.md` and in `nav` — Zensical has no blog plugin yet.
+
+## Documentation site
+
+The site is two separate Zensical builds, not one i18n-aware build:
+`zensical.toml` (EN, `docs/en/` → `site/`) and `zensical.de.toml`
+(DE, `docs/de/` → `site/de/`). **Build order matters** — the EN build
+clears `site/`, so it must run before the DE build or the German site
+is deleted.
+
+`docs/research/`, `docs/superpowers/`, `docs/decisions/` and
+`docs/learnings/` are internal working documents. They live outside
+both `docs_dir` values and must never be published; CI asserts this.
+
+Zensical is alpha and pinned exactly in `requirements-docs.txt`. It has
+neither native i18n nor a blog plugin — both workarounds are tracked in
+issue #13 and revisited on every Dependabot bump of the pin.
 
 ## Scope guardrails — what this repo deliberately is not
 
