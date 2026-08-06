@@ -28,8 +28,15 @@ Off-Site-Strategie gilt damit für alles, was das System produziert.
 
     Grund für den Zuschnitt: Zensical hat noch keine native
     Mehrsprachigkeit. Englische und deutsche Site sind zwei getrennte
-    Builds, die im CI zusammengefügt werden — nachverfolgt in
-    [Issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13).
+    Builds, die im CI zusammengefügt werden.
+
+    Upstream ist das
+    [zensical/backlog#2](https://github.com/zensical/backlog/issues/2)
+    (native i18n) beziehungsweise
+    [zensical/backlog#1](https://github.com/zensical/backlog/issues/1)
+    (Kompatibilität zu `mkdocs-static-i18n`); auf unserer Seite hält
+    [Issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13)
+    fest, wann der Workaround wieder verschwindet.
 
 ## Worum es geht
 

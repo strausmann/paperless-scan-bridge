@@ -2,6 +2,9 @@
 #
 # Second build of the same project; see zensical.toml for the English
 # site and for why two configs exist instead of one i18n-aware one.
+# Upstream: https://github.com/zensical/backlog/issues/2 (native i18n),
+# https://github.com/zensical/backlog/issues/1 (mkdocs-static-i18n
+# compatibility). Our side: issue #13.
 # Keep the two files in sync: theme features, palette, markdown
 # extensions and social links must not drift apart, or the two halves
 # of the site start looking like different projects.

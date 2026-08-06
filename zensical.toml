@@ -4,7 +4,11 @@
 # Zensical has no native multi-language support yet (the `alternate`
 # setting below only renders the header language switcher), so each
 # language gets its own docs_dir and site_dir and CI stitches the two
-# outputs together. Tracked in issue #13.
+# outputs together.
+#
+# Upstream: https://github.com/zensical/backlog/issues/2 (native i18n)
+# and https://github.com/zensical/backlog/issues/1 (mkdocs-static-i18n
+# compatibility). Both open, no milestone. Our side: issue #13.
 #
 # Note which directories are deliberately NOT part of docs_dir:
 # docs/research/, docs/superpowers/, docs/decisions/ and
@@ -129,9 +133,12 @@ pymdownx.smartsymbols = {}
 # Mermaid fence kept configured for future use, but no page uses it
 # today: Zensical lazy-loads mermaid from https://unpkg.com at runtime,
 # which would send every visitor's IP to a third-party CDN. Diagrams are
-# plain ASCII code blocks instead, matching ARCHITECTURE.md. If a real
-# mermaid diagram is ever needed, vendor mermaid.min.js locally and wire
-# it up via extra_javascript rather than accepting the CDN call.
+# plain ASCII code blocks instead, matching ARCHITECTURE.md.
+#
+# https://github.com/zensical/backlog/issues/155 would pre-render
+# diagrams at build time and drop the extra JavaScript entirely. Until
+# that ships, the alternative is vendoring mermaid.min.js locally and
+# wiring it up via extra_javascript rather than accepting the CDN call.
 pymdownx.superfences = {
   custom_fences = [
     {

@@ -32,7 +32,9 @@ yet, so each language is a separate build with its own `docs_dir`:
 English lives in `docs/en/` and is served at the domain root, German
 lives in `docs/de/` and is served under `/de/`. If you want to add
 another language, open an issue to coordinate — it means a third
-config file and a third build step. Tracked in issue #13.
+config file and a third build step. Tracked in issue #13; upstream in
+[zensical/backlog#2](https://github.com/zensical/backlog/issues/2) and
+[#1](https://github.com/zensical/backlog/issues/1).
 
 ## Local development
 

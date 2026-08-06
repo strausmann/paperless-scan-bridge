@@ -6,5 +6,13 @@
 # checkpoint for the workarounds tracked in
 # https://github.com/strausmann/paperless-scan-bridge/issues/13
 # (no native i18n, no blog plugin yet).
+#
+# The upstream items to check on each bump live in a separate backlog
+# repository, not in zensical/zensical:
+#   https://github.com/zensical/backlog/issues/2    native i18n
+#   https://github.com/zensical/backlog/issues/1    mkdocs-static-i18n
+#   https://github.com/zensical/backlog/issues/30   blog plugin
+#   https://github.com/zensical/backlog/issues/38   tags plugin
+#   https://github.com/zensical/backlog/issues/155  pre-rendered diagrams
 
 zensical==0.0.53

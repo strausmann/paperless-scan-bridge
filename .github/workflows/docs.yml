@@ -4,7 +4,7 @@
 # separate builds stitched into one artifact. BUILD ORDER MATTERS: the
 # English build writes to site/ and clears it first, which would delete
 # site/de/. English must run before German, never the other way round.
-# Tracked in issue #13.
+# Tracked in issue #13; upstream in zensical/backlog#2 and #1.
 
 name: Docs
 

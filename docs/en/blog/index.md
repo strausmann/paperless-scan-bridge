@@ -7,8 +7,15 @@ decisions, and the occasional dead end worth documenting.
 
     Zensical does not ship a blog plugin yet, so there is no automatic
     archive, category, or tag view. Posts are listed here by hand until
-    upstream support lands — tracked in
-    [issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13).
+    upstream support lands.
+
+    Upstream this is
+    [zensical/backlog#30](https://github.com/zensical/backlog/issues/30)
+    (blog plugin) and
+    [zensical/backlog#38](https://github.com/zensical/backlog/issues/38)
+    (tags); on our side
+    [issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13)
+    tracks when to drop the workaround.
 
 ## Posts
 
