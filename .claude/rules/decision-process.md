@@ -16,3 +16,10 @@ also captured in an **ADR** (`docs/decisions/`).
 If a new idea/decision contradicts an accepted ADR, do **not** just proceed. First clarify the
 **consequences** and the **pros/cons**, then decide whether it becomes a **new, superseding ADR**
 (see `adr.md`). Only then implement.
+
+## 4. Full plan-vs-ADR audit before implementing
+Before implementing against any plan/spec — and when reconciling a plan with the ADRs — do a
+**systematic pass over the entire ADR set**, not just the conflicts already noticed. Enumerate every
+ADR the plan touches (by scope/topic) and mark each **consistent** or **conflicting**; resolve every
+conflict per §3 first. Scoping verification to the first conflicts spotted is how a third one slips
+through (see `docs/learnings/lessons-learned.md`, 2026-08-06).
