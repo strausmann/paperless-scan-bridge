@@ -56,6 +56,18 @@ between releases as a running list.
   `.pre-commit-config.yaml` (hooks staged manual), and a `Makefile`
   orchestrator that lists every Phase 1 test target.
 
+### Documentation
+
+- Corrected the Kodak ScanMate i1120 capability claims in
+  `HARDWARE_COMPATIBILITY.md`: the Start button and the ADF paper
+  sensor are **not** detectable through the `avision` SANE backend.
+  Only the indicator button (positions 1–9) and NVRAM values can be
+  read. The originally planned "insert paper → scan starts
+  automatically" flow is therefore not achievable via SANE, and
+  `scanbd` was dropped from the Phase 1.2 design. Empirically verified
+  on the reference hardware on 2026-04-30; evidence and method in
+  `docs/research/scanner-hardware-events.md`.
+
 ### Changed
 
 ### Fixed
