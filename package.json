@@ -1,0 +1,20 @@
+{
+  "name": "paperless-scan-bridge-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev tooling (commit lint, release-only semantic-release, formatting) for paperless-scan-bridge. The application is Go (see components/).",
+  "scripts": {
+    "prepare": "husky",
+    "commitlint": "commitlint --edit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "husky": "^9.1.6",
+    "prettier": "^3.3.3",
+    "semantic-release": "^24.1.0"
+  }
+}

@@ -1,0 +1,6 @@
+# Go + docs are formatted by their own tooling, not prettier.
+components/
+docs/
+*.go
+node_modules/
+CHANGELOG.md

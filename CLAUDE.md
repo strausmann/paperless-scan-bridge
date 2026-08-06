@@ -214,3 +214,18 @@ weiterhin den Conventional-Commits-Regeln (englisch).
   [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) — security and recovery
   posture
 - [ROADMAP.md](ROADMAP.md) — current phase and what is in flight
+
+## Governance & rules
+
+Binding rules live in `.claude/rules/` (auto-loaded) and **complement** the architectural principles
+above (they do not relax container-first / three-image constraints):
+
+- **R0 — error culture:** on any mistake, analyze → document in `docs/learnings/` → add a guard.
+- **R1 — verify before concluding**, and especially before posting anything public.
+- **R2 — no AI attribution** in commits/PRs.
+- **R3 — ADRs are top authority** (`docs/decisions/`, `.claude/rules/adr.md`): ADR > guidelines/AGENTS > code.
+- **R5 — Conventional Commits** (`.github/SCOPES.md`). Versioning is **release-only** semantic-release
+  (tag + GitHub Release); the manual `CHANGELOG.md` (Keep a Changelog) stays hand-curated.
+- **R6 — resolve every Gemini/Copilot PR finding** (fix or reasoned false-positive).
+
+Project review agents (read-only): `.claude/agents/` — network / developer / research / security.
