@@ -25,6 +25,7 @@ subject imperative, header ≤ 120 chars.
 | `scan-processor` | PDF assembly / Paperless ingestion |
 | `api` | HTTP API (`internal/api`) |
 | `profiles` | scan profiles (`internal/profiles`) |
+| `tag` | Paperless tag-merge engine (`internal/tag`) |
 | `dispatch` | job dispatch / IPC (`internal/dispatch`) |
 | `jobs` | job store/lifecycle (`internal/jobs`) |
 | `config` | configuration (`internal/config`) |

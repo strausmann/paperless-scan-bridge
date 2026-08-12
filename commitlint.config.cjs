@@ -12,7 +12,7 @@ module.exports = {
       2,
       'always',
       [
-        'scan-bridge', 'sane-runtime', 'scan-processor', 'api', 'profiles', 'dispatch', 'jobs',
+        'scan-bridge', 'sane-runtime', 'scan-processor', 'api', 'profiles', 'tag', 'dispatch', 'jobs',
         'config', 'metrics', 'deploy', 'docker', 'ci', 'docs', 'deps', 'release',
       ],
     ],
