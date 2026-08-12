@@ -52,10 +52,10 @@ type ServerConfig struct {
 // digest matches TokenHash. In ip_allowlist mode the daemon accepts
 // unauthenticated requests whose source IP falls into AllowedCIDRs.
 type AuthConfig struct {
-	Mode          AuthMode `toml:"mode"`
-	TokenHash     string   `toml:"token_hash"`
-	AllowedCIDRs  []string `toml:"allowed_cidrs"`
-	parsedCIDRs   []*net.IPNet
+	Mode         AuthMode `toml:"mode"`
+	TokenHash    string   `toml:"token_hash"`
+	AllowedCIDRs []string `toml:"allowed_cidrs"`
+	parsedCIDRs  []*net.IPNet
 }
 
 // PathsConfig collects the on-disk locations the daemon reads or writes.
@@ -63,6 +63,13 @@ type PathsConfig struct {
 	Profiles   string `toml:"profiles"`
 	StateDir   string `toml:"state_dir"`
 	SaneSocket string `toml:"sane_socket"`
+	// OutputDir is where the dispatch client (internal/dispatch) writes
+	// the page images it reads out of a sane-runtime multipart
+	// response, one subdirectory per scan_id. Deliberately distinct
+	// from StateDir: StateDir is daemon bookkeeping (Phase 1.4 job
+	// store), OutputDir is scan output that scan-processor consumes
+	// downstream.
+	OutputDir string `toml:"output_dir"`
 }
 
 // LoggingConfig configures the slog handler.
@@ -95,6 +102,7 @@ func Default() Config {
 			Profiles:   "/etc/scan-bridge/profiles.yaml",
 			StateDir:   "/var/lib/scan-bridge",
 			SaneSocket: "/run/sane-runtime/sane.sock",
+			OutputDir:  "/var/lib/scan-bridge/scans",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -176,6 +184,9 @@ func applyEnv(cfg *Config, look func(string) (string, bool)) {
 	if v, ok := look("SCAN_BRIDGE_SANE_SOCKET"); ok {
 		cfg.Paths.SaneSocket = v
 	}
+	if v, ok := look("SCAN_BRIDGE_OUTPUT_DIR"); ok {
+		cfg.Paths.OutputDir = v
+	}
 	if v, ok := look("SCAN_BRIDGE_LOG_LEVEL"); ok {
 		cfg.Logging.Level = v
 	}
@@ -250,6 +261,10 @@ func (c *Config) Validate() error {
 		return errors.New("server.metrics_listen must be non-empty")
 	}
 
+	if c.Paths.OutputDir == "" {
+		return errors.New("paths.output_dir must be non-empty")
+	}
+
 	return nil
 }
 
@@ -274,10 +289,19 @@ func (c *Config) HardTimeout() time.Duration {
 // allowlist is empty; callers should consult Auth.Mode to decide
 // whether to invoke this in the first place.
 func (c *Config) IPAllowed(ip net.IP) bool {
+	return c.Auth.IPAllowed(ip)
+}
+
+// IPAllowed reports whether ip falls into any of this AuthConfig's
+// parsed allowlist CIDRs. It lives on AuthConfig (not just Config) so
+// a caller that only carries the AuthConfig — internal/api.Server does,
+// deliberately, to avoid depending on the whole Config tree — can
+// still perform the ip_allowlist check without going through Config.
+func (a *AuthConfig) IPAllowed(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	for _, n := range c.Auth.parsedCIDRs {
+	for _, n := range a.parsedCIDRs {
 		if n.Contains(ip) {
 			return true
 		}
@@ -300,6 +324,7 @@ func (c *Config) Description() string {
 		"allowed_cidrs=" + strconv.Itoa(len(c.Auth.AllowedCIDRs)),
 		"profiles=" + c.Paths.Profiles,
 		"state_dir=" + c.Paths.StateDir,
+		"output_dir=" + c.Paths.OutputDir,
 		"log_level=" + c.Logging.Level,
 	}, " ")
 }
