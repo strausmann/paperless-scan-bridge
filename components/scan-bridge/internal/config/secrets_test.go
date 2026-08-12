@@ -11,6 +11,8 @@ import (
 // directory (/run/secrets/<name>). Trailing whitespace is trimmed
 // because Docker secret files commonly end in a newline.
 func TestSecretResolverReadsDockerSecretFile(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "paperless_api_token"), []byte("s3cr3t\n"), 0o600); err != nil {
 		t.Fatalf("write secret file: %v", err)
@@ -31,6 +33,8 @@ func TestSecretResolverReadsDockerSecretFile(t *testing.T) {
 // when no Docker secret file exists, the resolver reads the environment
 // variable whose name is the upper-cased secret name.
 func TestSecretResolverFallsBackToEnv(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir() // empty: no secret file present
 	env := map[string]string{"PAPERLESS_API_TOKEN": "env-secret"}
 
@@ -51,6 +55,8 @@ func TestSecretResolverFallsBackToEnv(t *testing.T) {
 // TestSecretResolverFilePrecedesEnv verifies the Docker secret file wins
 // over an environment variable when both are present.
 func TestSecretResolverFilePrecedesEnv(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "paperless_api_token"), []byte("file-secret"), 0o600); err != nil {
 		t.Fatalf("write secret file: %v", err)
@@ -74,6 +80,8 @@ func TestSecretResolverFilePrecedesEnv(t *testing.T) {
 // TestSecretResolverNotFound verifies a clear error when a secret is in
 // no source.
 func TestSecretResolverNotFound(t *testing.T) {
+	t.Parallel()
+
 	r := NewSecretResolver(t.TempDir(), func(string) (string, bool) { return "", false })
 
 	if _, err := r.Resolve("missing"); err == nil {
