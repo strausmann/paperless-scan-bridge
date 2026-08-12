@@ -12,6 +12,8 @@ package api
 import (
 	"log/slog"
 
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
 )
 
@@ -33,4 +35,21 @@ type Server struct {
 	Profiles *profiles.Set
 	Build    BuildInfo
 	Logger   *slog.Logger
+
+	// Auth configures the requireBearer middleware (auth.go) guarding
+	// POST /scan, per ADR 0006. The zero value (empty Mode, empty
+	// TokenHash) rejects every request — there is no "auth disabled"
+	// state.
+	Auth config.AuthConfig
+	// Dispatch is the client to sane-runtime (ADR 0009) that
+	// handleScan (scan.go) calls to actually run a scan. Tests supply
+	// an in-memory fake; main.go wires dispatch.NewHTTPUnixClient.
+	Dispatch dispatch.Client
+	// OutputDir is where the dispatch client writes completed scan
+	// pages (config.PathsConfig.OutputDir). Server does not use it
+	// directly today — it is threaded through so main.go has one
+	// place to wire dispatch.NewHTTPUnixClient's outputDir argument
+	// from the same config value the rest of the daemon reports in
+	// Description() — but a future job-store/cleanup subsystem will.
+	OutputDir string
 }

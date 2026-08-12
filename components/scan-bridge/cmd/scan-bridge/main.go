@@ -28,9 +28,19 @@ import (
 
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/api"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/metrics"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
 )
+
+// dispatchClientTimeout bounds the whole HTTP round trip to
+// sane-runtime as a client-side safety net. It is deliberately larger
+// than any sane profile's timeout_seconds (internal/profiles caps
+// resolution/etc. but not timeout_seconds) — the per-call deadline
+// that actually governs a scan comes from the context handleScan
+// derives from the profile (internal/api/scan.go), not from this
+// value.
+const dispatchClientTimeout = 5 * time.Minute
 
 // Build identity, populated by ldflags. Defaults are useful in
 // `go run` and `go test` contexts.
@@ -118,6 +128,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("metrics: %w", err)
 	}
 
+	dispatchClient := dispatch.NewHTTPUnixClient(cfg.Paths.SaneSocket, cfg.Paths.OutputDir, dispatchClientTimeout)
+	defer dispatchClient.Close()
+
 	apiServer := &api.Server{
 		Profiles: profileSet,
 		Build: api.BuildInfo{
@@ -125,7 +138,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 			Commit:    commit,
 			BuildDate: buildDate,
 		},
-		Logger: logger,
+		Logger:    logger,
+		Auth:      cfg.Auth,
+		Dispatch:  dispatchClient,
+		OutputDir: cfg.Paths.OutputDir,
 	}
 
 	publicSrv := &http.Server{

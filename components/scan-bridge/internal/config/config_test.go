@@ -277,6 +277,45 @@ func TestAPITokenEnvIsHashed(t *testing.T) {
 	}
 }
 
+// TestDefaultIncludesOutputDir pins the compiled-in default for the
+// dispatch client's page-output directory (D2 in the Phase 1.2
+// implementation brief) — deliberately distinct from Paths.StateDir.
+func TestDefaultIncludesOutputDir(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if cfg.Paths.OutputDir != "/var/lib/scan-bridge/scans" {
+		t.Errorf("Default Paths.OutputDir = %q, want /var/lib/scan-bridge/scans", cfg.Paths.OutputDir)
+	}
+	if cfg.Paths.OutputDir == cfg.Paths.StateDir {
+		t.Error("Paths.OutputDir must not alias Paths.StateDir")
+	}
+}
+
+func TestLoadOutputDirEnvOverride(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("", envFunc(map[string]string{
+		"SCAN_BRIDGE_OUTPUT_DIR": "/custom/scans",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Paths.OutputDir != "/custom/scans" {
+		t.Errorf("Paths.OutputDir = %q, want /custom/scans", cfg.Paths.OutputDir)
+	}
+}
+
+func TestValidateRejectsEmptyOutputDir(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Paths.OutputDir = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation to fail on empty paths.output_dir")
+	}
+}
+
 func TestDescriptionDoesNotLeakSecrets(t *testing.T) {
 	t.Parallel()
 
