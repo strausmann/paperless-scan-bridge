@@ -80,3 +80,45 @@ func TestSecretResolverNotFound(t *testing.T) {
 		t.Fatal("Resolve of a missing secret returned nil error, want not-found")
 	}
 }
+
+// TestSecretResolverRejectsInvalidNames locks in the fix for a path
+// traversal: Resolve previously did filepath.Join(r.dir, name) with no
+// validation of name, so a name like ".." or an absolute path could
+// escape the Docker secrets directory and read arbitrary files.
+// Validation must run before both the file lookup and the env
+// fallback, so an invalid name never reaches the filesystem or the
+// environment.
+func TestSecretResolverRejectsInvalidNames(t *testing.T) {
+	t.Parallel()
+
+	sep := string(os.PathSeparator)
+	cases := []struct {
+		name string
+		desc string
+	}{
+		{"", "empty"},
+		{".", "current-dir"},
+		{"..", "parent-dir"},
+		{"a" + sep + "b", "contains path separator"},
+		{sep + "etc" + sep + "passwd", "absolute path"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+
+			// The secrets directory does not exist and lookupEnv fails
+			// the test if called: an invalid name must be rejected
+			// before either source is consulted.
+			r := NewSecretResolver(filepath.Join(t.TempDir(), "does-not-exist"), func(string) (string, bool) {
+				t.Fatal("lookupEnv called for an invalid secret name")
+				return "", false
+			})
+
+			_, err := r.Resolve(tc.name)
+			if err == nil {
+				t.Fatalf("Resolve(%q) returned nil error, want rejection", tc.name)
+			}
+		})
+	}
+}

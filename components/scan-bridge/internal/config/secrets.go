@@ -25,7 +25,16 @@ func NewSecretResolver(dir string, lookupEnv func(string) (string, bool)) Secret
 
 // Resolve returns the value for name, checking the Docker secrets
 // directory first. The value is trimmed of surrounding whitespace.
+//
+// name must be a simple filename: non-empty, not "." or "..", and
+// without a path separator or a leading path separator (absolute
+// path). This is checked before either source is consulted, so a
+// crafted name (e.g. "../../etc/passwd") can never escape the Docker
+// secrets directory or reach an unintended source.
 func (r SecretResolver) Resolve(name string) (string, error) {
+	if err := validateSecretName(name); err != nil {
+		return "", err
+	}
 	if r.dir != "" {
 		b, err := os.ReadFile(filepath.Join(r.dir, name))
 		if err == nil {
@@ -41,4 +50,23 @@ func (r SecretResolver) Resolve(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("secret %q not found", name)
+}
+
+// validateSecretName rejects any name that is not a plain filename,
+// preventing path traversal (e.g. "..", "../secret") or an absolute
+// path (e.g. "/etc/passwd") from reaching filepath.Join below.
+func validateSecretName(name string) error {
+	if name == "" {
+		return fmt.Errorf("secret name is empty")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("secret name %q is not a valid filename", name)
+	}
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("secret name %q must not be an absolute path", name)
+	}
+	if name != filepath.Base(name) {
+		return fmt.Errorf("secret name %q must not contain a path separator", name)
+	}
+	return nil
 }
