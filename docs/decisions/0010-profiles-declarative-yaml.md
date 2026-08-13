@@ -21,7 +21,12 @@ startup** (unknown fields rejected; the daemon refuses to start with zero profil
 - **Open follow-up:** issue #9 contemplates moving to a DB + new fields
   (`display_order`/`display_enabled`/`color`/`label`) once a management UI lands — to be decided then
   (do not extend this ADR pre-emptively).
+- **Update (2026-08-13):** ADR [0018](0018-profile-storage-ordering-frequency.md) proposes the
+  resolution to this follow-up — display/ordering/usage-frequency state moves to SQLite, while the
+  scan-parameter fields this ADR governs stay YAML-authored exactly as decided here. 0018 fulfills
+  this follow-up; it does not supersede this ADR.
 
 ## References
 - `components/scan-bridge/internal/profiles/profiles.go` (strict `KnownFields`, refuses empty),
   `defaults.yaml`; `ARCHITECTURE.md`.
+- ADR [0018](0018-profile-storage-ordering-frequency.md) (2026-08-13 follow-up resolution).
