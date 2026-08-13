@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
 )
 
 const validProfile = `
@@ -25,6 +27,278 @@ profiles:
       paperless_tags: ["private"]
       paperless_correspondent: null
 `
+
+// pipelineProfile exercises the ocr/assembly/document_type/destinations
+// extension (docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+// sec. 6, ADR 0016, ADR 0017) using the design doc's own example shape.
+const pipelineProfile = `
+profiles:
+  - name: private-duplex
+    source: "ADF Duplex"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    target_subdir: "private/"
+    page_size: "A4"
+    timeout_seconds: 120
+    ocr:
+      enabled: true
+      languages: [deu, eng]
+    assembly:
+      page_grouping: combined
+    document_type: eingangsrechnung
+    destinations:
+      - target: paperless
+        storage_first: false
+        config:
+          base_url: "https://paperless.example.com"
+          token_secret: paperless_api_token
+          tag_ids: [3]
+          tag_strategy: add
+          correspondent_id: 12
+          document_type_id: 3
+          document_type_map:
+            eingangsrechnung:
+              document_type_id: 3
+              tag_ids: [7]
+            post:
+              tag_ids: [4]
+`
+
+func TestParsePipelineProfile(t *testing.T) {
+	t.Parallel()
+
+	set, err := Parse(strings.NewReader(pipelineProfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("private-duplex")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+
+	if !p.OCR.Enabled {
+		t.Error("OCR.Enabled = false, want true")
+	}
+	if got, want := p.OCR.Languages, []string{"deu", "eng"}; !equalStrings(got, want) {
+		t.Errorf("OCR.Languages = %v, want %v", got, want)
+	}
+	if p.Assembly.PageGrouping != PageGroupingCombined {
+		t.Errorf("Assembly.PageGrouping = %q, want %q", p.Assembly.PageGrouping, PageGroupingCombined)
+	}
+	if p.DocumentType != "eingangsrechnung" {
+		t.Errorf("DocumentType = %q, want %q", p.DocumentType, "eingangsrechnung")
+	}
+	if len(p.Destinations) != 1 {
+		t.Fatalf("len(Destinations) = %d, want 1", len(p.Destinations))
+	}
+	dest := p.Destinations[0]
+	if dest.Target != "paperless" {
+		t.Errorf("Destinations[0].Target = %q, want %q", dest.Target, "paperless")
+	}
+	if dest.StorageFirst {
+		t.Error("Destinations[0].StorageFirst = true, want false")
+	}
+	if dest.Config["base_url"] != "https://paperless.example.com" {
+		t.Errorf("Destinations[0].Config[base_url] = %v, want %q", dest.Config["base_url"], "https://paperless.example.com")
+	}
+	// tag_ids decodes as []any under a map[string]any leaf (yaml.v3
+	// has no static type to decode into here) -- assert the shape a
+	// caller actually gets, not a wished-for []int.
+	tagIDs, ok := dest.Config["tag_ids"].([]any)
+	if !ok || len(tagIDs) != 1 {
+		t.Fatalf("Destinations[0].Config[tag_ids] = %#v, want a one-element slice", dest.Config["tag_ids"])
+	}
+	docTypeMap, ok := dest.Config["document_type_map"].(map[string]any)
+	if !ok {
+		t.Fatalf("Destinations[0].Config[document_type_map] = %#v, want a map", dest.Config["document_type_map"])
+	}
+	if _, ok := docTypeMap["eingangsrechnung"]; !ok {
+		t.Errorf("document_type_map missing key %q", "eingangsrechnung")
+	}
+}
+
+func TestParseAppliesPageGroupingDefault(t *testing.T) {
+	t.Parallel()
+
+	// validProfile sets neither ocr nor assembly at all.
+	set, err := Parse(strings.NewReader(validProfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("private-duplex")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+	if p.Assembly.PageGrouping != PageGroupingCombined {
+		t.Errorf("Assembly.PageGrouping = %q, want default %q", p.Assembly.PageGrouping, PageGroupingCombined)
+	}
+	if p.OCR.Enabled {
+		t.Error("OCR.Enabled = true, want false (no ocr block given)")
+	}
+	if len(p.OCR.Languages) != 0 {
+		t.Errorf("OCR.Languages = %v, want empty (OCR disabled, no default applied)", p.OCR.Languages)
+	}
+	if len(p.Destinations) != 0 {
+		t.Errorf("Destinations = %v, want empty (no destinations block given)", p.Destinations)
+	}
+}
+
+func TestParseOCREnabledDefaultsLanguages(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: ocr-no-langs
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+`
+	set, err := Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("ocr-no-langs")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+	if want := []string{"deu", "eng"}; !equalStrings(p.OCR.Languages, want) {
+		t.Errorf("OCR.Languages = %v, want default %v", p.OCR.Languages, want)
+	}
+}
+
+func TestParseRejectsUnknownOCRField(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: bad
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+      not_a_real_field: true
+`
+	_, err := Parse(strings.NewReader(body))
+	if err == nil {
+		t.Fatal("expected rejection of unknown ocr.* field")
+	}
+}
+
+func TestParseRejectsUnknownAssemblyField(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: bad
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    assembly:
+      page_grouping: combined
+      not_a_real_field: true
+`
+	_, err := Parse(strings.NewReader(body))
+	if err == nil {
+		t.Fatal("expected rejection of unknown assembly.* field")
+	}
+}
+
+func TestParseRejectsUnknownDestinationField(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: bad
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    destinations:
+      - target: paperless
+        not_a_real_field: true
+`
+	_, err := Parse(strings.NewReader(body))
+	if err == nil {
+		t.Fatal("expected rejection of unknown destinations[].* field")
+	}
+}
+
+func TestDestinationConfigsMapsProfileDestinations(t *testing.T) {
+	t.Parallel()
+
+	p := Profile{
+		Destinations: []ProfileDestination{
+			{
+				Target:       "paperless",
+				StorageFirst: false,
+				Config:       map[string]any{"base_url": "https://paperless.example.com"},
+			},
+			{
+				Target:       "nfs",
+				StorageFirst: true,
+				Config:       nil,
+			},
+		},
+	}
+
+	got := p.DestinationConfigs()
+	want := []destinations.ProfileDestinationConfig{
+		{Target: "paperless", StorageFirst: false, Config: map[string]any{"base_url": "https://paperless.example.com"}},
+		{Target: "nfs", StorageFirst: true, Config: nil},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("len(DestinationConfigs()) = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Target != want[i].Target {
+			t.Errorf("[%d].Target = %q, want %q", i, got[i].Target, want[i].Target)
+		}
+		if got[i].StorageFirst != want[i].StorageFirst {
+			t.Errorf("[%d].StorageFirst = %v, want %v", i, got[i].StorageFirst, want[i].StorageFirst)
+		}
+		if got[i].Config["base_url"] != want[i].Config["base_url"] {
+			t.Errorf("[%d].Config[base_url] = %v, want %v", i, got[i].Config["base_url"], want[i].Config["base_url"])
+		}
+	}
+}
+
+func TestDestinationConfigsEmptyForProfileWithoutDestinations(t *testing.T) {
+	t.Parallel()
+
+	p := Profile{}
+	got := p.DestinationConfigs()
+	if len(got) != 0 {
+		t.Errorf("DestinationConfigs() = %v, want empty", got)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func TestParseValidProfile(t *testing.T) {
 	t.Parallel()
@@ -127,49 +401,66 @@ func TestValidateBoundaries(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name string
-		mut  func(p *Profile)
+		name         string
+		mut          func(p *Profile)
 		errSubstring string
 	}{
 		{
-			name: "missing name",
-			mut: func(p *Profile) { p.Name = "" },
+			name:         "missing name",
+			mut:          func(p *Profile) { p.Name = "" },
 			errSubstring: "name",
 		},
 		{
-			name: "missing source",
-			mut: func(p *Profile) { p.Source = "" },
+			name:         "missing source",
+			mut:          func(p *Profile) { p.Source = "" },
 			errSubstring: "source",
 		},
 		{
-			name: "resolution too low",
-			mut: func(p *Profile) { p.Resolution = 50 },
+			name:         "resolution too low",
+			mut:          func(p *Profile) { p.Resolution = 50 },
 			errSubstring: "resolution",
 		},
 		{
-			name: "resolution too high",
-			mut: func(p *Profile) { p.Resolution = 5000 },
+			name:         "resolution too high",
+			mut:          func(p *Profile) { p.Resolution = 5000 },
 			errSubstring: "resolution",
 		},
 		{
-			name: "unknown mode",
-			mut: func(p *Profile) { p.Mode = "Sepia" },
+			name:         "unknown mode",
+			mut:          func(p *Profile) { p.Mode = "Sepia" },
 			errSubstring: "mode",
 		},
 		{
-			name: "unknown format",
-			mut: func(p *Profile) { p.Format = "bmp" },
+			name:         "unknown format",
+			mut:          func(p *Profile) { p.Format = "bmp" },
 			errSubstring: "format",
 		},
 		{
-			name: "unknown page_size",
-			mut: func(p *Profile) { p.PageSize = "tabloid" },
+			name:         "unknown page_size",
+			mut:          func(p *Profile) { p.PageSize = "tabloid" },
 			errSubstring: "page_size",
 		},
 		{
-			name: "non-positive timeout",
-			mut: func(p *Profile) { p.TimeoutSeconds = 0 },
+			name:         "non-positive timeout",
+			mut:          func(p *Profile) { p.TimeoutSeconds = 0 },
 			errSubstring: "timeout_seconds",
+		},
+		{
+			name:         "unknown page_grouping",
+			mut:          func(p *Profile) { p.Assembly.PageGrouping = "shuffled" },
+			errSubstring: "page_grouping",
+		},
+		{
+			name:         "ocr enabled with empty language entry",
+			mut:          func(p *Profile) { p.OCR = OCRConfig{Enabled: true, Languages: []string{"deu", ""}} },
+			errSubstring: "ocr",
+		},
+		{
+			name: "destination with empty target",
+			mut: func(p *Profile) {
+				p.Destinations = []ProfileDestination{{Target: "  "}}
+			},
+			errSubstring: "destinations",
 		},
 	}
 

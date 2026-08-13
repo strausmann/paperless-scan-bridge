@@ -26,6 +26,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
 )
 
 // ColorMode is the SANE-mode-equivalent enum.
@@ -62,21 +64,70 @@ const (
 	maxResolutionDPI = 1200
 )
 
+// PageGrouping controls how scan-processor assembles a job's captured
+// pages into the document(s) handed to destinations (ADR 0017 / design
+// doc sec. 6). Combined merges all pages of a job into one document;
+// PerPage emits one document per source page.
+type PageGrouping string
+
+const (
+	PageGroupingCombined PageGrouping = "combined"
+	PageGroupingPerPage  PageGrouping = "per_page"
+)
+
+// defaultOCRLanguages is applied by Parse when a profile enables OCR
+// but omits languages (design doc sec. 6: "default when enabled and
+// omitted"). Matches the HomeLab OCR grounding cited by the design
+// (deu+eng).
+var defaultOCRLanguages = []string{"deu", "eng"}
+
 // Profile is a single named scan profile.
 type Profile struct {
-	Name             string           `yaml:"name"`
-	Description      string           `yaml:"description"`
-	Source           string           `yaml:"source"`
-	Resolution       int              `yaml:"resolution"`
-	Mode             ColorMode        `yaml:"mode"`
-	Format           Format           `yaml:"format"`
-	TargetSubdir     string           `yaml:"target_subdir"`
-	Deskew           bool             `yaml:"deskew"`
-	RemoveBlank      bool             `yaml:"remove_blank"`
-	RotatePages      bool             `yaml:"rotate_pages"`
-	PageSize         PageSize         `yaml:"page_size"`
-	TimeoutSeconds   int              `yaml:"timeout_seconds"`
+	Name           string    `yaml:"name"`
+	Description    string    `yaml:"description"`
+	Source         string    `yaml:"source"`
+	Resolution     int       `yaml:"resolution"`
+	Mode           ColorMode `yaml:"mode"`
+	Format         Format    `yaml:"format"`
+	TargetSubdir   string    `yaml:"target_subdir"`
+	Deskew         bool      `yaml:"deskew"`
+	RemoveBlank    bool      `yaml:"remove_blank"`
+	RotatePages    bool      `yaml:"rotate_pages"`
+	PageSize       PageSize  `yaml:"page_size"`
+	TimeoutSeconds int       `yaml:"timeout_seconds"`
+
+	// MetadataTemplate carries the original Paperless-only hint shape.
+	// Superseded by Destinations for any profile that adopts the
+	// destinations schema below (ADR 0016/0017): a Paperless
+	// destination's Config carries tag_ids/correspondent_id/
+	// document_type_id/document_type_map instead of
+	// PaperlessTags/PaperlessCorrespondent. MetadataTemplate is not
+	// removed -- no profile in production depends on its removal --
+	// but new profiles should be authored against Destinations
+	// directly (design doc sec. 6, migration note).
 	MetadataTemplate MetadataTemplate `yaml:"metadata_template"`
+
+	// OCR is the per-profile OCR toggle (Epic A2). Off by default,
+	// matching ARCHITECTURE.md's existing documented default. When
+	// Enabled is true and Languages is omitted, Parse fills in
+	// defaultOCRLanguages.
+	OCR OCRConfig `yaml:"ocr"`
+
+	// Assembly controls scan-processor's multi-page result shape (ADR
+	// 0017 / Epic A6). When PageGrouping is omitted, Parse defaults it
+	// to PageGroupingCombined.
+	Assembly AssemblyConfig `yaml:"assembly"`
+
+	// DocumentType is a free-form, profile-defined key (ADR 0017) --
+	// no central enum. Empty means no type-specific mapping is applied
+	// at any destination.
+	DocumentType string `yaml:"document_type"`
+
+	// Destinations lists the destination-routing targets (ADR 0016)
+	// this profile delivers to. Empty is valid: a profile that has not
+	// adopted the new schema yet (e.g. still relying on TargetSubdir /
+	// MetadataTemplate) has no Destinations entries.
+	Destinations []ProfileDestination `yaml:"destinations"`
 }
 
 // MetadataTemplate carries the Paperless-side hints that scan-bridge
@@ -84,6 +135,55 @@ type Profile struct {
 type MetadataTemplate struct {
 	PaperlessTags          []string `yaml:"paperless_tags"`
 	PaperlessCorrespondent *string  `yaml:"paperless_correspondent"`
+}
+
+// OCRConfig is a profile's per-profile OCR toggle (design doc sec. 6).
+type OCRConfig struct {
+	Enabled   bool     `yaml:"enabled"`
+	Languages []string `yaml:"languages"`
+}
+
+// AssemblyConfig controls the multi-page result shape scan-processor
+// applies to a job's captured pages (design doc sec. 6, ADR 0017).
+type AssemblyConfig struct {
+	PageGrouping PageGrouping `yaml:"page_grouping"`
+}
+
+// ProfileDestination is one entry of a profile's destinations list
+// (ADR 0016, design doc sec. 6). Target selects which registered
+// destinations.Destination module handles delivery by name;
+// StorageFirst chooses NFS/SMB-style intermediate storage vs. a direct
+// API call (no storage-first module is built yet -- ADR 0016's and the
+// design doc's scope note); Config carries the destination-specific
+// block whose shape only that module's Constructor understands (e.g.
+// a Paperless destination's base_url/token_secret/tag_ids/
+// document_type_map) -- this package does not interpret it. See
+// Profile.DestinationConfigs for the conversion to
+// destinations.ProfileDestinationConfig the dispatch core (a later
+// task) consumes.
+type ProfileDestination struct {
+	Target       string         `yaml:"target"`
+	StorageFirst bool           `yaml:"storage_first"`
+	Config       map[string]any `yaml:"config"`
+}
+
+// DestinationConfigs converts p.Destinations into the
+// destinations.ProfileDestinationConfig shape the destination registry
+// (ADR 0016, internal/destinations) consumes. This is the only place
+// the profiles package depends on the destinations package; wiring
+// that actually calls destinations.Build with these values is a later
+// task (design doc sec. 9, Task 7), not built here. Returns an empty,
+// non-nil slice when p.Destinations is empty.
+func (p Profile) DestinationConfigs() []destinations.ProfileDestinationConfig {
+	out := make([]destinations.ProfileDestinationConfig, len(p.Destinations))
+	for i, d := range p.Destinations {
+		out[i] = destinations.ProfileDestinationConfig{
+			Target:       d.Target,
+			StorageFirst: d.StorageFirst,
+			Config:       d.Config,
+		}
+	}
+	return out
 }
 
 // Set is a validated, named-keyed collection of profiles. Use Load or
@@ -167,6 +267,7 @@ func Parse(r io.Reader) (*Set, error) {
 	set := &Set{byName: make(map[string]Profile, len(raw.Profiles))}
 	for i := range raw.Profiles {
 		p := raw.Profiles[i]
+		applyProfileDefaults(&p)
 		if err := validateProfile(p); err != nil {
 			return nil, fmt.Errorf("profile %q: %w", p.Name, err)
 		}
@@ -176,6 +277,19 @@ func Parse(r io.Reader) (*Set, error) {
 		set.byName[p.Name] = p
 	}
 	return set, nil
+}
+
+// applyProfileDefaults fills in the pipeline-extension fields'
+// documented defaults (design doc sec. 6) before validateProfile runs.
+// It only ever fills a zero value -- an explicit value from the YAML
+// is never overwritten.
+func applyProfileDefaults(p *Profile) {
+	if p.Assembly.PageGrouping == "" {
+		p.Assembly.PageGrouping = PageGroupingCombined
+	}
+	if p.OCR.Enabled && len(p.OCR.Languages) == 0 {
+		p.OCR.Languages = append([]string(nil), defaultOCRLanguages...)
+	}
 }
 
 func validateProfile(p Profile) error {
@@ -217,6 +331,31 @@ func validateProfile(p Profile) error {
 
 	if p.TimeoutSeconds <= 0 {
 		return fmt.Errorf("timeout_seconds %d: must be positive", p.TimeoutSeconds)
+	}
+
+	// "" is accepted here even though PageGroupingCombined/PerPage are
+	// the only meaningful values: Parse always fills "" in via
+	// applyProfileDefaults before this validation runs, but
+	// validateProfile is also called directly (e.g. by tests) against
+	// profiles that never went through that defaulting step.
+	switch p.Assembly.PageGrouping {
+	case "", PageGroupingCombined, PageGroupingPerPage:
+	default:
+		return fmt.Errorf("assembly.page_grouping %q: must be combined or per_page", p.Assembly.PageGrouping)
+	}
+
+	if p.OCR.Enabled {
+		for _, lang := range p.OCR.Languages {
+			if strings.TrimSpace(lang) == "" {
+				return errors.New("ocr.languages: must not contain empty entries")
+			}
+		}
+	}
+
+	for i, d := range p.Destinations {
+		if strings.TrimSpace(d.Target) == "" {
+			return fmt.Errorf("destinations[%d].target: must be non-empty", i)
+		}
 	}
 
 	return nil
