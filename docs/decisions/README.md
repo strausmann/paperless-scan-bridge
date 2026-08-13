@@ -39,6 +39,7 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 | [0018](0018-profile-storage-ordering-frequency.md) | Profile display metadata, bridge-side ordering, and usage-frequency tracking | Proposed |
 | [0019](0019-scanner-power-control-pluggable-interface.md) | Scanner power control via a pluggable `PowerControl` interface + registry | Proposed |
 | [0020](0020-mqtt-home-assistant-integration.md) | `scan-bridge` is the Home Assistant/MQTT-facing component, via MQTT discovery | Proposed |
+| [0021](0021-destination-deliver-result.md) | `Destination.Deliver` returns `(DeliveryResult, error)`, not `error` alone | Accepted |
 
 <!-- Backfill candidates still pending clarification (95% rule): ESP32 panel (#9) · profile storage
      YAML-vs-DB · scanbd hardware-button path (ARCHITECTURE vs #7) · secrets SOPS-vs-env · storage
@@ -48,6 +49,13 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
      destination among several) — the operator confirmed Synology archival becomes purely
      per-profile, so ADR 0004 is now Superseded by 0016 (see both ADRs and the 2026-08-13 vision
      doc). ADR 0018 fulfills ADR 0010's explicitly deferred profile-storage follow-up. -->
+
+<!-- 2026-08-13: ADR 0021 decides the `Destination.Deliver` return signature that ADR 0016 itself
+     left open ("implementation details ... not decided here") — `(DeliveryResult, error)`, so a
+     destination's own delivery reference (e.g. Paperless-ngx's task_id) reaches the /scan response
+     (design doc sec. 8), found missing while wiring handleScan through the registry (#48, #50).
+     ADR 0016 is NOT superseded — its own decision (pluggable interface + registry) is unchanged;
+     0021 only fills in a signature detail 0016 explicitly deferred. -->
 
 <!-- Candidate ADRs to backfill from the existing concept docs:
   0001 container-first / host-thin
