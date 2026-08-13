@@ -68,8 +68,18 @@ type PathsConfig struct {
 	// response, one subdirectory per scan_id. Deliberately distinct
 	// from StateDir: StateDir is daemon bookkeeping (Phase 1.4 job
 	// store), OutputDir is scan output that scan-processor consumes
-	// downstream.
+	// downstream. It is also where internal/procclient writes the
+	// assembled documents scan-processor returns (design doc
+	// docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+	// sec. 4.2/9 Task 5/7) -- both dispatch and procclient key their
+	// subdirectory off the same scan_id, so a job's raw pages and its
+	// processed output live side by side under OutputDir/<scan_id>/.
 	OutputDir string `toml:"output_dir"`
+	// ScanProcessorSocket is the Unix-domain socket path scan-bridge
+	// dials to reach scan-processor (internal/procclient, design doc
+	// sec. 4.2/9 Task 5/7) -- mirrors SaneSocket's role for the
+	// sane-runtime leg of the pipeline.
+	ScanProcessorSocket string `toml:"scan_processor_socket"`
 }
 
 // LoggingConfig configures the slog handler.
@@ -99,10 +109,11 @@ func Default() Config {
 			Mode: AuthModeToken,
 		},
 		Paths: PathsConfig{
-			Profiles:   "/etc/scan-bridge/profiles.yaml",
-			StateDir:   "/var/lib/scan-bridge",
-			SaneSocket: "/run/sane-runtime/sane.sock",
-			OutputDir:  "/var/lib/scan-bridge/scans",
+			Profiles:            "/etc/scan-bridge/profiles.yaml",
+			StateDir:            "/var/lib/scan-bridge",
+			SaneSocket:          "/run/sane-runtime/sane.sock",
+			OutputDir:           "/var/lib/scan-bridge/scans",
+			ScanProcessorSocket: "/run/scan-processor/scan-processor.sock",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -186,6 +197,9 @@ func applyEnv(cfg *Config, look func(string) (string, bool)) {
 	}
 	if v, ok := look("SCAN_BRIDGE_OUTPUT_DIR"); ok {
 		cfg.Paths.OutputDir = v
+	}
+	if v, ok := look("SCAN_BRIDGE_SCAN_PROCESSOR_SOCKET"); ok {
+		cfg.Paths.ScanProcessorSocket = v
 	}
 	if v, ok := look("SCAN_BRIDGE_LOG_LEVEL"); ok {
 		cfg.Logging.Level = v
