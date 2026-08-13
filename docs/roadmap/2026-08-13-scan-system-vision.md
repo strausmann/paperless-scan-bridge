@@ -1,19 +1,37 @@
 # Scan-system vision — epic breakdown and triage
 
-- **Date:** 2026-08-13
-- **Status:** Draft, awaiting operator review
+- **Date:** 2026-08-13 (updated same day — see the "Update 2026-08-13" note
+  below)
+- **Status:** Operator reviewed; ADRs 0016–0020 drafted (`Proposed`,
+  pending merge) for the items decided in this update. Three sub-questions
+  remain genuinely open (see below); everything else is either **[Ready to
+  dev]** or **[Decided (ready after ADR)]**.
 - **Purpose:** capture the full scan-system vision the operator described in one
   sitting, break it into epics and features, and triage every feature into
-  **[Ready to dev]** (extends something that already exists, no open decision)
-  or **[Needs clarification]** (a real decision or unknown is still open). This
+  **[Ready to dev]** (extends something that already exists, no open decision),
+  **[Decided (ready after ADR)]** (the operator made the call in the
+  2026-08-13 update below; an ADR now records it), or **[Needs
+  clarification]** (a real decision or unknown is still open). This
   document is the detailed companion to the phase bullets added to
   [`ROADMAP.md`](../../ROADMAP.md) — it does not replace the roadmap, it is
   the reasoning behind the bullets.
 - **How to read the tags:** **[Ready to dev]** means an implementer can start
   from the cited ADR/schema/task without asking the operator anything first.
-  **[Needs clarification]** always lists the exact open questions inline —
-  those are what we take back to the operator before an issue is created for
-  that feature.
+  **[Decided (ready after ADR)]** points at the ADR that now records the
+  decision — an implementer starts from that ADR. **[Needs clarification]**
+  (only three sub-questions remain, see below) lists the exact open
+  questions inline.
+- **Update 2026-08-13 (same day):** the operator reviewed this triage and
+  decided the destination-routing, document-assembly/taxonomy,
+  profile-storage/ordering, scanner-power-control, and Home-Assistant/MQTT
+  questions. Five ADRs (0016–0020) were drafted to record them; every
+  affected epic below is updated in place, the original open-question text
+  is replaced by the decision plus any sub-question the ADR itself left
+  open. The **only three sub-questions still genuinely open** across the
+  whole document are: (1) fileee account/auth specifics (A1/A7), (2) the
+  MQTT broker credential source (D1), and (3) whether ADR 0004's Synology
+  archival stays mandatory-always or becomes purely per-profile (A1,
+  explicit operator confirmation needed).
 - **Not created yet:** no GitHub issues exist for any of this. The proposed
   issue breakdown is in the pull request description, for the operator to
   green-light.
@@ -85,34 +103,30 @@ options, instead of the current fixed Paperless-only, single-shape output.
 
 ### A1 — Destination: Paperless-ngx or fileee, and which account/target
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0016](../decisions/0016-destination-routing-pluggable-interface.md): a
+pluggable `Destination` interface + registry in `scan-bridge`/
+`scan-processor`. Built-in modules: NFS, SMB, Paperless-ngx (API), fileee
+(API), and a generic HTTP-POST destination. A profile picks one or more
+destinations and, per profile, whether output goes to intermediate storage
+(NFS/SMB) first or straight to an API (SD-wear avoidance, pre-upload OCR).
+Multiple destinations per profile are allowed.
 
-Add a `destination` (or per-output `target`) concept to the profile schema so
-a profile can upload to Paperless-ngx **or** fileee, and to a *specific*
-account/target within that system.
+Affected: `profiles.go` (new `destinations` field), ADR 0004 (see the open
+sub-question below), `internal/output`/`scan-processor` (not yet built).
 
-Affected: `profiles.go` (new field), ADR 0004 (Synology-as-SoT is written
-Paperless-only), `internal/output` (not yet built — currently only a stub
-processor exists per `ARCHITECTURE.md`'s `scan-processor` description),
-homelab context: `fileee-server` + `go-fileee` + fileee-MCP (internal,
-unofficial `my.fileee.com` web-app API).
+Remaining open sub-questions (not resolved by ADR 0016):
 
-Open questions:
-
-1. Does a fileee upload still land on the Synology first (keeping ADR 0004's
-   "Synology is the canonical store" intact, fileee becomes a second
-   consumer of the same file), or does it bypass Synology entirely (which
-   would need ADR 0004 to be revisited or explicitly scoped as
-   "Paperless-only")?
-2. What is the fileee upload mechanism from this Go codebase — the existing
-   `go-fileee` library, a call to the `fileee-mcp-server`, or a new client
-   in `scan-processor`/`scan-bridge` directly?
-3. Which fileee **account** does an upload target, and how is that
-   referenced from a profile (a fileee company/contact ID? a static
-   config-level account?) — fileee's internal API model needs to be mapped
-   onto the profile schema.
-4. Multiple destinations per profile (upload to both Paperless and fileee
-   from one scan) — in scope for v1, or Paperless-XOR-fileee only?
+1. **ADR 0004 interaction — needs operator confirmation:** does Synology
+   archival stay mandatory for every profile regardless of chosen
+   destinations, or become purely per-profile like any other destination?
+   See ADR 0016's "Interaction with ADR 0004" section and ADR 0004's
+   2026-08-13 note.
+2. **fileee account/auth specifics** — which fileee account an upload
+   targets (company/contact ID? static config-level account?) and the exact
+   client mechanism (`go-fileee` library vs. `fileee-mcp-server` vs. a new
+   direct client) still need to be worked out against fileee's actual API
+   before implementation.
 
 ### A2 — OCR on/off per profile
 
@@ -160,56 +174,30 @@ decision involved.
 
 ### A6 — Multi-page result shape: one combined object vs. one object per page
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0017](../decisions/0017-document-assembly-and-type-taxonomy.md): a
+per-profile page-grouping setting (combined vs. per-page), read by
+`scan-processor`'s assembly step.
 
-Affected: profile schema (new `page_grouping` or similar field), `scan-
-processor` PDF/image-assembly logic (not built yet), and the destination
-chosen in A1 — Paperless and fileee likely have different natural
-semantics for "one document" (Paperless: one PDF with N pages is normal;
-fileee's document model needs checking).
-
-Open questions:
-
-1. Is this a **per-profile** setting (as vision item A describes) or could
-   it also need to be a per-scan override (thinking of Δ-10 in the Phase 1.2
-   plan, the per-profile "override allow-list" pattern already used for
-   other fields)?
-2. What is fileee's actual multi-page/multi-object model — does uploading
-   five separate single-page objects there behave sensibly (five documents,
-   or fragments of one that need manual re-joining)? This needs a look at
-   the fileee API before committing to a default.
-3. Default per destination: same default for Paperless and fileee, or
-   destination-specific defaults?
+Remaining open sub-question (not resolved by ADR 0017): fileee's actual
+multi-page/multi-object model needs a concrete look before a
+destination-specific default is chosen (same fileee-API-shape question as
+A1's open sub-question).
 
 ### A7 — Document type/kind → target-specific labels and actions
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0017](../decisions/0017-document-assembly-and-type-taxonomy.md): a
+per-profile document-type field maps, via per-profile config, to
+destination-specific labels/tags and actions (Paperless tags/
+correspondent, extending the existing `MetadataTemplate`; fileee labels).
+The taxonomy and the mapping live in the profile's own config and are
+interpreted by the destination module chosen in A1/ADR 0016 — there is no
+central enum the core has to understand.
 
-E.g. "Eingangsrechnung" (incoming invoice), "Post" (mail), "Verträge"
-(contracts) should trigger type-specific labels/tags **and actions** in
-fileee and/or Paperless.
-
-Affected: `MetadataTemplate` (currently only `PaperlessTags` +
-`PaperlessCorrespondent` — Paperless-only, no "action" concept at all), A1's
-destination choice, ADR 0015 (per-profile token / authorization model is
-unrelated but the metadata-template shape it references is the same
-struct).
-
-Open questions:
-
-1. What is the fixed **taxonomy** of document types/kinds the operator
-   wants (the vision names three examples — is that the full v1 list, or
-   are more expected)?
-2. What does "**Aktionen auslösen**" (trigger actions) concretely mean in
-   fileee — moving to a folder, applying a workflow, notifying a contact?
-   Same question for Paperless beyond tagging (workflows? correspondent
-   assignment? storage path templates, which Paperless already supports
-   natively?).
-3. Is the type chosen at profile-definition time (one profile = one
-   document type, which the current one-profile-per-button panel model
-   already implies) or can a single profile branch by a runtime signal
-   (e.g. a barcode/QR read, which `CONCEPT.md`'s splitting fields already
-   gesture at for a different purpose)?
+Remaining open sub-question (not resolved by ADR 0017): fileee
+account/auth specifics (same as A1) — what fileee's own label/action
+mechanism concretely offers still needs to be checked against its API.
 
 ---
 
@@ -239,32 +227,20 @@ returns the full list; the firmware currently just renders the first six.
 
 ### B3 — Sorting: alphabetical / manual / by usage frequency / mixed
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0018](../decisions/0018-profile-storage-ordering-frequency.md): four
+ordering modes (alphabetical, manual, usage-frequency, mixed —
+operator-configurable pinned-slot count + frequency-sorted remainder),
+computed **bridge-side** (`GET /profiles` returns an already-sorted list,
+firmware stays dumb, per ADR 0005). Requires the SQLite persistence layer
+ADR 0010 deferred — this ADR is that deferral's resolution; profile scan
+parameters stay YAML-authored as ADR 0010 decided.
 
-Affected: ADR 0010's explicit deferred decision ("issue #9 contemplates
-moving to a DB + new fields `display_order`/`display_enabled`/`color`/
-`label`... to be decided then"), the Phase 1.2 plan's already-sketched
-`scan_count_total` column, and the open question from ADR 0005's linked
-firmware-stays-dumb principle (`GET /profiles` should return "already
-sorted... so the firmware stays dumb", per issue #9's original API
-planning table).
-
-Open questions:
-
-1. **Where does sorting happen** — bridge-side (`GET /profiles` returns
-   pre-sorted, firmware stays dumb, matching the existing design principle)
-   or panel-side (firmware fetches raw + applies its own sort, which
-   contradicts that principle but keeps the bridge simpler)? The existing
-   documented intent favours bridge-side.
-2. For the "**mixed**" mode (static pinned slots + frequency-sorted rest):
-   how many static slots, and is the count configurable per deployment or
-   fixed at two (matching the operator's own example)?
-3. How is "usage frequency" computed — raw lifetime count (the
-   `scan_count_total` column already sketched), a decaying/windowed count
-   (last 30 days?), and does a tie-break rule matter?
-4. Does "manual" ordering require the not-yet-built profile-management UI
-   (Phase 1.4, drag-and-drop was explicitly scoped there in issue #9 phase
-   B), or is a simpler config-file-order acceptable for v1?
+Remaining open detail (implementation-level, not blocking): the exact
+SQLite schema, the mixed-mode default pinned-slot count, and the
+migration path from pure-YAML profiles are left to the plan that
+implements ADR 0018. "Manual" ordering still needs the Phase 1.4
+management UI (issue #9 phase B) to be set conveniently.
 
 ### B4 — Display rotation (portrait/landscape)
 
@@ -309,44 +285,27 @@ addition when `/ready` is implemented.
 
 ### C1 — Power the scanner on for a job via a Zigbee2MQTT-compatible smart plug
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0019](../decisions/0019-scanner-power-control-pluggable-interface.md): a
+pluggable `PowerControl` interface + registry **in `scan-bridge`** (not the
+panel, not `sane-runtime`). First backends: MQTT (Tasmota-over-MQTT and
+Zigbee2MQTT-bridged devices) and Tasmota-HTTP-direct. A webhook backend is
+deferred. Turn-on happens on scan trigger.
 
-Affected: no existing code or ADR touches power control at all — this is a
-new integration surface. Homelab context: Zigbee2MQTT + MQTT + Home
-Assistant already exist in the HomeLab (HA-MCP is available); ESPHome (the
-panel's own firmware stack) also has native Home Assistant integration.
-
-Open questions:
-
-1. **Control path**: through Home Assistant (bridge/panel calls an HA
-   service), directly against the MQTT broker/Zigbee2MQTT topic, or via the
-   smart plug's own HTTP API if it is Tasmota-flashed (the vision names both
-   WiFi-Tasmota and Zigbee-only options)? Each has different auth/latency/
-   failure-mode characteristics.
-2. **Which device** owns this responsibility — `scan-bridge` (adds an MQTT/
-   HA client dependency to a daemon that currently has none), `sane-runtime`
-   (already owns the scanner lifecycle, arguably the natural owner), or an
-   out-of-band automation entirely in Home Assistant (triggered by the same
-   webhook the panel already calls)?
-3. **Specific smart-plug model(s)** to target first (the vision names Nous
-   A1/A5 as examples) — affects whether Tasmota-HTTP or Zigbee2MQTT is the
-   more direct path.
-4. **Startup latency**: the scanner needs time to warm up after power-on —
-   does `POST /scan` block until the scanner is ready (readiness polling
-   before the SANE call), or is there a separate "wake" step the caller
-   (panel/HA) must sequence before scanning?
+Remaining open detail (implementation-level, not blocking): specific
+smart-plug models are a hardware-compatibility-matrix concern, not an
+architecture question; whether `POST /scan` blocks on scanner warm-up or a
+separate "wake" step is required is left to the implementing plan.
 
 ### C2 — Auto-off after configurable idle time
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0019](../decisions/0019-scanner-power-control-pluggable-interface.md): the
+idle-off timer (configurable duration) lives in `scan-bridge`, started
+after each completed scan.
 
-Depends entirely on C1's control-path decision — the idle timer needs
-somewhere to live (scan-bridge, since it already knows the last-scan
-timestamp per profile once B3's frequency tracking exists; or a standalone
-HA automation). No new open question beyond "which owner from C1", but
-listed separately because it is a distinct feature with its own
-configurability (the idle threshold itself, presumably per-deployment, not
-per-profile).
+Remaining open detail: the idle-timeout default value, and whether it is
+global or per-profile, are left to the implementing plan.
 
 ---
 
@@ -354,51 +313,28 @@ per-profile).
 
 ### D1 — Scan-count database and additional metrics, readable in Home Assistant
 
-**[Needs clarification]**
+**[Decided (ready after ADR)]** — ADR
+[0020](../decisions/0020-mqtt-home-assistant-integration.md): `scan-bridge`
+publishes metrics and status to the existing homelab MQTT broker using
+Home Assistant MQTT discovery — no Prometheus integration for this surface
+(the existing `internal/metrics` Prometheus endpoint is unaffected and
+stays for other consumers, e.g. Grafana).
 
-Affected: `internal/metrics/metrics.go`'s own `TODO(phase 1.4)` (job
-totals, per-stage histograms, queue depth are already named there but not
-built), the Phase 1.2 plan's `scan_count_total` column (sketched, not
-built, deferred by ADR 0010), and no existing HA-facing exposure path at
-all (`homeassistant/blueprints/` and `ha/` are empty).
-
-Open questions:
-
-1. Is "readable in Home Assistant" satisfied by HA's native **Prometheus
-   integration** scraping the metrics endpoint (`internal/metrics` already
-   exists and is the natural fit — no new component), or does the operator
-   want push-based **MQTT discovery** sensors (which would need a new
-   client in `scan-bridge`, and interacts with C1's broker choice)?
-2. Which specific metrics beyond scan-count matter for "further automatic
-   actions" — the vision says "weitere Metriken" without naming them; needs
-   a concrete list to design counters/gauges for.
+Remaining open sub-question — **needs operator input:** which MQTT broker
+host/port/credential source to use is not decided by ADR 0020 (see the
+References section of that ADR); which specific metrics beyond scan-count
+matter still needs a concrete list.
 
 ### D2 — Smarthome status: update availability, version, connection status
 
-**[Needs clarification]**
-
-Affected: same exposure-path question as D1, plus a direct tension with the
-firmware's own documented design: `cyd-scan-panel.yaml` explicitly ships
-**no `api:` block** — the README states this is deliberate (*"a public
-binary cannot embed a per-device encryption key, and the panel doesn't need
-Home Assistant discovery"*). Exposing panel version/connection/update
-status *to* Home Assistant either needs that stance revisited (re-adding
-`api:` conflicts with the "one public, secret-free binary" distribution
-model — see E1 below) or needs a different channel entirely (the panel
-reports status to `scan-bridge`, and `scan-bridge` — not the panel — is
-what talks to Home Assistant/MQTT).
-
-Open questions:
-
-1. Does "Verbindungsstatus" (connection status) mean the **panel's**
-   connectivity to the bridge (firmware-side), the **bridge's** connectivity
-   to `sane-runtime`/Paperless/fileee (daemon-side, closer to D1's metrics
-   path), or both?
-2. Given the explicit no-`api:` design decision in the firmware, is the
-   resolution "scan-bridge is the single source of truth for HA, the panel
-   never talks to HA directly" (keeps the firmware's stated security
-   posture intact) — this reads as the more consistent answer, but needs
-   operator confirmation before it becomes a written decision.
+**[Decided (ready after ADR)]** — ADR
+[0020](../decisions/0020-mqtt-home-assistant-integration.md): resolved by
+keeping `scan-bridge` as the single HA-facing component. The panel's
+no-`api:` stance is untouched — it never talks to HA directly, it reports
+to `scan-bridge` (as it already does via `GET /health`/`GET /profiles`/
+`POST /scan`), and `scan-bridge` relays whatever is HA-relevant onward via
+MQTT. "Connection status" means `scan-bridge`'s own connectivity to its
+downstream dependencies and to the panel — not the panel talking to HA.
 
 ---
 
@@ -406,25 +342,18 @@ Open questions:
 
 ### E1 — On-screen "update available" indicator with tap-to-update
 
-**[Needs clarification]**
+**[Decided — operator note, not a full ADR]** OTA works via the existing
+**ESP Web Tools manifest** (`firmware/manifest.json`, already used for the
+initial browser-based flash) **plus GitHub Releases**: a new release
+publishes an updated manifest/binary, and the panel's "is a new version
+available" check is a plain-HTTP fetch/compare against the published
+manifest — consistent with the firmware's no-`api:`, secret-free design
+(no ESPHome API server, no Home Assistant integration needed).
 
-Affected: `cyd-scan-panel.yaml` already has passwordless OTA support (the
-mechanism to *push* an update exists); nothing detects *availability* today.
-
-Open questions:
-
-1. **Source of "new firmware available"**: the ESPHome dashboard/API (needs
-   the device to run an ESPHome API server — conflicts with the no-`api:`
-   stance from D2), a Home Assistant integration (same conflict), or the
-   published **ESP Web Tools manifest.json** on the docs site (the panel
-   would need to fetch and compare a version field from a URL over plain
-   HTTP — consistent with the existing "no api:" secret-free design, but is
-   a new client behaviour that does not exist today)?
-2. Does the "button in the display" trigger a **self-OTA pull** (panel
-   fetches its own new firmware from the docs-site-hosted manifest/binary)
-   or does it just surface the notification, with the actual flash still
-   happening via the browser installer? These are very different amounts of
-   firmware work.
+Remaining open detail (implementation-level): whether tapping the
+indicator triggers a self-OTA pull or just surfaces the notification (with
+flashing still via the browser installer) is firmware work for whoever
+implements this, not an architecture decision.
 
 ### E2 — Automatic updates with a scheduled window (e.g. nightly at 4am)
 
@@ -454,14 +383,12 @@ already-named target location and no open decision.
 
 ### F2 — Scalar API docs "for all our systems"
 
-**[Needs clarification]**
-
-Open question: this repository can only speak for its own API surface (F1).
-"Alle unsere Systeme" (all our systems) implies a cross-repository/cross-
-project documentation effort (`homelab-management`, `fileee-server`, other
-Go services) — is that in scope for this repository's roadmap at all, or a
-separate `homelab-management`-level initiative that this roadmap should
-only link to once it exists?
+**[Decided — operator note, not a full ADR]** **Scalar per-component**:
+each repository/system renders its own Scalar docs against its own OpenAPI
+spec (this repository does so for `scan-bridge`, per F1) rather than one
+cross-repository aggregation owned by this roadmap. A homelab-wide rollup,
+if wanted, is a separate `homelab-management`-level initiative this
+roadmap only links to, not builds.
 
 ---
 
@@ -469,48 +396,82 @@ only link to once it exists?
 
 | Epic | Feature | Tag |
 | ---- | ------- | --- |
-| A | A1 destination (Paperless/fileee + account) | Needs clarification |
+| A | A1 destination (Paperless/fileee + account) | Decided — ADR 0016 (2 sub-questions open) |
 | A | A2 OCR on/off per profile | Ready to dev |
 | A | A3 output format incl. png | Ready to dev |
 | A | A4 duplex vs single-page | Ready to dev (largely exists) |
 | A | A5 one-page vs drain-ADF feeder behaviour | Ready to dev |
-| A | A6 multi-page: combined vs per-page object | Needs clarification |
-| A | A7 document type → labels/actions | Needs clarification |
+| A | A6 multi-page: combined vs per-page object | Decided — ADR 0017 |
+| A | A7 document type → labels/actions | Decided — ADR 0017 |
 | B | B1 configurable grid size | Ready to dev |
 | B | B2 paging buttons | Ready to dev |
-| B | B3 sorting (alpha/manual/frequency/mixed) | Needs clarification |
+| B | B3 sorting (alpha/manual/frequency/mixed) | Decided — ADR 0018 |
 | B | B4 display rotation | Ready to dev |
 | B | B5 scan-status shown until done | Ready to dev |
 | B | B6 chain-status indicator | Ready to dev (blocked on `/ready`, already planned) |
-| C | C1 smart-plug power-on for a job | Needs clarification |
-| C | C2 idle auto-off | Needs clarification |
-| D | D1 scan-count DB + metrics in HA | Needs clarification |
-| D | D2 smarthome status (update/version/connection) | Needs clarification |
-| E | E1 update-available indicator | Needs clarification |
-| E | E2 scheduled auto-update window | Ready to dev (once E1 resolved) |
+| C | C1 smart-plug power-on for a job | Decided — ADR 0019 |
+| C | C2 idle auto-off | Decided — ADR 0019 |
+| D | D1 scan-count DB + metrics in HA | Decided — ADR 0020 (broker creds source open) |
+| D | D2 smarthome status (update/version/connection) | Decided — ADR 0020 |
+| E | E1 update-available indicator | Decided — operator note (OTA via manifest + Releases) |
+| E | E2 scheduled auto-update window | Ready to dev (E1 now resolved) |
 | F | F1 Scalar docs for scan-bridge | Ready to dev |
-| F | F2 Scalar docs for "all systems" | Needs clarification |
+| F | F2 Scalar docs for "all systems" | Decided — operator note (Scalar per-component) |
 
-## Proposed new ADRs (not written — proposals for operator sign-off)
+## New ADRs (drafted 2026-08-13, status `Proposed` — pending review/merge)
 
-See the pull request description for the full rationale; listed here for
-completeness alongside the features that need them:
+The five ADRs the operator green-lit in the same 2026-08-13 sitting that
+produced this triage. Each is `docs/decisions/NNNN-*.md`; see the pull
+request description for the full rationale:
 
-- **N1 — Destination routing & ADR 0004 interaction** (A1): does a fileee
-  upload count as a second consumer of the Synology-canonical file, or does
-  it need ADR 0004 rescoped to "Paperless-only, fileee is out of that
-  ADR's claim"?
-- **N2 — Document assembly semantics** (A6): multi-page-object vs.
-  per-page-object, defaults per destination.
-- **N3 — Profile storage migration + ordering/frequency model** (B3):
-  supersedes/fulfils ADR 0010's explicitly deferred follow-up now that
-  issue #9's UI groundwork question is answerable.
-- **N4 — Scanner power control path** (C1/C2): HA-mediated vs. direct
-  MQTT/Zigbee2MQTT vs. Tasmota-HTTP, and which component owns it.
-- **N5 — Home Assistant/MQTT integration surface for scan-bridge** (D1/D2):
-  reconciles the firmware's explicit no-`api:` stance with wanting
-  smarthome-visible status, by keeping HA-facing integration in
-  `scan-bridge` rather than the panel.
+- **ADR [0016](../decisions/0016-destination-routing-pluggable-interface.md)**
+  (was N1, feature A1): pluggable `Destination` interface + registry (NFS,
+  SMB, Paperless-ngx, fileee, generic HTTP-POST); interacts with ADR 0004
+  (Synology mandatory-vs-per-profile question left open for the operator).
+- **ADR [0017](../decisions/0017-document-assembly-and-type-taxonomy.md)**
+  (was N2, features A6+A7): per-profile page-grouping (combined vs.
+  per-page) and per-profile document-type → destination-specific
+  labels/actions, interpreted by the destination module.
+- **ADR [0018](../decisions/0018-profile-storage-ordering-frequency.md)**
+  (was N3, feature B3): fulfills ADR 0010's deferred follow-up — display
+  metadata + bridge-side ordering (alphabetical/manual/frequency/mixed) +
+  SQLite-backed usage-frequency tracking.
+- **ADR [0019](../decisions/0019-scanner-power-control-pluggable-interface.md)**
+  (was N4, features C1+C2): pluggable `PowerControl` interface + registry
+  in `scan-bridge` (MQTT + Tasmota-HTTP-direct first), idle-off timer in
+  the bridge.
+- **ADR [0020](../decisions/0020-mqtt-home-assistant-integration.md)**
+  (was N5, features D1+D2): `scan-bridge` publishes metrics/status to the
+  homelab MQTT broker via HA discovery, resolving the no-`api:` firmware
+  tension by keeping HA integration entirely in the bridge.
+
+## Other operator decisions (2026-08-13, recorded here — not full ADRs)
+
+Smaller decisions from the same sitting that resolve open triage items
+without warranting a standalone ADR (no architectural trade-off with real
+alternatives to record — these are direct choices):
+
+- **OTA source of truth (E1):** the published **ESP Web Tools manifest**
+  plus **GitHub Releases** — see the updated E1 entry above.
+- **Scalar docs scope (F2):** **per-component** — see the updated F2 entry
+  above.
+- **Zensical docs, unified across the ecosystem:** this repository already
+  uses Zensical (Phase 0, `AGENTS.md`'s technology-choices table); the
+  operator's direction is for other homelab OSS repositories to follow the
+  same choice over time, for a consistent docs experience across projects.
+  No action item for *this* repository beyond staying on Zensical.
+- **Docs-site homepage:** the Zensical docs homepage for this project is
+  an "impeccable" landing page (crisp, focused first impression) rather
+  than a bare docs-index redirect — a Phase 0/1 documentation-polish item,
+  not an architecture decision.
+- **Compose `pull_policy` convention:** compose files follow the
+  rolling-vs-pinned `pull_policy` convention (rolling image tags get
+  `pull_policy: always`; pinned tags get no `pull_policy`, i.e. Docker's
+  `missing` default). Today every image this project builds is pinned per
+  ADR [0011](../decisions/0011-no-latest-pinned-versions.md), so this is
+  currently a no-op — it stays the binding convention if a rolling-tag
+  image is ever adopted (e.g. an upstream image without stable version
+  tags).
 
 ## References
 
@@ -521,7 +482,13 @@ completeness alongside the features that need them:
   [0006](../decisions/0006-auth-model.md),
   [0009](../decisions/0009-bridge-sane-unix-socket.md),
   [0010](../decisions/0010-profiles-declarative-yaml.md),
-  [0015](../decisions/0015-per-profile-token-optional-authz.md).
+  [0011](../decisions/0011-no-latest-pinned-versions.md),
+  [0015](../decisions/0015-per-profile-token-optional-authz.md),
+  [0016](../decisions/0016-destination-routing-pluggable-interface.md),
+  [0017](../decisions/0017-document-assembly-and-type-taxonomy.md),
+  [0018](../decisions/0018-profile-storage-ordering-frequency.md),
+  [0019](../decisions/0019-scanner-power-control-pluggable-interface.md),
+  [0020](../decisions/0020-mqtt-home-assistant-integration.md).
 - Issues: [#9](https://github.com/strausmann/paperless-scan-bridge/issues/9)
   (panel design, closed/shipped),
   [#7](https://github.com/strausmann/paperless-scan-bridge/issues/7)
