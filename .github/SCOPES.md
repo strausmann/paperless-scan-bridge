@@ -32,6 +32,7 @@ subject imperative, header ≤ 120 chars.
 | `metrics` | metrics/health (`internal/metrics`, `internal/healthcheck`) |
 | `deploy` | compose / Tilt / udev / NFS |
 | `docker` | Dockerfiles / images |
+| `firmware` | ESP32/embedded firmware (`firmware/`) |
 | `ci` | GitHub Actions / tooling |
 | `docs` | documentation, ADRs |
 | `deps` | dependency updates |

@@ -62,6 +62,8 @@ paperless-scan-bridge/
 │   ├── ansible/            # Optional Ansible layer for fleet deployment
 │   └── udev/               # Stable USB device path rules
 ├── homeassistant/          # Importable HA blueprints (YAML)
+├── firmware/               # ESP32/embedded firmware (ESPHome YAML)
+│   └── esp32-panel/        # CYD scan-control panel (Issue #9)
 ├── n8n/                    # Exported n8n workflows (JSON)
 ├── backup/                 # restic wrappers, PG dumps, restore runbooks
 ├── monitoring/             # Prometheus exporters, Grafana dashboards
