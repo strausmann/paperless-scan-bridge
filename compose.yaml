@@ -54,6 +54,53 @@
 # No named `volumes:` top-level block — see
 # .claude/rules/bind-mounts-statt-named-volumes.md in the
 # homelab-management repo.
+#
+# scan-processor wiring (design doc
+# docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+# sec. 4.2/9 Task 8; the same gap the roadmap doc calls out as
+# "(Phase 1.2 Task 8) has not landed"): a second bind-mounted socket
+# directory, mirroring the sane-socket one above but with different
+# ownership, because scan-processor runs as its own fixed
+# scansvc:scansvc UID/GID (10010:10010, components/scan-processor/
+# Dockerfile) rather than root (sane-runtime) or the distroless
+# nonroot UID (scan-bridge, 65532). scan-processor's own
+# newUnixListener (cmd/scan-processor/main.go) creates the socket
+# file mode 0660, group-owned by whatever GID the process runs as —
+# i.e. group 10010, not group 0 like sane-runtime's root-owned
+# socket. scan-bridge therefore needs a *second* supplementary group
+# (10010, not the existing 0) to satisfy the group-read+write file
+# permission check unix(7) requires to connect() to that socket —
+# `group_add` below carries both. The directory itself is
+# init-permissions-chowned to 10010:10010 (owner+group rwx) so
+# scan-processor can create/remove the socket file on its own
+# read-only rootfs' one writable path.
+#
+# scan-processor also gets ADR 0013's hardening actually turned on
+# (read_only rootfs, cap_drop: [ALL], no-new-privileges, fixed
+# non-root user) -- unlike sane-runtime/scan-bridge above, which
+# predate this compose file having any ADR-0013 flags wired in at
+# all (ADR 0013 is still Proposed) and are therefore left alone here
+# rather than hardened as a drive-by change outside this task's
+# scope. scan-processor's own Dockerfile comment already anticipated
+# exactly this ("Compose is expected to add cap_drop: [ALL] (Task 8,
+# deployment-only, not built here)"). Its pipeline scratch directory
+# (internal/pipeline/exec_pipeline.go's os.MkdirTemp("", ...), which
+# resolves under /tmp) needs a tmpfs mount because read_only rootfs
+# would otherwise make /tmp unwritable too.
+#
+# paperless_api_token is a Docker Compose file-based secret (works
+# without Swarm — the file's bytes are bind-mounted read-only into
+# the container at /run/secrets/paperless_api_token), matching
+# config.SecretResolver's default secrets directory
+# (cmd/scan-bridge/main.go's secretsDir constant) and the exact name
+# internal/destinations/paperless/paperless.go's
+# defaultTokenSecretName expects -- no new secret-loading mechanism,
+# per design doc sec. 11 item 5. The referenced file
+# (deploy/secrets/paperless_api_token) is gitignored; only a
+# CHANGE_ME placeholder (deploy/secrets/paperless_api_token.example)
+# is committed, mirroring this repo's existing .env/.env.example
+# convention -- the operator copies it and swaps in the real token
+# before deploying, the value never touches git history.
 
 services:
   # One-shot: fixes ownership of the two host bind-mount directories
@@ -69,14 +116,17 @@ services:
       - -c
       - |
         set -eu
-        mkdir -p /data/scan-bridge /data/socket
+        mkdir -p /data/scan-bridge /data/socket /data/scan-processor-socket
         chown -R 65532:0 /data/scan-bridge
         chmod -R 0770 /data/scan-bridge
         chown -R 0:0 /data/socket
         chmod 0770 /data/socket
+        chown -R 10010:10010 /data/scan-processor-socket
+        chmod 0770 /data/scan-processor-socket
     volumes:
       - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/data/scan-bridge
       - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/data/socket
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/data/scan-processor-socket
 
   sane-runtime:
     build:
@@ -102,6 +152,37 @@ services:
       init-permissions:
         condition: service_completed_successfully
 
+  scan-processor:
+    build:
+      context: components/scan-processor
+      args:
+        VERSION: phase-1.2-task-8
+    container_name: paperless-scan-bridge-scan-processor
+    restart: unless-stopped
+    # ADR 0013 hardening, actually turned on here — see the header
+    # comment above for why this component (and not sane-runtime/
+    # scan-bridge) is the first to get it.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Matches the Dockerfile's own `USER scansvc:scansvc` (fixed UID/
+    # GID 10010); set explicitly here too so the hardening is legible
+    # from the compose file alone, not only from the image.
+    user: "10010:10010"
+    tmpfs:
+      # internal/pipeline/exec_pipeline.go's os.MkdirTemp("", ...)
+      # scratch directory needs a writable /tmp; read_only above
+      # would otherwise make it unwritable.
+      - /tmp
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/run/scan-processor
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+
   scan-bridge:
     build:
       context: components/scan-bridge
@@ -110,15 +191,18 @@ services:
     container_name: paperless-scan-bridge-scan-bridge
     restart: unless-stopped
     # See the uid/gid note above — scan-bridge keeps the image's
-    # built-in nonroot UID (65532) and only gains GID 0 as a
-    # supplementary group so it can dial the root-owned Unix socket.
+    # built-in nonroot UID (65532) and gains two supplementary GIDs:
+    # 0 to dial sane-runtime's root-owned socket, 10010 to dial
+    # scan-processor's scansvc-owned one.
     group_add:
       - "0"
+      - "10010"
     ports:
       - "18080:8080"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/run/sane-runtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/run/scan-processor:ro
       - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/var/lib/scan-bridge
       # Config/profiles are read straight out of the git-stack's own
       # checkout (relative to this compose file), not
@@ -128,8 +212,16 @@ services:
       # the checkout).
       - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
       - ./deploy/profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
+    secrets:
+      - paperless_api_token
     depends_on:
       init-permissions:
         condition: service_completed_successfully
       sane-runtime:
         condition: service_started
+      scan-processor:
+        condition: service_started
+
+secrets:
+  paperless_api_token:
+    file: ./deploy/secrets/paperless_api_token

@@ -37,6 +37,12 @@ sops.key
 !.env.example
 !.env.*.example
 
+# Docker Compose file-based secrets (deploy/secrets/*.example are the
+# committed CHANGE_ME placeholders; the real files the operator
+# copies them to are local-only, never committed)
+deploy/secrets/*
+!deploy/secrets/*.example
+
 # IDE / editor state
 .vscode/
 !.vscode/extensions.json
