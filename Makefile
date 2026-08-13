@@ -46,12 +46,16 @@ test-yaml: ## Run yamllint over the repository
 test-docker: ## Run hadolint over every Dockerfile under components/
 	@echo "TODO Phase 1: test-docker"
 
-# Fetch the Mermaid bundle so the site serves it from its own origin
-# instead of letting Zensical pull it from unpkg.com at runtime. The
-# file is gitignored, so this has to run before any docs build.
+# Fetch the Mermaid and Scalar bundles so the site serves them from
+# its own origin instead of letting them load from a CDN at runtime,
+# and copy the OpenAPI spec to where Scalar fetches it. All three
+# targets are gitignored, so this has to run before any docs build.
 .PHONY: docs-vendor
-docs-vendor: ## Download the pinned, digest-verified Mermaid bundle
+docs-vendor: ## Download pinned Mermaid/Scalar bundles, copy the OpenAPI spec
 	./.github/scripts/vendor-mermaid.sh
+	./.github/scripts/vendor-scalar.sh
+	mkdir -p docs/en/api-reference
+	cp components/scan-bridge/api/openapi.yaml docs/en/api-reference/openapi.yaml
 
 # Needs `markdownlint` (npm i -g markdownlint-cli) and `zensical`
 # (pip install -r requirements-docs.txt) on PATH. Build order is not

@@ -80,6 +80,14 @@ jobs:
       - name: Vendor ESP Web Tools
         run: ./.github/scripts/vendor-esp-web-tools.sh
 
+      - name: Vendor Scalar
+        run: ./.github/scripts/vendor-scalar.sh
+
+      - name: Copy OpenAPI spec into the docs site
+        run: |
+          mkdir -p docs/en/api-reference
+          cp components/scan-bridge/api/openapi.yaml docs/en/api-reference/openapi.yaml
+
       - name: Build English site
         run: zensical build -f zensical.toml --strict
 

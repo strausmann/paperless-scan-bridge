@@ -84,6 +84,51 @@ origin), and CI's external-asset check would catch a regression here
 too — a root-relative `src` is same-origin by construction, so there is
 nothing to allowlist.
 
+## Scalar, from proxy.scalar.com and fonts.scalar.com
+
+The [API reference](../api-reference/index.md) page embeds
+[Scalar](https://github.com/scalar/scalar) to render
+`components/scan-bridge/api/openapi.yaml` interactively. Its
+`dist/browser/standalone.js` bundle is self-contained — unlike ESP Web
+Tools below, it has no dynamic imports resolving against an absolute
+CDN URL by default (verified against the published package contents
+when `.github/scripts/vendor-scalar.sh` was introduced) — but the
+bundle itself calls out to two third-party services once it runs in
+the browser, both opt-outable through its own config:
+
+- the default theme loads font files from `https://fonts.scalar.com`
+- the "Try it" panel's CORS workaround for live requests posts
+  through `https://proxy.scalar.com`
+
+Both are disabled where the page calls `Scalar.createApiReference()`:
+
+```js
+Scalar.createApiReference('#api-reference', {
+  url: 'openapi.yaml',
+  proxyUrl: '',
+  withDefaultFonts: false,
+})
+```
+
+`.github/scripts/vendor-scalar.sh` downloads the pinned npm package
+(there is no single-file CDN URL for it the way unpkg serves Mermaid),
+verifies the tarball against the SHA-512 integrity hash the registry
+itself publishes for that version, and extracts only
+`dist/browser/standalone.js` into
+`docs/en/javascripts/scalar/standalone.js` — English only, there is no
+German API reference page. About 3.6 MB, not committed (a reproducible
+build artifact, fetched during the build and served from our own
+origin).
+
+Unlike Mermaid and ESP Web Tools, this isn't a load `check_no_external_assets.py`
+can miss and then catch by a presence check: `proxy.scalar.com` and
+`fonts.scalar.com` never appear as `<script src>`/`<link href>` markup
+in the first place, and if the config above were ever dropped, the
+resulting requests would be JavaScript-initiated — invisible to that
+script's static HTML parse, the same blind spot as the GitHub API call
+described below. The config is the only thing standing between this
+page and both third parties; there is nothing here for CI to assert.
+
 ## Google Fonts
 
 The default theme loads Inter and JetBrains Mono from

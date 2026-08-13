@@ -11,7 +11,7 @@
   },
 
   "MD033": {
-    "$comment": "Inline HTML is needed for the front-matter template's checklist comment, for admonition markup, and for the ESP Web Tools install button on the CYD scan-control panel page (a real web component + its loader script, no Markdown/fenced-code equivalent exists for either).",
+    "$comment": "Inline HTML is needed for the front-matter template's checklist comment, for admonition markup, for the ESP Web Tools install button on the CYD scan-control panel page, and for the Scalar mount point + loader/init script on the API reference page (a JS-rendered component, no Markdown/fenced-code equivalent exists for any of these).",
     "allowed_elements": [
       "br",
       "kbd",
@@ -21,7 +21,8 @@
       "summary",
       "esp-web-install-button",
       "span",
-      "script"
+      "script",
+      "div"
     ]
   },
 
