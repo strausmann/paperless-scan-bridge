@@ -116,7 +116,8 @@ func deliverToDestination(
 	}
 	meta := resolveMetadata(profile, b.cfg, callerTagIDs, callerStrategy)
 
-	if err := b.dest.Deliver(ctx, ddoc, meta, b.cfg); err != nil {
+	result, err := b.dest.Deliver(ctx, ddoc, meta, b.cfg)
+	if err != nil {
 		if logger != nil {
 			logger.WarnContext(ctx, "destination delivery failed",
 				slog.String("scan_id", scanID),
@@ -132,6 +133,7 @@ func deliverToDestination(
 	}
 	return destinationResult{
 		Name:   b.cfg.Target,
-		Status: "submitted",
+		Status: result.Status,
+		TaskID: result.Reference,
 	}
 }

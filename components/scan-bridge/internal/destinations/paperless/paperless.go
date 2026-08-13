@@ -175,27 +175,32 @@ func (d *destination) Name() string { return destinationName }
 // to Paperless's post_document/ endpoint, labelled by the fields meta
 // carries, using cfg for this call's base_url/token_secret. A nil
 // error means "Paperless accepted the upload for consumption" (see the
-// package doc comment) — it does not mean consumption finished.
-func (d *destination) Deliver(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) error {
+// package doc comment) — it does not mean consumption finished. The
+// returned DeliveryResult carries Status "submitted" and Reference set
+// to Paperless's task_id, so a caller (internal/api's
+// deliverToDestination) can surface it in the scan response (design
+// doc sec. 8). On a non-nil error the returned DeliveryResult is the
+// zero value, per the Destination interface's contract.
+func (d *destination) Deliver(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) (destinations.DeliveryResult, error) {
 	parsed, err := decodeConfig(cfg.Config)
 	if err != nil {
-		return err
+		return destinations.DeliveryResult{}, err
 	}
 
 	token, err := d.secrets.Resolve(parsed.TokenSecretName)
 	if err != nil {
-		return fmt.Errorf("paperless: resolve token secret %q: %w", parsed.TokenSecretName, err)
+		return destinations.DeliveryResult{}, fmt.Errorf("paperless: resolve token secret %q: %w", parsed.TokenSecretName, err)
 	}
 
 	body, contentType, err := buildUploadBody(doc, meta)
 	if err != nil {
-		return fmt.Errorf("paperless: build upload body: %w", err)
+		return destinations.DeliveryResult{}, fmt.Errorf("paperless: build upload body: %w", err)
 	}
 
 	endpoint := parsed.BaseURL + postDocumentPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
 	if err != nil {
-		return fmt.Errorf("paperless: build request for %s: %w", endpoint, err)
+		return destinations.DeliveryResult{}, fmt.Errorf("paperless: build request for %s: %w", endpoint, err)
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Token "+token) // token itself never logged/wrapped into an error message
@@ -203,13 +208,17 @@ func (d *destination) Deliver(ctx context.Context, doc destinations.Document, me
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("paperless: upload to %s: %w", endpoint, ErrTimeout)
+			return destinations.DeliveryResult{}, fmt.Errorf("paperless: upload to %s: %w", endpoint, ErrTimeout)
 		}
-		return fmt.Errorf("paperless: upload to %s: %w: %w", endpoint, ErrUnreachable, err)
+		return destinations.DeliveryResult{}, fmt.Errorf("paperless: upload to %s: %w: %w", endpoint, ErrUnreachable, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	return handleUploadResponse(resp)
+	taskID, err := handleUploadResponse(resp)
+	if err != nil {
+		return destinations.DeliveryResult{}, err
+	}
+	return destinations.DeliveryResult{Status: "submitted", Reference: taskID}, nil
 }
 
 // buildUploadBody assembles the multipart/form-data body Paperless's
@@ -299,31 +308,32 @@ type postDocumentResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-// handleUploadResponse classifies resp into nil (accepted for
-// consumption) or one of the package's sentinel errors, per design
-// sec. 5.3's "Response handling" and the sync/async framing in sec. 7.
-func handleUploadResponse(resp *http.Response) error {
+// handleUploadResponse classifies resp into the accepted task_id
+// (accepted for consumption) or one of the package's sentinel errors,
+// per design sec. 5.3's "Response handling" and the sync/async framing
+// in sec. 7. On error the returned string is always empty.
+func handleUploadResponse(resp *http.Response) (string, error) {
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 
 	switch {
 	case resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated:
 		if readErr != nil {
-			return fmt.Errorf("paperless: read response body: %w", readErr)
+			return "", fmt.Errorf("paperless: read response body: %w", readErr)
 		}
 		var parsed postDocumentResponse
 		if err := json.Unmarshal(body, &parsed); err != nil {
-			return fmt.Errorf("paperless: decode response body %q: %w: %w", trimBody(body), ErrInvalidResponse, err)
+			return "", fmt.Errorf("paperless: decode response body %q: %w: %w", trimBody(body), ErrInvalidResponse, err)
 		}
 		if parsed.TaskID == "" {
-			return fmt.Errorf("paperless: response missing task_id: %w", ErrInvalidResponse)
+			return "", fmt.Errorf("paperless: response missing task_id: %w", ErrInvalidResponse)
 		}
-		return nil
+		return parsed.TaskID, nil
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
-		return fmt.Errorf("paperless: upload rejected (%d): %s: %w", resp.StatusCode, trimBody(body), ErrRejected)
+		return "", fmt.Errorf("paperless: upload rejected (%d): %s: %w", resp.StatusCode, trimBody(body), ErrRejected)
 	case resp.StatusCode >= 500:
-		return fmt.Errorf("paperless: server error (%d): %s: %w", resp.StatusCode, trimBody(body), ErrServerError)
+		return "", fmt.Errorf("paperless: server error (%d): %s: %w", resp.StatusCode, trimBody(body), ErrServerError)
 	default:
-		return fmt.Errorf("paperless: unexpected status %d: %s", resp.StatusCode, trimBody(body))
+		return "", fmt.Errorf("paperless: unexpected status %d: %s", resp.StatusCode, trimBody(body))
 	}
 }
 

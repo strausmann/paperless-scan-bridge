@@ -14,9 +14,10 @@ import (
 // Register/Build. The Paperless module (a later task) gets its own
 // httptest.Server-backed tests instead of reusing this fake.
 type fakeDestination struct {
-	name       string
-	deliverErr error
-	calls      []fakeDeliverCall
+	name          string
+	deliverErr    error
+	deliverResult DeliveryResult
+	calls         []fakeDeliverCall
 }
 
 type fakeDeliverCall struct {
@@ -27,9 +28,12 @@ type fakeDeliverCall struct {
 
 func (f *fakeDestination) Name() string { return f.name }
 
-func (f *fakeDestination) Deliver(_ context.Context, doc Document, meta Metadata, cfg ProfileDestinationConfig) error {
+func (f *fakeDestination) Deliver(_ context.Context, doc Document, meta Metadata, cfg ProfileDestinationConfig) (DeliveryResult, error) {
 	f.calls = append(f.calls, fakeDeliverCall{doc: doc, meta: meta, cfg: cfg})
-	return f.deliverErr
+	if f.deliverErr != nil {
+		return DeliveryResult{}, f.deliverErr
+	}
+	return f.deliverResult, nil
 }
 
 // newFakeConstructor returns a Constructor that either fails with
@@ -221,7 +225,7 @@ func TestFakeDestinationDeliverRecordsCall(t *testing.T) {
 	meta := Metadata{Title: "Rechnung", TagIDs: []int{3, 7}}
 	cfg := ProfileDestinationConfig{Target: "fake-record", StorageFirst: false}
 
-	if err := fake.Deliver(context.Background(), doc, meta, cfg); err != nil {
+	if _, err := fake.Deliver(context.Background(), doc, meta, cfg); err != nil {
 		t.Fatalf("Deliver() error = %v, want nil", err)
 	}
 	if len(fake.calls) != 1 {
@@ -245,8 +249,33 @@ func TestFakeDestinationDeliverPropagatesError(t *testing.T) {
 	wantErr := errors.New("delivery failed")
 	fake := &fakeDestination{name: "fake-error", deliverErr: wantErr}
 
-	err := fake.Deliver(context.Background(), Document{}, Metadata{}, ProfileDestinationConfig{})
+	result, err := fake.Deliver(context.Background(), Document{}, Metadata{}, ProfileDestinationConfig{})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Deliver() error = %v, want %v", err, wantErr)
+	}
+	if result != (DeliveryResult{}) {
+		t.Fatalf("Deliver() result = %+v, want zero value on error", result)
+	}
+}
+
+// TestFakeDestinationDeliverReturnsResultOnSuccess covers the
+// DeliveryResult contract itself (Destination.Deliver returns
+// (DeliveryResult, error), not just error) — a destination's
+// Status/Reference must reach the caller unchanged on a nil error, so
+// higher layers (internal/api's deliverToDestination) can surface a
+// destination-specific reference such as Paperless's task_id in the
+// scan response (design doc sec. 8).
+func TestFakeDestinationDeliverReturnsResultOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	want := DeliveryResult{Status: "submitted", Reference: "task-abc-123"}
+	fake := &fakeDestination{name: "fake-result", deliverResult: want}
+
+	got, err := fake.Deliver(context.Background(), Document{}, Metadata{}, ProfileDestinationConfig{})
+	if err != nil {
+		t.Fatalf("Deliver() error = %v, want nil", err)
+	}
+	if got != want {
+		t.Fatalf("Deliver() result = %+v, want %+v", got, want)
 	}
 }

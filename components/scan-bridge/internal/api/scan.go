@@ -35,27 +35,15 @@ type scanRequest struct {
 type destinationResult struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // "submitted" or "failed"
-	// TaskID is Paperless's post_document/ task_id when Status is
-	// "submitted" against the paperless destination.
-	//
-	// FLAGGED GAP (see PR description): this field can never actually
-	// be populated by the current code. destinations.Destination.Deliver
-	// (internal/destinations/destination.go, already merged in Task 2)
-	// has the frozen signature `Deliver(ctx, doc, meta, cfg) error` —
-	// it returns only an error, never a result value. The paperless
-	// module (internal/destinations/paperless/paperless.go, already
-	// merged in Task 4) parses and validates Paperless's
-	// {"task_id": "..."} response internally (handleUploadResponse)
-	// but discards the task_id after validating it is non-empty —
-	// there is no channel back to the caller for it. Populating this
-	// field for real needs a follow-up task that extends the
-	// Destination interface (e.g. Deliver returning a
-	// DeliverResult{TaskID string} alongside the error), which is out
-	// of scope for wiring the already-merged Task 2/4 deliverables —
-	// changing their frozen contract was deliberately not done here.
-	// The field is left in the response shape (always empty for now,
-	// omitted from the JSON body via omitempty) so a future fix does
-	// not need another response-shape change.
+	// TaskID is a destination's own delivery reference for this
+	// document when Status is "submitted" — for the paperless
+	// destination, Paperless-ngx's post_document/ task_id
+	// (destinations.paperless.Deliver's DeliveryResult.Reference,
+	// design doc sec. 8). Sourced from
+	// destinations.Destination.Deliver's DeliveryResult return value
+	// (internal/destinations/destination.go); empty when the
+	// destination has no such reference to offer, or when Status is
+	// "failed".
 	TaskID string `json:"task_id,omitempty"`
 	// Error carries the destination's own error message when Status is
 	// "failed". A per-destination failure never aborts delivery to
