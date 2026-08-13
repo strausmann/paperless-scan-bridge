@@ -5,6 +5,14 @@ in four phases. It is updated as work progresses and serves both as a
 public statement of intent and as the source of truth for tracked
 issues.
 
+The bullets tagged `(vision)` below summarise a larger scan-system vision
+the operator described on 2026-08-13. The full epic breakdown, with each
+feature triaged as ready-to-build or still needing a decision and the
+exact open questions for the latter, lives in
+[`docs/roadmap/2026-08-13-scan-system-vision.md`](docs/roadmap/2026-08-13-scan-system-vision.md).
+This roadmap file stays the single-page overview; that document is the
+detail behind it.
+
 ## Status legend
 
 - `[ ]` not started
@@ -77,6 +85,48 @@ backup yet. Just the core path from trigger to document.
 NAS, and a Paperless-ngx instance can run the bootstrap script, send a
 single curl request, and see a PDF in Paperless within 30 seconds.
 
+### Phase 1.3 — Image processing, OCR, formats, page handling
+
+**Status: planned.** This sub-phase did not have its own checklist yet;
+the items below fill it in, including the profile "Baukasten" (building
+block) features from the 2026-08-13 vision. See the vision document for
+the full spec and open questions on each `(vision)` item.
+
+- `[ ]` `scan-processor` deskew, blank-page removal, PDF assembly (already
+   scoped in `ARCHITECTURE.md`, not yet built)
+- `[ ]` `(vision)` Per-profile OCR on/off, wiring the already-documented
+   optional `tesseract` pass to a profile flag instead of a single global
+   default — **Ready to dev**, see vision doc Epic A2
+- `[ ]` `(vision)` Output format: add `png` to the existing
+   `pdf`/`jpeg`/`tiff` set — **Ready to dev**, see vision doc Epic A3
+- `[ ]` `(vision)` Feeder behaviour: scan exactly one page vs. drain the
+   whole ADF (`max_pages`/`single_sheet` profile field) — **Ready to dev**,
+   see vision doc Epic A5
+- `[ ]` `(vision)` Multi-page result shape: one combined object vs. one
+   object per page, with destination-specific defaults — **Needs
+   clarification**, see vision doc Epic A6
+- `[ ]` `(vision)` Document type/kind → destination-specific labels and
+   actions (e.g. "Eingangsrechnung", "Post", "Verträge") — **Needs
+   clarification**, see vision doc Epic A7
+
+### Phase 1.4 — Web UI, profile management, remaining API surface
+
+**Status: planned.** Also did not have its own checklist yet.
+
+- `[ ]` Profile CRUD web UI, drag-and-drop ordering (already scoped in
+   issue #9 phase B, deferred there pending this phase)
+- `[ ]` Profiles move from YAML to a small database (ADR 0010's explicitly
+   deferred follow-up) — needed for `scan_count_total` and `display_order`
+- `[ ]` `scan_bridge_jobs_total`, per-stage duration histograms, queue
+   depth, per-profile usage metrics (already named as `TODO(phase 1.4)` in
+   `internal/metrics/metrics.go`)
+- `[ ]` `(vision)` Destination: upload to Paperless-ngx **or** fileee, and
+   to which account/target — **Needs clarification**, see vision doc
+   Epic A1 (interacts with ADR 0004)
+- `[ ]` `(vision)` OpenAPI 3.1 spec for scan-bridge (already referenced as
+   aspirational in `CONTAINER_SUITE.md` §4.4, not yet created) rendered
+   with Scalar on the docs site — **Ready to dev**, see vision doc Epic F1
+
 ## Phase 2 — Trigger paths and UI
 
 **Status: planned**
@@ -101,6 +151,56 @@ optional web UI for manual scans.
 a Zigbee button, and have the document appear in Paperless with the
 correct tags and metadata, all without touching a keyboard.
 
+### Phase 2 continued — Panel maturity (v3)
+
+**Status: planned.** The ESP32 panel (issue #9) already shipped ahead of
+this phase — a fixed 6-button landscape-only grid is running firmware
+today (`firmware/esp32-panel/cyd-scan-panel.yaml`). The items below are
+v3 additions from the 2026-08-13 vision, all firmware-side unless noted.
+
+- `[ ]` `(vision)` Configurable grid size (replacing the hard-coded 6
+   slots) — **Ready to dev**, see vision doc Epic B1
+- `[ ]` `(vision)` Paging buttons when more profiles exist than fit the
+   grid — **Ready to dev**, see vision doc Epic B2
+- `[ ]` `(vision)` Sorting: alphabetical / manual / usage-frequency /
+   mixed (static-pinned + frequency-sorted) — **Needs clarification**, see
+   vision doc Epic B3 (depends on the Phase 1.4 profile-database work)
+- `[ ]` `(vision)` Display rotation (portrait 240×320 in addition to the
+   current landscape 320×240 — already called out as a known gap in the
+   firmware's own README) — **Ready to dev**, see vision doc Epic B4
+- `[ ]` `(vision)` Scan-status shown prominently until completion
+   (extends the existing tap → LED/status-label behaviour) — **Ready to
+   dev**, see vision doc Epic B5
+- `[ ]` `(vision)` Chain-status indicator (green/red/blue) wired to
+   `GET /ready` once that endpoint's dispatch dependency lands (currently
+   `501`) — **Ready to dev, blocked on the already-planned `/ready`
+   endpoint**, see vision doc Epic B6
+
+### Phase 2 continued — Scanner power management
+
+**Status: planned.** New surface — no existing code or ADR touches power
+control today.
+
+- `[ ]` `(vision)` Power the scanner on for a job via a
+   Zigbee2MQTT-compatible smart plug (e.g. Tasmota Nous A1/A5) — **Needs
+   clarification**, see vision doc Epic C1 (control path, owning
+   component, target device model all open)
+- `[ ]` `(vision)` Auto-off after a configurable idle period — **Needs
+   clarification**, see vision doc Epic C2 (depends on C1)
+
+### Phase 2 continued — Firmware OTA
+
+**Status: planned.** The panel firmware already has passwordless OTA
+support (the mechanism to push an update); nothing detects availability
+yet.
+
+- `[ ]` `(vision)` On-screen "update available" indicator, tap to update
+   — **Needs clarification**, see vision doc Epic E1 (source of the
+   "new version exists" signal is undecided, and conflicts with the
+   firmware's deliberate no-`api:` design — see Epic D2)
+- `[ ]` `(vision)` Scheduled automatic-update window (e.g. nightly at
+   4am) — **Ready to dev once E1 is resolved**, see vision doc Epic E2
+
 ## Phase 3 — Production hardening
 
 **Status: planned**
@@ -114,6 +214,15 @@ security, automated updates, and disaster recovery testing.
 - `[ ]` Monthly automated restore test in CI (against ephemeral VM)
 - `[ ]` Prometheus exporter for scan-bridge metrics
 - `[ ]` Custom Grafana dashboard for scan pipeline observability
+- `[ ]` `(vision)` Scan-count database + additional metrics readable in
+   Home Assistant — **Needs clarification**, see vision doc Epic D1
+   (exposure path: HA's native Prometheus scraping of the existing
+   metrics endpoint vs. push-based MQTT discovery sensors)
+- `[ ]` `(vision)` Smarthome status: firmware update availability,
+   version, connection status — **Needs clarification**, see vision doc
+   Epic D2 (in tension with the panel firmware's deliberate no-`api:`
+   design; likely resolution is that `scan-bridge`, not the panel, is the
+   single source of truth for Home Assistant)
 - `[ ]` Synthetic health check container that scans a test PDF hourly
 - `[ ]` SSH hardening Ansible role for the Pi
 - `[ ]` Unattended-upgrades configuration
