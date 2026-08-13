@@ -1,11 +1,18 @@
-# CYD scan-control panel firmware (v1)
+# CYD scan-control panel firmware (v2, secret-free)
 
 ESPHome firmware for a wall-/desk-mountable touch panel that lists the
 scan-bridge's configured scan profiles and triggers a scan over HTTP. See
 [Issue #9](https://github.com/strausmann/paperless-scan-bridge/issues/9)
-for the full design (this firmware implements phase D, "Firmware", against
-the API shape currently live on the bridge — see "v1 scope and known
-limitations" below for what is deferred).
+for the full design — this firmware implements phase D ("Firmware") and
+phase E ("Build & distribution") against the API shape currently live on
+the bridge; see "Scope and known limitations" below for what is deferred.
+
+**This build carries no secrets.** Wi-Fi credentials, the bridge URL and
+the bearer token are never build-time values — see "Secret-free firmware"
+below. That is what makes it possible to distribute one public binary via
+the browser-based [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
+installer (published on the project's docs site), instead of everyone
+having to compile their own firmware with `esphome`.
 
 ## Board
 
@@ -17,126 +24,192 @@ revision; the pin map in `cyd-scan-panel.yaml` will not match other CYD
 variants (e.g. the ESP32-2432S024 or the capacitive-touch ESP32-8048
 boards) or generic ESP32 dev boards with a bolted-on display.
 
+## Secret-free firmware
+
+Nothing in `cyd-scan-panel.yaml` is a `!secret` and there is no
+`secrets.yaml` in this directory — `esphome config`/`esphome compile` run
+against it as-is. What used to be build-time values are now one of two
+things:
+
+- **Wi-Fi station credentials** — provisioned entirely at runtime via
+  [Improv Wi-Fi](https://www.improv-wifi.com/) (`esp32_improv` over BLE,
+  `improv_serial` over the same USB-serial connection used for flashing).
+  ESP Web Tools drives this in the browser right after flashing. Nothing
+  Wi-Fi-related is ever compiled into the binary.
+- **Bridge URL and bearer token** — two `text` entities (`Bridge URL`,
+  `Bridge Token`) that persist to flash (`restore_value: true`) and are
+  set from the panel's own **on-device web dashboard** (`web_server:`,
+  reachable at the panel's IP once it has Wi-Fi) — no re-flash needed to
+  change either. `Bridge URL` defaults to `http://hhplex01:18080` (this
+  project's own LAN address, purely a convenience default, not a
+  secret); every flasher is expected to change it to their own bridge's
+  address. `Bridge Token` starts **empty** on a freshly flashed panel —
+  see "Configuration" below.
+
+This is why a single compiled `.factory.bin` can be safely published for
+anyone to flash: it identifies no network, no bridge, and no credential
+until someone sets them on their own device, after their own flash.
+
 ## Prerequisites
+
+**Browser flashing (recommended for most people):** Chrome or Edge
+(Web Serial support), a USB-A-to-USB-C (or micro-USB, depending on the
+board revision) cable, and the installer page on the project's docs site
+— see Issue #9 for the link once phase E lands. No local toolchain.
+
+**Building from source (for firmware development):**
 
 - [ESPHome](https://esphome.io/) **≥ 2024.5.0** (the `http_request`
   action syntax used here — `http_request.get`/`http_request.post` with
-  `on_response`/`on_error` — needs that version or newer). Install with
-  `pip install esphome` or use the ESPHome Docker image; see the
+  `on_response`/`on_error` — needs that version or newer; verified here
+  against 2026.7.4). Install with `pip install esphome` or use the
+  ESPHome Docker image; see the
   [ESPHome installation docs](https://esphome.io/guides/installing_esphome).
-- A USB-A-to-USB-C (or micro-USB, depending on the board revision) cable
-  for the first flash.
+- A USB-A-to-USB-C (or micro-USB) cable for the first flash.
 - Network access from wherever you run `esphome` to the board over USB,
   and later over Wi-Fi for OTA updates.
 
-## Configuration: secrets
-
-Copy the example file and fill in real values:
-
-```bash
-cp secrets.yaml.example secrets.yaml
-```
-
-`secrets.yaml` is gitignored — it never gets committed.
-
-| Key                  | Value                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `wifi_ssid`/`wifi_password` | Your normal Wi-Fi credentials.                                                       |
-| `ap_password`         | Password for the panel's fallback SoftAP (shown as `<friendly name> Setup`).             |
-| `api_encryption_key`  | Random 32-byte key, base64-encoded, for the ESPHome native API. Generate with `python3 -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"`. |
-| `ota_password`        | Password for OTA updates after the first flash.                                          |
-| `bridge_token`        | Bearer token for the scan-bridge API. **Source:** the Vaultwarden item *"paperless-scan-bridge test token (hhplex01)"*. Ask whoever manages the HomeLab Vaultwarden instance for read access if you don't have it. |
-
-The bridge base URL (`http://hhplex01:18080` by default) is **not** a
-secret — it is a `substitutions:` value in `cyd-scan-panel.yaml` itself.
-Override it there (or with `esphome run --substitution
-bridge_base_url=...`) if your bridge runs somewhere else.
-
 ## Flashing
 
-First flash, over USB, from this directory:
+**Browser (ESP Web Tools):** open the installer page, click Install,
+pick the serial port — the browser flashes the CI-built
+`cyd-scan-panel.factory.bin` directly, no local toolchain. The installer
+flow continues straight into Improv Wi-Fi provisioning in the same
+browser tab.
+
+**From source, over USB, from this directory:**
 
 ```bash
 esphome run cyd-scan-panel.yaml
 ```
 
-This compiles the firmware and flashes it over the serial connection
-(pick the USB port when prompted). [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
-(browser-based flashing over Web Serial, no local toolchain) is a later
-option once a hosted `manifest.json` exists for this firmware — not part
-of v1.
-
-After the first flash, subsequent updates can go over the air:
+After the first flash, subsequent updates can go over the air (see
+"Security model" below for why OTA has no password):
 
 ```bash
 esphome upload cyd-scan-panel.yaml
 ```
 
-## First boot: Wi-Fi provisioning
+## Configuration: runtime settings
 
-The firmware ships with [Improv Wi-Fi](https://www.improv-wifi.com/)
-provisioning over both BLE and the same USB-serial connection used for
-flashing (`esp32_improv` + `improv_serial`). If the panel cannot join
-`wifi_ssid` from `secrets.yaml`, it also starts a fallback SoftAP named
-`<friendly name> Setup` with `ap_password` — connect to that and use the
-captive portal to configure Wi-Fi manually.
+Nothing to copy or fill in before flashing — everything below happens
+**after** the flash, on the running device:
+
+1. **Wi-Fi:** ESP Web Tools drives Improv Wi-Fi provisioning right after
+   flashing (pick your network, enter the password, in the browser). If
+   the panel can't join any configured network — first boot before
+   provisioning, or a Wi-Fi outage — it starts a fallback SoftAP named
+   `<friendly name> Setup` (password `panelsetup`, the same on every
+   unit — see "Security model"); connect to that and use the captive
+   portal to configure Wi-Fi manually.
+2. **Bridge URL and Bridge Token:** once the panel has an IP, open
+   `http://<panel-ip>/` in a browser — that's the on-device `web_server`
+   dashboard. Set **Bridge URL** to your scan-bridge's address (default
+   is this project's own `http://hhplex01:18080`) and **Bridge Token**
+   to the bridge's bearer token (**source:** the Vaultwarden item
+   *"paperless-scan-bridge test token (hhplex01)"* for this project's own
+   deployment; ask whoever manages your HomeLab Vaultwarden instance for
+   read access if you don't have it, or use your own bridge's token).
+   Both persist across reboots. Until **both** are set, the profile grid
+   stays empty and tapping a (non-existent) button is a no-op — see
+   `do_scan`'s guard in `cyd-scan-panel.yaml`.
 
 ## Touch calibration (required after first flash)
 
 The XPT2046 calibration values in `cyd-scan-panel.yaml`
-(`calibration_x_min`/`_max`, `calibration_y_min`/`_max`) are
+(`calibration.x_min`/`x_max`, `calibration.y_min`/`y_max`) are
 **placeholders** — every physical panel needs its own calibration.
 After flashing:
 
-1. Watch the logs (`esphome logs cyd-scan-panel.yaml`) while tapping
-   each corner of the screen and note the raw touch coordinates ESPHome
-   reports.
-2. Update the four `calibration_*` values in `cyd-scan-panel.yaml` to
-   match, and re-flash.
+1. Watch the logs (`esphome logs cyd-scan-panel.yaml`, or the ESP Web
+   Tools installer's built-in log view) while tapping each corner of the
+   screen and note the raw touch coordinates ESPHome reports.
+2. Update the four `calibration.*` values in `cyd-scan-panel.yaml` to
+   match, and re-flash (over USB or OTA).
 3. Verify all six button slots respond accurately across the whole
    screen, not just near the calibration points you tested.
 
-There is no on-device calibration wizard in v1 — see "Known limitations"
-below.
+There is no on-device calibration wizard — see "Scope and known
+limitations" below. This step still needs the source tree and a local
+`esphome` install; it is not something the browser installer alone can
+do (calibration values are compiled into the binary, not runtime state).
 
-## Plain HTTP (not TLS)
+## Security model
 
-`cyd-scan-panel.yaml` sets `verify_ssl: false` and talks to
-`http://hhplex01:18080` (plain HTTP) by default. This is intentional for
-v1: the bridge is only reachable on the LAN today, and the bearer token
-therefore only ever travels over the local network, not the public
-internet. **If the bridge is ever put behind a TLS-terminating reverse
-proxy** (Traefik, a Pangolin resource, etc.), change `bridge_base_url` to
-`https://...` and remove `verify_ssl: false` (or point it at the right
-CA) so the token is not sent in the clear over an untrusted path.
+This is a home-lab panel on a trusted LAN, not a hardened public-facing
+device — every decision below trades convenience/distributability for a
+security posture that would be unacceptable outside that context. If you
+deploy this on a network you don't fully trust, treat all of the
+following as things to change first:
 
-## v1 scope and known limitations
+- **Plain HTTP, not TLS.** `cyd-scan-panel.yaml` sets `verify_ssl: false`
+  and the Bridge URL default is plain `http://`. The bearer token
+  therefore travels in the clear, but only over the LAN. **If the bridge
+  is ever put behind a TLS-terminating reverse proxy** (Traefik, a
+  Pangolin resource, etc.), set the Bridge URL text entity to
+  `https://...` and remove `verify_ssl: false` (or point it at the right
+  CA) so the token is not sent in the clear over an untrusted path.
+- **No `api:` block (no ESPHome native API).** A public binary cannot
+  embed a per-device encryption key, and the panel doesn't need Home
+  Assistant discovery — it's purely an HTTP client of the bridge. If you
+  want HA integration, add your own `api: encryption: key: !secret ...`
+  locally (that reintroduces the need for a local `secrets.yaml`, which
+  is fine for a private build, just not for the published binary).
+- **OTA has no password.** Same reasoning as `api:` — no fixed shared
+  secret in a public binary, and no per-device way to set one before the
+  first flash. Anyone who can reach the panel's IP on the LAN can push
+  new firmware over the air. Re-flashing over USB via the installer page
+  is always available as an alternative that doesn't depend on this.
+- **The SoftAP setup password (`panelsetup`) is the same on every
+  unit.** It only protects the temporary fallback hotspot that appears
+  while the panel has no working Wi-Fi — not the bridge and not the
+  panel's own dashboard. It cannot be anything else in a build that
+  ships as one binary for everyone.
+- **The on-device web dashboard has no login.** `web_server:` is
+  unauthenticated — anyone on the LAN who can reach the panel's IP can
+  read/change Bridge URL, Bridge Token, and Wi-Fi. `local: true` keeps
+  its JS/CSS self-contained in the firmware image (no fetch to
+  `esphome.io` at runtime), consistent with this project's "no cloud
+  dependencies for core functionality" principle — that is a
+  self-hosting choice, not an auth mechanism.
+- **Improv provisioning has no physical confirmation step**
+  (`authorizer: none`). Anyone with local BLE or serial access to the
+  panel during a Wi-Fi provisioning window can set its network.
 
-This is a first, deliberately minimal implementation. What it does:
+None of this is new risk introduced by going secret-free — v1 already
+accepted the plain-HTTP/LAN-only trust model and unauthenticated Improv;
+v2 extends the same posture to the two components (`api:`, OTA) that
+previously depended on a build-time secret only the original builder
+had, which was fine (a self-built, self-flashed device) but incompatible
+with a publicly downloadable binary.
 
-- Reads the scan profiles from `GET /profiles` on boot and every 30s,
-  and fills up to **six** fixed button slots (name as the button label,
-  description as a smaller sub-label), hiding any slots beyond the
-  number of profiles returned. The bridge currently exposes exactly one
-  profile ("default"); more profiles show up automatically, up to six.
-- Shows a "Bridge: OK/ERR/--" indicator (from `GET /health`, polled
-  every 15s) and a "WiFi: OK/--" indicator in the top bar.
+## Scope and known limitations
+
+What it does:
+
+- Reads the scan profiles from `GET /profiles` on boot and every 30s
+  (once Bridge URL and Bridge Token are both set), and fills up to
+  **six** fixed button slots (name as the button label, description as
+  a smaller sub-label), hiding any slots beyond the number of profiles
+  returned. The bridge currently exposes exactly one profile
+  ("default"); more profiles show up automatically, up to six.
+- Shows a "Bridge: OK/ERR/--/not set" indicator (from `GET /health`,
+  polled every 15s — only Bridge URL is required for this, not the
+  token) and a "WiFi: OK/--" indicator in the top bar.
 - Tapping a profile button sends `POST /scan {"profile": "<name>"}` with
   the bearer token, disables all six buttons and turns the status LED
-  amber while the request is in flight, then shows the result: green
-  flash + "Done: `<profile>`" on `200`, "No paper in feeder" (amber-red)
-  on `422`, "Unauthorized" on `401`/`403`, "Unknown profile" on `404`,
-  a generic "Error `<code>`" otherwise, and "Bridge unreachable" on a
-  network-level failure (timeout, DNS, connection refused).
+  amber while the request is in flight, then shows the result and
+  **resets the LED and status label back to idle after a delay in every
+  case** — green flash + "Done: `<profile>`" on `200` (2s), "No paper in
+  feeder" (amber-red) on `422` (4s), "Unauthorized" on `401`/`403` (4s),
+  "Unknown profile" on `404` (4s), a generic "Error `<code>`" otherwise
+  (4s), and "Bridge unreachable" on a network-level failure (timeout,
+  DNS, connection refused; 4s). Earlier revisions only reset after
+  success and left error states on screen indefinitely.
 
-What it deliberately does **not** do yet (see Issue #9, phases beyond
-"D — Firmware"):
+What it deliberately does **not** do yet (see Issue #9 for phases beyond
+D/E):
 
-- **No on-device web config portal.** The bridge URL, bearer token,
-  Wi-Fi credentials, and layout are all **build-time** values (Wi-Fi via
-  Improv is the one exception — that part is runtime, everything else
-  needs a re-flash to change). A runtime settings UI (like BambuHelper)
-  is tracked as a follow-up in Issue #9, not part of this firmware.
 - **No portrait layout.** Only the 320x240 landscape 2x3 grid described
   in Issue #9's mockups is implemented; portrait (240x320, 1-column) is
   a later option.
@@ -153,15 +226,13 @@ What it deliberately does **not** do yet (see Issue #9, phases beyond
   `description`, so that's all this firmware reads; profile order is
   whatever the bridge returns (append-order today, no client-side
   sorting).
-- **Improv provisioning has no physical confirmation step**
-  (`authorizer: none`). Anyone with local BLE or serial access to the
-  panel during a Wi-Fi provisioning window can set its network. Fine for
-  a LAN-only panel in a private home; revisit if that assumption ever
-  changes.
+- **Per-unit touch calibration still needs a re-flash** (see "Touch
+  calibration" above) — there is no on-device calibration wizard. This
+  is the one setup step the browser installer alone cannot finish.
 - **LVGL buffer sizing has not been hardware-verified.** The board has
   no PSRAM, and the LVGL/display defaults used here (no explicit
   `lvgl: buffer_size:` override) have not been confirmed against real
-  RAM headroom on physical hardware — if `esphome run` reports a memory
+  RAM headroom on physical hardware — if flashing reports a memory
   allocation failure, tuning the buffer size is the first thing to try.
 
 ## Hardware verification status
@@ -170,10 +241,15 @@ What it deliberately does **not** do yet (see Issue #9, phases beyond
 display/touch options, and backlight/LED wiring in `cyd-scan-panel.yaml`
 are cross-verified against multiple cited working ESP32-2432S028R
 ESPHome configurations, and (where `esphome` is available) the config
-passes `esphome config` (schema/substitution lint — see the PR that
-introduced this firmware for the exact command and output). None of that
-is a substitute for flashing it to an actual board. Please report back
-(open a follow-up issue referencing #9) once you've flashed it — in
-particular the touch calibration values, whether the LVGL memory budget
-is fine as-is, and whether all six button slots render and respond
-correctly.
+passes `esphome config`/`esphome compile` — see the PR that introduced
+the secret-free build for the exact command and output. None of that is
+a substitute for flashing it to an actual board, and the browser
+installer path in particular (Improv-over-Web-Serial handoff, the
+on-device dashboard actually being reachable and usable from a phone or
+laptop on the LAN) has **no** verification beyond "the firmware compiles
+and the manifest is well-formed" — it needs a real flash to confirm.
+Please report back (open a follow-up issue referencing #9) once you've
+flashed it — in particular the touch calibration values, whether the
+LVGL memory budget is fine as-is, whether all six button slots render
+and respond correctly, and whether the ESP Web Tools + Improv +
+dashboard flow works end-to-end from a browser.

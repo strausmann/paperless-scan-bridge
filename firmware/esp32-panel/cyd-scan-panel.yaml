@@ -1,10 +1,16 @@
 # ESPHome firmware for the ESP32-2432S028R ("Cheap Yellow Display" / CYD)
 # scan-control panel — Issue #9.
 #
-# v1 scope: build-time configuration (Wi-Fi, bridge URL, bearer token via
-# ESPHome secrets), fixed 6-button landscape grid populated at runtime from
-# GET /profiles, tap-to-scan via POST /scan. See README.md for flashing,
-# the mandatory post-flash touch calibration, and known v1 limitations.
+# v2 scope: secret-free, runtime configuration. This firmware carries no
+# Wi-Fi credentials, bridge URL, or bearer token at build time — it ships
+# as one public binary via the browser-based ESP Web Tools installer
+# (Issue #9, phase E). Wi-Fi is provisioned in-browser via Improv right
+# after flashing; the bridge URL and bearer token are `text` entities
+# held in flash (NVS) and set from the panel's own `web_server`
+# dashboard afterwards. Fixed 6-button landscape grid populated at
+# runtime from GET /profiles, tap-to-scan via POST /scan. See README.md
+# for flashing, the mandatory post-flash touch calibration, and known
+# limitations.
 #
 # Hardware bring-up values below (pins, SPI buses, display/touch options)
 # are cross-verified for the ESP32-2432S028R and must not be changed
@@ -14,7 +20,7 @@
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
-  comment: "paperless-scan-bridge CYD scan-control panel (v1, Issue #9)"
+  comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free)"
   min_version: "2024.5.0"
   on_boot:
     priority: -100
@@ -30,36 +36,39 @@ esp32:
 substitutions:
   name: cyd-scan-panel
   friendly_name: "Scan Panel"
-  # LAN base URL of the scan-bridge container. Plain HTTP is intentional
-  # for v1 (LAN-only deployment) — see README.md "Plain HTTP" section.
-  bridge_base_url: "http://hhplex01:18080"
-  # Pulled from secrets.yaml so it can be referenced with ${bridge_token}
-  # inside lambda strings below (substitutions are textually expanded
-  # before the lambda body is compiled).
-  bridge_token: !secret bridge_token
 
 logger:
   baud_rate: 115200
 
-# Native ESPHome API + OTA, both secret-gated. Needed for normal
-# operation (Home Assistant discovery, remote logs) and firmware updates
-# after the initial USB flash.
-api:
-  encryption:
-    key: !secret api_encryption_key
+# No `api:` block. This build carries no fixed native-API encryption key
+# (a public binary cannot embed a per-device secret), and the panel does
+# not need Home Assistant discovery — it is purely an HTTP client of the
+# scan-bridge (see README.md "Security model"). `web_server:` below does
+# not require `api:` to be present.
 
+# OTA with no fixed password: a public binary cannot ship a shared
+# secret either, and per-device OTA passwords are out of scope for v2
+# (no on-device way to set one before the first flash). OTA is therefore
+# LAN-trust, same posture as the plain-HTTP bridge token below — see
+# README.md "Security model". Re-flashing over USB via the same
+# installer page is always available regardless.
 ota:
   - platform: esphome
-    password: !secret ota_password
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  # SoftAP fallback if the panel cannot join wifi_ssid (first boot before
-  # Improv provisioning, or a Wi-Fi outage). WPA2 needs >= 8 chars.
+  # No `ssid:`/`password:` here on purpose — this is the whole point of
+  # "secret-free": Wi-Fi station credentials are never build-time values.
+  # `esp32_improv`/`improv_serial` below provision them into NVS after
+  # flashing (ESP Web Tools drives this in the browser); `ap:` is the
+  # fallback hotspot for as long as no station network is configured yet
+  # (or the last-known one is unreachable). WPA2 needs >= 8 chars; this
+  # password is the same on every unit by construction (it is baked into
+  # a public binary) and only protects the temporary setup-mode hotspot,
+  # not the bridge or the panel's own dashboard — see README.md
+  # "Security model".
   ap:
     ssid: "${friendly_name} Setup"
-    password: !secret ap_password
+    password: "panelsetup"
   on_connect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -76,23 +85,62 @@ captive_portal:
 # Wi-Fi in one browser flow. authorizer: none — this panel has no
 # physical confirmation button; anyone with local BLE/serial access
 # during first boot can provision it. Acceptable for a LAN-only panel
-# in v1 (see README.md "Known limitations").
+# (see README.md "Security model").
 esp32_improv:
   authorizer: none
 
 improv_serial:
 
+# Runtime dashboard: lets the bridge URL / bearer token `text` entities
+# below (and Wi-Fi re-provisioning) be set from a browser pointed at the
+# panel's own IP, no re-flash needed. `local: true` bundles the
+# dashboard's JS/CSS in the firmware image itself instead of fetching
+# them from esphome.io at runtime — consistent with this project's "no
+# cloud dependencies for core functionality" principle (CLAUDE.md): the
+# panel's own config UI must work from a browser with no other internet
+# access than the LAN it shares with the panel.
+web_server:
+  version: 3
+  local: true
+
 http_request:
   id: http
   useragent: "esphome/cyd-scan-panel"
   timeout: 8s
-  # v1 is plain HTTP on the LAN (hhplex01:18080), so there is no TLS
-  # certificate to verify. If the bridge ever moves behind a TLS-
-  # terminating proxy, switch bridge_base_url to https:// and remove
-  # this (or point verify_ssl at a real CA).
+  # Plain HTTP is intentional (LAN-only deployment) — see README.md
+  # "Security model". If the bridge ever moves behind a TLS-terminating
+  # proxy, set the Bridge URL text entity to https://... and remove this
+  # (or point verify_ssl at a real CA).
   verify_ssl: false
 
 json:
+
+# ---------------------------------------------------------------------
+# Runtime configuration. Replaces the v1 build-time `substitutions:` /
+# `!secret` values for the bridge connection. Both entities persist to
+# flash (`restore_value: true`) and are editable from the `web_server`
+# dashboard above at the panel's IP — no re-flash needed to change
+# either. `initial_value` on Bridge URL is a convenience default for
+# this project's own LAN, not a secret; every flasher is expected to
+# change it. Bridge Token has no `initial_value` — it starts empty on a
+# freshly flashed, never-configured panel, which is exactly the state
+# the guards in the scripts below check for.
+# ---------------------------------------------------------------------
+
+text:
+  - platform: template
+    name: "Bridge URL"
+    id: bridge_url
+    optimistic: true
+    restore_value: true
+    initial_value: "http://hhplex01:18080"
+    mode: text
+  - platform: template
+    name: "Bridge Token"
+    id: bridge_token
+    optimistic: true
+    restore_value: true
+    mode: password
 
 # ---------------------------------------------------------------------
 # Board bring-up: two independent SPI buses (mandatory on the CYD — the
@@ -280,6 +328,35 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
+  # http_request's `url:` and `request_headers:` templatable fields
+  # compile down to a `const char *` return, not `std::string` (confirmed
+  # by `esphome compile`, not just `esphome config` — the two do not
+  # catch the same bugs). Returning `.c_str()` off a temporary built
+  # in-place in the same return statement would dangle: the temporary is
+  # destroyed at the end of that full expression, before the caller
+  # reads the pointer. These globals give each computed URL/header a
+  # lifetime that outlives the return — set one lambda action ahead of
+  # the http_request action that reads it, never across a `delay:`.
+  - id: profiles_url
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: profiles_auth
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: health_url
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: scan_url
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: scan_auth
+    type: std::string
+    restore_value: false
+    initial_value: '""'
 
 # ---------------------------------------------------------------------
 # scan-bridge HTTP calls. Kept as scripts so both on_boot and the
@@ -290,237 +367,303 @@ script:
   - id: refresh_profiles
     mode: restart
     then:
-      - http_request.get:
-          url: "${bridge_base_url}/profiles"
-          request_headers:
-            Authorization: !lambda 'return std::string("Bearer ${bridge_token}");'
-          capture_response: true
-          on_response:
-            then:
-              - lambda: |-
-                  if (response->status_code != 200) {
-                    ESP_LOGW("panel", "GET /profiles failed: %d", response->status_code);
-                    return;
-                  }
-                  json::parse_json(body, [](JsonObject root) -> bool {
-                    if (!root["profiles"].is<JsonArray>()) {
-                      ESP_LOGW("panel", "GET /profiles: unexpected body shape");
-                      return false;
-                    }
-                    JsonArray arr = root["profiles"];
-                    const size_t max_slots = 6;
-                    size_t count = arr.size() < max_slots ? arr.size() : max_slots;
-                    id(profile_count) = static_cast<int>(count);
+      # Nothing to fetch without both a bridge URL and a bearer token —
+      # skip the request rather than firing it at an empty/default
+      # target. Slots simply stay hidden (profile_count stays at its
+      # initial 0) until both are set from the web_server dashboard.
+      - if:
+          condition:
+            lambda: "return !id(bridge_url).state.empty() && !id(bridge_token).state.empty();"
+          then:
+            - lambda: |-
+                id(profiles_url) = id(bridge_url).state + "/profiles";
+                id(profiles_auth) = std::string("Bearer ") + id(bridge_token).state;
+            - http_request.get:
+                url: !lambda 'return id(profiles_url).c_str();'
+                request_headers:
+                  Authorization: !lambda 'return id(profiles_auth).c_str();'
+                capture_response: true
+                on_response:
+                  then:
+                    - lambda: |-
+                        if (response->status_code != 200) {
+                          ESP_LOGW("panel", "GET /profiles failed: %d", response->status_code);
+                          return;
+                        }
+                        json::parse_json(body, [](JsonObject root) -> bool {
+                          if (!root["profiles"].is<JsonArray>()) {
+                            ESP_LOGW("panel", "GET /profiles: unexpected body shape");
+                            return false;
+                          }
+                          JsonArray arr = root["profiles"];
+                          const size_t max_slots = 6;
+                          size_t count = arr.size() < max_slots ? arr.size() : max_slots;
+                          id(profile_count) = static_cast<int>(count);
 
-                    std::string names[max_slots];
-                    std::string descs[max_slots];
-                    for (size_t i = 0; i < count; i++) {
-                      JsonObject p = arr[i];
-                      names[i] = p["name"] | std::string("");
-                      descs[i] = p["description"] | std::string("");
-                    }
-                    id(slot_name_0) = count > 0 ? names[0] : "";
-                    id(slot_name_1) = count > 1 ? names[1] : "";
-                    id(slot_name_2) = count > 2 ? names[2] : "";
-                    id(slot_name_3) = count > 3 ? names[3] : "";
-                    id(slot_name_4) = count > 4 ? names[4] : "";
-                    id(slot_name_5) = count > 5 ? names[5] : "";
-                    id(slot_desc_0) = count > 0 ? descs[0] : "";
-                    id(slot_desc_1) = count > 1 ? descs[1] : "";
-                    id(slot_desc_2) = count > 2 ? descs[2] : "";
-                    id(slot_desc_3) = count > 3 ? descs[3] : "";
-                    id(slot_desc_4) = count > 4 ? descs[4] : "";
-                    id(slot_desc_5) = count > 5 ? descs[5] : "";
-                    return true;
-                  });
-              # Push the parsed globals into the fixed LVGL slots. Split
-              # out of the parsing lambda above on purpose — see the PR
-              # description for why (LVGL widget updates go through the
-              # documented lvgl.* actions, not raw pointers from inside
-              # a JSON-parsing callback).
-              - lvgl.widget.update:
-                  id: slot0_btn
-                  hidden: !lambda "return id(profile_count) < 1;"
-              - lvgl.label.update:
-                  id: slot0_label
-                  text: !lambda "return id(slot_name_0);"
-              - lvgl.label.update:
-                  id: slot0_sub_label
-                  text: !lambda "return id(slot_desc_0);"
-              - lvgl.widget.update:
-                  id: slot1_btn
-                  hidden: !lambda "return id(profile_count) < 2;"
-              - lvgl.label.update:
-                  id: slot1_label
-                  text: !lambda "return id(slot_name_1);"
-              - lvgl.label.update:
-                  id: slot1_sub_label
-                  text: !lambda "return id(slot_desc_1);"
-              - lvgl.widget.update:
-                  id: slot2_btn
-                  hidden: !lambda "return id(profile_count) < 3;"
-              - lvgl.label.update:
-                  id: slot2_label
-                  text: !lambda "return id(slot_name_2);"
-              - lvgl.label.update:
-                  id: slot2_sub_label
-                  text: !lambda "return id(slot_desc_2);"
-              - lvgl.widget.update:
-                  id: slot3_btn
-                  hidden: !lambda "return id(profile_count) < 4;"
-              - lvgl.label.update:
-                  id: slot3_label
-                  text: !lambda "return id(slot_name_3);"
-              - lvgl.label.update:
-                  id: slot3_sub_label
-                  text: !lambda "return id(slot_desc_3);"
-              - lvgl.widget.update:
-                  id: slot4_btn
-                  hidden: !lambda "return id(profile_count) < 5;"
-              - lvgl.label.update:
-                  id: slot4_label
-                  text: !lambda "return id(slot_name_4);"
-              - lvgl.label.update:
-                  id: slot4_sub_label
-                  text: !lambda "return id(slot_desc_4);"
-              - lvgl.widget.update:
-                  id: slot5_btn
-                  hidden: !lambda "return id(profile_count) < 6;"
-              - lvgl.label.update:
-                  id: slot5_label
-                  text: !lambda "return id(slot_name_5);"
-              - lvgl.label.update:
-                  id: slot5_sub_label
-                  text: !lambda "return id(slot_desc_5);"
-          on_error:
-            then:
-              - lambda: 'ESP_LOGW("panel", "GET /profiles: request failed");'
+                          std::string names[max_slots];
+                          std::string descs[max_slots];
+                          for (size_t i = 0; i < count; i++) {
+                            JsonObject p = arr[i];
+                            names[i] = p["name"] | std::string("");
+                            descs[i] = p["description"] | std::string("");
+                          }
+                          id(slot_name_0) = count > 0 ? names[0] : "";
+                          id(slot_name_1) = count > 1 ? names[1] : "";
+                          id(slot_name_2) = count > 2 ? names[2] : "";
+                          id(slot_name_3) = count > 3 ? names[3] : "";
+                          id(slot_name_4) = count > 4 ? names[4] : "";
+                          id(slot_name_5) = count > 5 ? names[5] : "";
+                          id(slot_desc_0) = count > 0 ? descs[0] : "";
+                          id(slot_desc_1) = count > 1 ? descs[1] : "";
+                          id(slot_desc_2) = count > 2 ? descs[2] : "";
+                          id(slot_desc_3) = count > 3 ? descs[3] : "";
+                          id(slot_desc_4) = count > 4 ? descs[4] : "";
+                          id(slot_desc_5) = count > 5 ? descs[5] : "";
+                          return true;
+                        });
+                    # Push the parsed globals into the fixed LVGL slots.
+                    # Split out of the parsing lambda above on purpose —
+                    # see the PR description for why (LVGL widget
+                    # updates go through the documented lvgl.* actions,
+                    # not raw pointers from inside a JSON-parsing
+                    # callback).
+                    - lvgl.widget.update:
+                        id: slot0_btn
+                        hidden: !lambda "return id(profile_count) < 1;"
+                    - lvgl.label.update:
+                        id: slot0_label
+                        text: !lambda "return id(slot_name_0);"
+                    - lvgl.label.update:
+                        id: slot0_sub_label
+                        text: !lambda "return id(slot_desc_0);"
+                    - lvgl.widget.update:
+                        id: slot1_btn
+                        hidden: !lambda "return id(profile_count) < 2;"
+                    - lvgl.label.update:
+                        id: slot1_label
+                        text: !lambda "return id(slot_name_1);"
+                    - lvgl.label.update:
+                        id: slot1_sub_label
+                        text: !lambda "return id(slot_desc_1);"
+                    - lvgl.widget.update:
+                        id: slot2_btn
+                        hidden: !lambda "return id(profile_count) < 3;"
+                    - lvgl.label.update:
+                        id: slot2_label
+                        text: !lambda "return id(slot_name_2);"
+                    - lvgl.label.update:
+                        id: slot2_sub_label
+                        text: !lambda "return id(slot_desc_2);"
+                    - lvgl.widget.update:
+                        id: slot3_btn
+                        hidden: !lambda "return id(profile_count) < 4;"
+                    - lvgl.label.update:
+                        id: slot3_label
+                        text: !lambda "return id(slot_name_3);"
+                    - lvgl.label.update:
+                        id: slot3_sub_label
+                        text: !lambda "return id(slot_desc_3);"
+                    - lvgl.widget.update:
+                        id: slot4_btn
+                        hidden: !lambda "return id(profile_count) < 5;"
+                    - lvgl.label.update:
+                        id: slot4_label
+                        text: !lambda "return id(slot_name_4);"
+                    - lvgl.label.update:
+                        id: slot4_sub_label
+                        text: !lambda "return id(slot_desc_4);"
+                    - lvgl.widget.update:
+                        id: slot5_btn
+                        hidden: !lambda "return id(profile_count) < 6;"
+                    - lvgl.label.update:
+                        id: slot5_label
+                        text: !lambda "return id(slot_name_5);"
+                    - lvgl.label.update:
+                        id: slot5_sub_label
+                        text: !lambda "return id(slot_desc_5);"
+                on_error:
+                  then:
+                    - lambda: 'ESP_LOGW("panel", "GET /profiles: request failed");'
 
   - id: check_bridge_health
     mode: restart
     then:
-      - http_request.get:
-          url: "${bridge_base_url}/health"
-          capture_response: false
-          on_response:
-            then:
-              - lambda: "id(bridge_reachable) = (response->status_code == 200);"
-              - if:
-                  condition:
-                    lambda: "return id(bridge_reachable);"
+      # Health has no auth requirement (see ADR-0006 / README "Security
+      # model") — only the bridge URL matters here, not the token. An
+      # empty token still shows "Bridge: OK" if the URL answers; the
+      # profile grid simply stays empty until a token is set too (see
+      # refresh_profiles above).
+      - if:
+          condition:
+            lambda: "return !id(bridge_url).state.empty();"
+          then:
+            - lambda: 'id(health_url) = id(bridge_url).state + "/health";'
+            - http_request.get:
+                url: !lambda 'return id(health_url).c_str();'
+                capture_response: false
+                on_response:
                   then:
+                    - lambda: "id(bridge_reachable) = (response->status_code == 200);"
+                    - if:
+                        condition:
+                          lambda: "return id(bridge_reachable);"
+                        then:
+                          - lvgl.label.update:
+                              id: bridge_status_label
+                              text: "Bridge: OK"
+                        else:
+                          - lvgl.label.update:
+                              id: bridge_status_label
+                              text: "Bridge: ERR"
+                on_error:
+                  then:
+                    - lambda: "id(bridge_reachable) = false;"
                     - lvgl.label.update:
                         id: bridge_status_label
-                        text: "Bridge: OK"
-                  else:
-                    - lvgl.label.update:
-                        id: bridge_status_label
-                        text: "Bridge: ERR"
-          on_error:
-            then:
-              - lambda: "id(bridge_reachable) = false;"
-              - lvgl.label.update:
-                  id: bridge_status_label
-                  text: "Bridge: --"
+                        text: "Bridge: --"
+          else:
+            - lambda: "id(bridge_reachable) = false;"
+            - lvgl.label.update:
+                id: bridge_status_label
+                text: "Bridge: not set"
 
   - id: do_scan
     mode: single
     then:
-      - lambda: "id(scan_in_progress) = true;"
-      - lvgl.widget.update: { id: slot0_btn, state: { disabled: true } }
-      - lvgl.widget.update: { id: slot1_btn, state: { disabled: true } }
-      - lvgl.widget.update: { id: slot2_btn, state: { disabled: true } }
-      - lvgl.widget.update: { id: slot3_btn, state: { disabled: true } }
-      - lvgl.widget.update: { id: slot4_btn, state: { disabled: true } }
-      - lvgl.widget.update: { id: slot5_btn, state: { disabled: true } }
-      - light.turn_on:
-          id: status_led
-          red: 100%
-          green: 65%
-          blue: 0%
-      - lvgl.label.update:
-          id: status_label
-          text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
-      - http_request.post:
-          url: "${bridge_base_url}/scan"
-          request_headers:
-            Authorization: !lambda 'return std::string("Bearer ${bridge_token}");'
-          json:
-            profile: !lambda "return id(selected_profile);"
-          capture_response: true
-          on_response:
-            then:
-              - lambda: |-
-                  id(scan_http_status) = response->status_code;
-                  id(scan_error_code) = "";
-                  if (response->status_code != 200) {
-                    json::parse_json(body, [](JsonObject root) -> bool {
-                      if (root["error"].is<const char *>()) {
-                        id(scan_error_code) = root["error"].as<std::string>();
-                      }
-                      return true;
-                    });
-                  }
-              - if:
-                  condition:
-                    lambda: "return id(scan_http_status) == 200;"
+      # Defense in depth: the six buttons are only unhidden once
+      # refresh_profiles has populated them, which itself requires both
+      # values to be non-empty — so this path should be unreachable via
+      # the touchscreen. Still checked here directly (not just relying
+      # on button visibility) in case a stale profile_count from a
+      # previous configuration is ever tapped mid-reconfiguration.
+      - if:
+          condition:
+            lambda: "return id(bridge_url).state.empty() || id(bridge_token).state.empty();"
+          then:
+            - lvgl.label.update: { id: status_label, text: "Bridge not configured" }
+            - delay: 2s
+            - lvgl.label.update: { id: status_label, text: "idle" }
+          else:
+            - lambda: "id(scan_in_progress) = true;"
+            - lvgl.widget.update: { id: slot0_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot1_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot2_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot3_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot4_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot5_btn, state: { disabled: true } }
+            - light.turn_on:
+                id: status_led
+                red: 100%
+                green: 65%
+                blue: 0%
+            - lvgl.label.update:
+                id: status_label
+                text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
+            - lambda: |-
+                id(scan_url) = id(bridge_url).state + "/scan";
+                id(scan_auth) = std::string("Bearer ") + id(bridge_token).state;
+            - http_request.post:
+                url: !lambda 'return id(scan_url).c_str();'
+                request_headers:
+                  Authorization: !lambda 'return id(scan_auth).c_str();'
+                json:
+                  profile: !lambda "return id(selected_profile);"
+                capture_response: true
+                on_response:
                   then:
-                    - light.turn_on: { id: status_led, red: 0%, green: 100%, blue: 0% }
-                    - lvgl.label.update:
-                        id: status_label
-                        text: !lambda 'return std::string("Done: ") + id(selected_profile);'
-                    - delay: 2s
+                    - lambda: |-
+                        id(scan_http_status) = response->status_code;
+                        id(scan_error_code) = "";
+                        if (response->status_code != 200) {
+                          json::parse_json(body, [](JsonObject root) -> bool {
+                            if (root["error"].is<const char *>()) {
+                              id(scan_error_code) = root["error"].as<std::string>();
+                            }
+                            return true;
+                          });
+                        }
+                    # Every branch below resets the LED and status label
+                    # back to idle after a delay — not just the 200
+                    # branch (was Review-Fund PR #31: only success used
+                    # to reset; error/timeout states stayed on-screen
+                    # forever until the next scan attempt). Errors get
+                    # a longer delay (4s) than success (2s, unchanged)
+                    # so there is time to actually read the message.
+                    - if:
+                        condition:
+                          lambda: "return id(scan_http_status) == 200;"
+                        then:
+                          - light.turn_on: { id: status_led, red: 0%, green: 100%, blue: 0% }
+                          - lvgl.label.update:
+                              id: status_label
+                              text: !lambda 'return std::string("Done: ") + id(selected_profile);'
+                          - delay: 2s
+                          - light.turn_off: status_led
+                          - lvgl.label.update: { id: status_label, text: "idle" }
+                    - if:
+                        condition:
+                          lambda: "return id(scan_http_status) == 422;"
+                        then:
+                          - light.turn_on: { id: status_led, red: 100%, green: 40%, blue: 0% }
+                          - lvgl.label.update: { id: status_label, text: "No paper in feeder" }
+                          - delay: 4s
+                          - light.turn_off: status_led
+                          - lvgl.label.update: { id: status_label, text: "idle" }
+                    - if:
+                        condition:
+                          lambda: "return id(scan_http_status) == 401 || id(scan_http_status) == 403;"
+                        then:
+                          - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                          - lvgl.label.update: { id: status_label, text: "Unauthorized — check Bridge Token" }
+                          - delay: 4s
+                          - light.turn_off: status_led
+                          - lvgl.label.update: { id: status_label, text: "idle" }
+                    - if:
+                        condition:
+                          lambda: "return id(scan_http_status) == 404;"
+                        then:
+                          - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                          - lvgl.label.update: { id: status_label, text: "Unknown profile" }
+                          - delay: 4s
+                          - light.turn_off: status_led
+                          - lvgl.label.update: { id: status_label, text: "idle" }
+                    - if:
+                        condition:
+                          lambda: |-
+                            return id(scan_http_status) != 200
+                                && id(scan_http_status) != 422
+                                && id(scan_http_status) != 401
+                                && id(scan_http_status) != 403
+                                && id(scan_http_status) != 404;
+                        then:
+                          - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                          - lvgl.label.update:
+                              id: status_label
+                              text: !lambda 'return std::string("Error ") + std::to_string(id(scan_http_status));'
+                          - delay: 4s
+                          - light.turn_off: status_led
+                          - lvgl.label.update: { id: status_label, text: "idle" }
+                    - lambda: "id(scan_in_progress) = false;"
+                    - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+                on_error:
+                  then:
+                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                    - lvgl.label.update: { id: status_label, text: "Bridge unreachable" }
+                    - delay: 4s
                     - light.turn_off: status_led
                     - lvgl.label.update: { id: status_label, text: "idle" }
-              - if:
-                  condition:
-                    lambda: "return id(scan_http_status) == 422;"
-                  then:
-                    - light.turn_on: { id: status_led, red: 100%, green: 40%, blue: 0% }
-                    - lvgl.label.update: { id: status_label, text: "No paper in feeder" }
-              - if:
-                  condition:
-                    lambda: "return id(scan_http_status) == 401 || id(scan_http_status) == 403;"
-                  then:
-                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
-                    - lvgl.label.update: { id: status_label, text: "Unauthorized — check bridge_token" }
-              - if:
-                  condition:
-                    lambda: "return id(scan_http_status) == 404;"
-                  then:
-                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
-                    - lvgl.label.update: { id: status_label, text: "Unknown profile" }
-              - if:
-                  condition:
-                    lambda: |-
-                      return id(scan_http_status) != 200
-                          && id(scan_http_status) != 422
-                          && id(scan_http_status) != 401
-                          && id(scan_http_status) != 403
-                          && id(scan_http_status) != 404;
-                  then:
-                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
-                    - lvgl.label.update:
-                        id: status_label
-                        text: !lambda 'return std::string("Error ") + std::to_string(id(scan_http_status));'
-              - lambda: "id(scan_in_progress) = false;"
-              - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
-          on_error:
-            then:
-              - lambda: "id(scan_in_progress) = false;"
-              - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
-              - lvgl.label.update: { id: status_label, text: "Bridge unreachable" }
-              - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
-              - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+                    - lambda: "id(scan_in_progress) = false;"
+                    - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
 
 interval:
   - interval: 30s
