@@ -1,0 +1,36 @@
+# Phase 1.2 (Task 15) hardware smoke-test configuration for scan-bridge
+# on hhplex01. Mounted read-only at /etc/scan-bridge/config.toml
+# (components/scan-bridge/Dockerfile CMD default).
+#
+# Schema/precedence: components/scan-bridge/internal/config/config.go.
+#
+# auth.token_hash is the SHA-256 hex digest of a throwaway test bearer
+# token generated for this deploy (openssl rand -hex 32). Per ADR 0006
+# only the hash is ever stored/committed — the plaintext token lives
+# only with the operator running the morning test, never in this repo.
+# tokenMatches() (components/scan-bridge/internal/api/auth.go) rejects
+# every request whenever token_hash is empty, so an unset value here
+# would mean nobody could ever authenticate, not "auth disabled".
+
+[server]
+listen = ":8080"
+metrics_listen = ":9090"
+
+[auth]
+mode = "token"
+token_hash = "7fb3050638dfe8ea0795b94a6f90de8cfa27a6a0a379758c018b7d56452a5628"
+
+[paths]
+profiles = "/etc/scan-bridge/profiles.yaml"
+state_dir = "/var/lib/scan-bridge"
+sane_socket = "/run/sane-runtime/sane.sock"
+output_dir = "/var/lib/scan-bridge/scans"
+
+[logging]
+level = "info"
+format = "json"
+
+[shutdown]
+sigterm_timeout_seconds = 30
+sigint_timeout_seconds = 5
+hard_timeout_seconds = 60

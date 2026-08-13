@@ -1,0 +1,32 @@
+# Phase 1.2 (Task 15) smoke-test profile set for the compose stack in
+# deploy/compose/scan-stack.compose.yml.
+#
+# Schema: components/scan-bridge/internal/profiles/profiles.go
+# (validateProfile). "default" is the profile name the morning
+# hardware test calls via POST /scan {"profile":"default"}.
+#
+# source must be one of the three strings sane-runtime's scanapi
+# actually accepts (internal/scanapi/handlers.go allowedSources) —
+# "ADF Front", "ADF Duplex", or "Flatbed" — NOT a raw SANE device
+# string like "avision:libusb:001:004". scan-bridge always sends
+# device="" (auto-detect, internal/dispatch/http_client.go) and
+# passes profile.Source straight through as sane-runtime's `source`
+# field, so a value outside that allow-list is rejected with 400
+# invalid_request before the scanner is ever touched. The Kodak
+# ScanMate i1120 is a duplex ADF scanner, hence "ADF Duplex" here.
+profiles:
+  - name: default
+    description: "Task 15 hardware smoke test: duplex ADF, color, 300 DPI"
+    source: "ADF Duplex"
+    resolution: 300
+    mode: Color
+    format: pdf
+    target_subdir: "smoke-test/"
+    deskew: true
+    remove_blank: true
+    rotate_pages: true
+    page_size: A4
+    timeout_seconds: 120
+    metadata_template:
+      paperless_tags: ["phase-1.2-smoke-test"]
+      paperless_correspondent: null
