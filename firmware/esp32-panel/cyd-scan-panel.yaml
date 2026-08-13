@@ -7,13 +7,15 @@
 # (Issue #9, phase E). Wi-Fi is provisioned in-browser via Improv right
 # after flashing; the bridge URL and bearer token are `text` entities
 # held in flash (NVS) and set from the panel's own `web_server`
-# dashboard afterwards. Landscape grid (2x2 up to 3x3, configurable at
-# runtime via the "Grid Rows"/"Grid Cols" `number` entities, default
-# 2x3 = today's fixed 6-button layout) populated at runtime from
-# GET /profiles, tap-to-scan via POST /scan. Profiles beyond one page
-# are reachable via the footer's prev/next buttons. See README.md for
-# flashing, the mandatory post-flash touch calibration, and known
-# limitations.
+# dashboard afterwards. Grid (1x1 up to 3x3, configurable at runtime via
+# the "Grid Rows"/"Grid Cols" `number` entities, default 2x3 = today's
+# fixed 6-button layout) populated at runtime from GET /profiles,
+# tap-to-scan via POST /scan. Profiles beyond one page are reachable via
+# the footer's prev/next buttons. Display orientation (landscape by
+# default, portrait via a `packages:` override — Issue #9 item B4) is a
+# build-time choice, not runtime-configurable. See README.md for
+# flashing, the mandatory post-flash touch calibration, how to build a
+# portrait variant, and known limitations.
 #
 # Hardware bring-up values below (pins, SPI buses, display/touch options)
 # are cross-verified for the ESP32-2432S028R and must not be changed
@@ -23,7 +25,7 @@
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
-  comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free)"
+  comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free, ${orientation})"
   min_version: "2024.5.0"
   on_boot:
     priority: -100
@@ -52,6 +54,28 @@ esp32:
 substitutions:
   name: cyd-scan-panel
   friendly_name: "Scan Panel"
+  # Display orientation (Issue #9 item B4). `orientation` is informational
+  # only (surfaced in `esphome.comment` above so the merged config
+  # documents which build this is); the eight substitutions below are the
+  # ones that actually drive it — `display.dimensions.*`, `lvgl.rotation`
+  # and `touchscreen.calibration.*`/`transform.swap_xy` all read from
+  # them. Defaults below reproduce today's landscape build byte-for-byte:
+  # `display.dimensions`/`lvgl.rotation` in the merged `esphome config`
+  # output are unchanged from before these substitutions existed. A
+  # portrait build overrides all nine via a `packages:` include wrapper —
+  # see README.md "Display orientation" for the exact wrapper and why
+  # `display.rotation` (further below) stays hardcoded at 0 either way
+  # (ESPHome rejects a non-zero value there once `lvgl:` is in the
+  # config — rotation belongs in `lvgl.rotation` instead).
+  orientation: landscape
+  screen_width: "320"
+  screen_height: "240"
+  panel_rotation: "0"
+  touch_swap_xy: "true"
+  touch_x_min: "280"
+  touch_x_max: "3860"
+  touch_y_min: "340"
+  touch_y_max: "3860"
 
 logger:
   baud_rate: 115200
@@ -247,10 +271,21 @@ display:
     # LVGL owns rendering; a periodic full-screen redraw would fight it.
     auto_clear_enabled: false
     update_interval: never
+    # Stays hardcoded at 0 regardless of orientation — see the
+    # `substitutions:` comment above. ESPHome's validator rejects a
+    # non-zero value here once `lvgl:` is configured ("set rotation in
+    # the LVGL config instead"); `lvgl.rotation` below is where the
+    # portrait override actually rotates the panel.
     rotation: 0
     dimensions:
-      width: 320
-      height: 240
+      # ESPHome's ili9xxx docs: "the dimensions are those of the final
+      # display" — i.e. these must already be the ROTATED (post-`lvgl.
+      # rotation`) width/height, not the panel's physical/native ones.
+      # For the 90°-portrait override this means 240x320 (swapped), kept
+      # in lockstep with `lvgl.rotation` via the substitutions above so
+      # the two can never drift apart independently.
+      width: ${screen_width}
+      height: ${screen_height}
 
 touchscreen:
   - platform: xpt2046
@@ -261,14 +296,17 @@ touchscreen:
     threshold: 400
     # Placeholder calibration — every panel is different out of the
     # factory. MUST be re-calibrated per physical unit after first
-    # flash; see README.md "Touch calibration".
+    # flash; see README.md "Touch calibration". Read from the
+    # substitutions above so a portrait override (Issue #9 item B4) can
+    # ship its own placeholder starting point — still just a starting
+    # point, recalibration is mandatory in either orientation.
     calibration:
-      x_min: 280
-      x_max: 3860
-      y_min: 340
-      y_max: 3860
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
     transform:
-      swap_xy: true
+      swap_xy: ${touch_swap_xy}
 
 output:
   # Backlight: GPIO21, active-HIGH. Wrapped in a monochromatic light
@@ -325,6 +363,17 @@ light:
 # slice, filled by `render_page`. `ui_ready` guards `relayout_grid`
 # against running before LVGL has actually constructed the 9 button
 # widgets — see the `on_boot` comment.
+#
+# `screen_width`/`screen_height` (Issue #9 item B4) are this same
+# compile-time-`initial_value`-global idiom applied to the grid geometry
+# lambdas in `relayout_grid` below, which until now read the display's
+# 320x240 landscape dimensions as two hardcoded literals. Reading them
+# from globals instead — mirroring `grid_rows`/`grid_cols` above, sourced
+# from the `screen_width`/`screen_height` substitutions rather than a
+# `number` entity's `.state` — keeps the grid's column/row math correct
+# for whatever `display.dimensions` the current build was compiled with,
+# landscape or the portrait override, with no separate flag to keep in
+# sync.
 # ---------------------------------------------------------------------
 
 globals:
@@ -340,6 +389,14 @@ globals:
     type: int
     restore_value: false
     initial_value: "3"
+  - id: screen_width
+    type: int
+    restore_value: false
+    initial_value: "${screen_width}"
+  - id: screen_height
+    type: int
+    restore_value: false
+    initial_value: "${screen_height}"
   - id: slot_name_0
     type: std::string
     restore_value: false
@@ -577,6 +634,17 @@ script:
   # script, since a grid-size change also changes how many profiles fit
   # per page and which slice of `all_profile_names`/`all_profile_descs`
   # is "the current page").
+  #
+  # `col_w` divides `id(screen_width)` (B4: the compile-time
+  # `screen_width`/`screen_height` substitution, not a hardcoded 320) by
+  # the column count; `row_h` divides `id(screen_height) - 46`, where 46
+  # is the fixed chrome this grid does NOT occupy — the 22px header, the
+  # 20px footer, and 4px of edge gap between them and the grid — so it
+  # stays 46 in both orientations even though `screen_height` itself
+  # changes (240 landscape, 320 portrait). The header/footer widgets
+  # themselves are NOT parameterized by orientation (out of scope for
+  # B4 — see README.md "Display orientation"); only the grid they bound
+  # is.
   - id: relayout_grid
     mode: restart
     then:
@@ -594,7 +662,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 0 % cols;
                     return col * (col_w + gap);
                 y: &slot0_y !lambda |-
@@ -603,26 +671,26 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 0 / cols;
                     return 24 + row * (row_h + gap);
                 width: &slot_col_width !lambda |-
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    return (320 - (cols - 1) * gap) / cols;
+                    return (id(screen_width) - (cols - 1) * gap) / cols;
                 height: &slot_row_height !lambda |-
                     int rows = id(grid_rows);
                     if (rows < 1) rows = 1;
                     int gap = 4;
-                    return (194 - (rows - 1) * gap) / rows;
+                    return (id(screen_height) - 46 - (rows - 1) * gap) / rows;
             - lvgl.widget.update:
                 id: slot1_btn
                 x: &slot1_x !lambda |-
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 1 % cols;
                     return col * (col_w + gap);
                 y: &slot1_y !lambda |-
@@ -631,7 +699,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 1 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -642,7 +710,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 2 % cols;
                     return col * (col_w + gap);
                 y: &slot2_y !lambda |-
@@ -651,7 +719,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 2 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -662,7 +730,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 3 % cols;
                     return col * (col_w + gap);
                 y: &slot3_y !lambda |-
@@ -671,7 +739,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 3 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -682,7 +750,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 4 % cols;
                     return col * (col_w + gap);
                 y: &slot4_y !lambda |-
@@ -691,7 +759,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 4 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -702,7 +770,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 5 % cols;
                     return col * (col_w + gap);
                 y: &slot5_y !lambda |-
@@ -711,7 +779,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 5 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -722,7 +790,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 6 % cols;
                     return col * (col_w + gap);
                 y: &slot6_y !lambda |-
@@ -731,7 +799,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 6 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -742,7 +810,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 7 % cols;
                     return col * (col_w + gap);
                 y: &slot7_y !lambda |-
@@ -751,7 +819,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 7 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -762,7 +830,7 @@ script:
                     int cols = id(grid_cols);
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col_w = (id(screen_width) - (cols - 1) * gap) / cols;
                     int col = 8 % cols;
                     return col * (col_w + gap);
                 y: &slot8_y !lambda |-
@@ -771,7 +839,7 @@ script:
                     if (rows < 1) rows = 1;
                     if (cols < 1) cols = 1;
                     int gap = 4;
-                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row_h = (id(screen_height) - 46 - (rows - 1) * gap) / rows;
                     int row = 8 / cols;
                     return 24 + row * (row_h + gap);
                 width: *slot_col_width
@@ -1160,6 +1228,13 @@ lvgl:
     - cyd_display
   touchscreens:
     - cyd_touch
+  # 0 by default (landscape, unchanged) — the portrait override sets 90
+  # here via the substitution. `display.rotation` above stays hardcoded
+  # at 0 either way: ESPHome's LVGL docs are explicit that rotation
+  # belongs here, not on the display, and that this single setting
+  # rotates both the rendered content and the touch input together —
+  # no separate display- or touchscreen-level rotation needed on top.
+  rotation: ${panel_rotation}
   pages:
     - id: main_page
       widgets:

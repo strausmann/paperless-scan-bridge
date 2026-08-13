@@ -145,6 +145,86 @@ limitations" below. This step still needs the source tree and a local
 `esphome` install; it is not something the browser installer alone can
 do (calibration values are compiled into the binary, not runtime state).
 
+## Display orientation
+
+**A build-time choice, not a runtime setting** (unlike Grid Rows/Cols
+above) — orientation picks which physical dimensions and rotation get
+compiled in, so it can only change with a re-flash. The published CI
+binary is always **landscape** (320x240, the default below); building a
+**portrait** variant needs a local `esphome` install and your own
+compile.
+
+Nine substitutions in `cyd-scan-panel.yaml` drive it:
+
+| Substitution | Landscape (default, published) | Portrait |
+| --- | --- | --- |
+| `orientation` | `landscape` | `portrait` |
+| `screen_width` | `320` | `240` |
+| `screen_height` | `240` | `320` |
+| `panel_rotation` | `0` | `90` |
+| `touch_swap_xy` | `true` | `false` |
+| `touch_x_min` | `280` | `340` |
+| `touch_x_max` | `3860` | `3860` |
+| `touch_y_min` | `340` | `280` |
+| `touch_y_max` | `3860` | `3860` |
+
+`screen_width`/`screen_height` feed `display.dimensions` **and** the
+grid geometry lambdas that lay out the 9 button slots (`relayout_grid`
+in `cyd-scan-panel.yaml`) — both stay in lockstep automatically.
+`panel_rotation` feeds `lvgl.rotation`, which ESPHome's LVGL component
+uses to rotate both the rendered content and the touch input together;
+`display.rotation` itself stays hardcoded at `0` in both orientations —
+setting it to anything else is rejected once `lvgl:` is configured
+("set rotation in the LVGL config instead"). Per ESPHome's ili9xxx
+docs, `display.dimensions` must already be the **rotated** (post-`lvgl.
+rotation`) width/height, not the panel's physical/native ones — that is
+why portrait swaps `screen_width`/`screen_height` rather than leaving
+them at 320x240 and rotating on top.
+
+To build a portrait variant, override the nine substitutions above with
+a small `packages:` wrapper next to `cyd-scan-panel.yaml` (not
+committed — this is a local/one-off build, not something CI publishes):
+
+```yaml
+# cyd-scan-panel-portrait.yaml
+substitutions:
+  orientation: portrait
+  screen_width: "240"
+  screen_height: "320"
+  panel_rotation: "90"
+  touch_swap_xy: "false"
+  touch_x_min: "340"
+  touch_x_max: "3860"
+  touch_y_min: "280"
+  touch_y_max: "3860"
+
+packages:
+  base: !include cyd-scan-panel.yaml
+```
+
+```bash
+esphome run cyd-scan-panel-portrait.yaml
+```
+
+The `touch_x_min`/`touch_x_max`/`touch_y_min`/`touch_y_max` values above
+are the landscape placeholders with the axes swapped — a reasonable
+starting point given the calibration is a placeholder either way (see
+"Touch calibration" above), **not** a verified portrait calibration.
+Redo the calibration procedure after flashing a portrait build, same as
+for a landscape one.
+
+**What B4 does not do:** the header row (WiFi/Bridge status) and the
+footer row (paging buttons, status label) are still laid out for a
+320-wide screen regardless of orientation — only the button grid
+between them resizes with `screen_width`/`screen_height`. A portrait
+build's header/footer will not fill a 240px-wide screen correctly; a
+dedicated portrait page layout is later work (see "Scope and known
+limitations" below). **Not hardware-tested** — `esphome config` and
+`esphome compile` pass for both orientations (see "Hardware
+verification status" below), which proves the config is valid and the
+firmware builds; it does not prove a portrait panel actually renders
+right-side-up or that the touch mapping above is correct.
+
 ## Security model
 
 This is a home-lab panel on a trusted LAN, not a hardened public-facing
@@ -225,10 +305,14 @@ What it does:
 What it deliberately does **not** do yet (see Issue #9 for phases beyond
 D/E):
 
-- **No portrait layout.** Only the 320x240 landscape grid (2x2 up to
-  3x3, configurable at runtime, default 2x3 as described in Issue #9's
-  mockups) is implemented; portrait (240x320, 1-column) is a later
-  option.
+- **No dedicated portrait UI.** The button grid itself (1x1 up to 3x3,
+  configurable at runtime, default 2x3 as described in Issue #9's
+  mockups) resizes correctly for either orientation as of B4 — see
+  "Display orientation" below — but the header and footer rows are
+  still fixed at the 320-wide landscape layout regardless of
+  `screen_width`/`screen_height`, so a portrait build's header/footer
+  will not fill (or may overflow) a 240px-wide screen. A dedicated
+  portrait page layout is a later option.
 - **No job polling / `GET /jobs/{id}`.** The live bridge dispatches
   `POST /scan` synchronously and returns the finished result inline
   (200 OK with the scan outcome, or an error status) — there is no job
@@ -255,6 +339,13 @@ D/E):
   the paging buttons compile and pass `esphome config`/`esphome
   compile` against this exact ESPHome version, but nothing beyond
   that — see "Hardware verification status" below.
+- **Display orientation (B4) is config-verified only, not
+  hardware-verified.** Both the published landscape default and the
+  portrait `packages:` override (see "Display orientation" above) pass
+  `esphome config`/`esphome compile`, proving the substitution wiring
+  and the `lvgl.rotation`/swapped-`dimensions` pairing are schema-valid
+  ESPHome — not that a physical portrait panel renders right-side-up or
+  that the guessed-at swapped touch calibration is correct.
 
 ## Hardware verification status
 
@@ -272,7 +363,11 @@ and the manifest is well-formed" — it needs a real flash to confirm.
 Please report back (open a follow-up issue referencing #9) once you've
 flashed it — in particular the touch calibration values, whether the
 LVGL memory budget is fine as-is, whether all 9 button slots render and
-respond correctly at every grid size from 2x2 to 3x3, whether the `<`/
+respond correctly at every grid size from 1x1 to 3x3, whether the `<`/
 `>` paging buttons correctly page through more profiles than fit on one
-page, and whether the ESP Web Tools + Improv + dashboard flow works
-end-to-end from a browser.
+page, whether the ESP Web Tools + Improv + dashboard flow works
+end-to-end from a browser, and — if you build the portrait override
+(see "Display orientation" above) — whether `lvgl.rotation: 90` and the
+swapped `display.dimensions` actually render right-side-up and whether
+the flipped touch calibration needs the sign convention this firmware
+guesses at, or the opposite one.

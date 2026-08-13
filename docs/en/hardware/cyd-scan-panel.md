@@ -73,8 +73,10 @@ README for why a single public binary works here at all.
 
 ## Known limitations
 
-No portrait layout, no job polling, no on-device touch-calibration
-wizard, LVGL memory budget not hardware-verified, grid size (up to
-3x3 = 9 slots) and paging not hardware-verified either — see the
-firmware README's "Scope and known limitations" for the full, current
-list.
+No dedicated portrait page layout (the button grid itself resizes for
+either orientation, but the header/footer rows are still landscape-only
+— see the firmware README's "Display orientation"), no job polling, no
+on-device touch-calibration wizard, LVGL memory budget not
+hardware-verified, grid size (1x1 up to 3x3 = 9 slots) and paging not
+hardware-verified either — see the firmware README's "Scope and known
+limitations" for the full, current list.
