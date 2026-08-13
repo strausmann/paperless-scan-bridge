@@ -13,7 +13,7 @@ module.exports = {
       'always',
       [
         'scan-bridge', 'sane-runtime', 'scan-processor', 'api', 'profiles', 'tag', 'dispatch', 'jobs',
-        'config', 'metrics', 'deploy', 'docker', 'ci', 'docs', 'deps', 'release',
+        'config', 'metrics', 'deploy', 'docker', 'firmware', 'ci', 'docs', 'deps', 'release',
       ],
     ],
     'subject-case': [2, 'never', ['sentence-case', 'start-case', 'pascal-case', 'upper-case']],
