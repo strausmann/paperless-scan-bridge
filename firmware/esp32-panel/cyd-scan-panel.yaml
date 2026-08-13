@@ -1147,11 +1147,12 @@ interval:
       - script.execute: check_bridge_health
 
 # ---------------------------------------------------------------------
-# UI: fixed landscape 320x240 layout. Widgets are declared once with
-# explicit x/y/width/height (no flex/grid layout engine) so the six
-# button slots are predictable; content is filled at runtime by
-# refresh_profiles above via lvgl.label.update / lvgl.widget.update.
-# Portrait is a later option (see README.md).
+# UI: fixed landscape 320x240 layout, 9 static button slots (still no
+# flex/grid layout engine — geometry is computed via the templatable
+# x/y/width/height lambdas below, shared with relayout_grid in script:
+# via YAML anchors). Content is filled at runtime by render_page above
+# via lvgl.label.update / lvgl.widget.update. Portrait is a later
+# option (see README.md).
 # ---------------------------------------------------------------------
 
 lvgl:
