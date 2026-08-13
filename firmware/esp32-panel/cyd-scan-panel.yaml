@@ -1,0 +1,754 @@
+# ESPHome firmware for the ESP32-2432S028R ("Cheap Yellow Display" / CYD)
+# scan-control panel — Issue #9.
+#
+# v1 scope: build-time configuration (Wi-Fi, bridge URL, bearer token via
+# ESPHome secrets), fixed 6-button landscape grid populated at runtime from
+# GET /profiles, tap-to-scan via POST /scan. See README.md for flashing,
+# the mandatory post-flash touch calibration, and known v1 limitations.
+#
+# Hardware bring-up values below (pins, SPI buses, display/touch options)
+# are cross-verified for the ESP32-2432S028R and must not be changed
+# without re-verifying against the board's actual wiring — this is the one
+# widely-cloned "CYD" board revision this firmware targets.
+
+esphome:
+  name: "${name}"
+  friendly_name: "${friendly_name}"
+  comment: "paperless-scan-bridge CYD scan-control panel (v1, Issue #9)"
+  min_version: "2024.5.0"
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: refresh_profiles
+      - script.execute: check_bridge_health
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+substitutions:
+  name: cyd-scan-panel
+  friendly_name: "Scan Panel"
+  # LAN base URL of the scan-bridge container. Plain HTTP is intentional
+  # for v1 (LAN-only deployment) — see README.md "Plain HTTP" section.
+  bridge_base_url: "http://hhplex01:18080"
+  # Pulled from secrets.yaml so it can be referenced with ${bridge_token}
+  # inside lambda strings below (substitutions are textually expanded
+  # before the lambda body is compiled).
+  bridge_token: !secret bridge_token
+
+logger:
+  baud_rate: 115200
+
+# Native ESPHome API + OTA, both secret-gated. Needed for normal
+# operation (Home Assistant discovery, remote logs) and firmware updates
+# after the initial USB flash.
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # SoftAP fallback if the panel cannot join wifi_ssid (first boot before
+  # Improv provisioning, or a Wi-Fi outage). WPA2 needs >= 8 chars.
+  ap:
+    ssid: "${friendly_name} Setup"
+    password: !secret ap_password
+  on_connect:
+    - lvgl.label.update:
+        id: wifi_status_label
+        text: "WiFi: OK"
+  on_disconnect:
+    - lvgl.label.update:
+        id: wifi_status_label
+        text: "WiFi: --"
+
+captive_portal:
+
+# First-boot provisioning: Improv over BLE and/or the same USB-serial
+# connection used for flashing, so ESP Web Tools can flash + provision
+# Wi-Fi in one browser flow. authorizer: none — this panel has no
+# physical confirmation button; anyone with local BLE/serial access
+# during first boot can provision it. Acceptable for a LAN-only panel
+# in v1 (see README.md "Known limitations").
+esp32_improv:
+  authorizer: none
+
+improv_serial:
+
+http_request:
+  id: http
+  useragent: "esphome/cyd-scan-panel"
+  timeout: 8s
+  # v1 is plain HTTP on the LAN (hhplex01:18080), so there is no TLS
+  # certificate to verify. If the bridge ever moves behind a TLS-
+  # terminating proxy, switch bridge_base_url to https:// and remove
+  # this (or point verify_ssl at a real CA).
+  verify_ssl: false
+
+json:
+
+# ---------------------------------------------------------------------
+# Board bring-up: two independent SPI buses (mandatory on the CYD — the
+# display and the touch controller are NOT on a shared bus), the
+# ILI9341 display, the XPT2046 touch controller, the GPIO21 backlight,
+# and the active-low RGB status LED.
+# ---------------------------------------------------------------------
+
+spi:
+  - id: tft_spi
+    clk_pin: 14
+    mosi_pin: 13
+    miso_pin:
+      number: 12
+      # GPIO12 is an ESP32 strapping pin (flash voltage select). The CYD
+      # wires it to the display's MISO regardless; this only silences
+      # ESPHome's strapping-pin warning, it does not change behavior.
+      ignore_strapping_warning: true
+  - id: touch_spi
+    clk_pin: 25
+    mosi_pin: 32
+    miso_pin: 39
+
+display:
+  - platform: ili9xxx
+    id: cyd_display
+    model: ILI9341
+    spi_id: tft_spi
+    cs_pin:
+      number: 15
+      # GPIO15 is an ESP32 strapping pin (MTDO). Same rationale as
+      # GPIO12 above.
+      ignore_strapping_warning: true
+    dc_pin:
+      number: 2
+      # GPIO2 is also an ESP32 strapping pin. Confirmed by
+      # `esphome config` (WARNING GPIO2 is a strapping PIN...) against
+      # this exact config — not present in the source brief, added here
+      # after seeing the real warning.
+      ignore_strapping_warning: true
+    invert_colors: false
+    # No PSRAM on the WROOM-32 module used by the CYD — a 16-bit
+    # framebuffer does not fit. 8BIT is the palette mode that does.
+    color_palette: 8BIT
+    # LVGL owns rendering; a periodic full-screen redraw would fight it.
+    auto_clear_enabled: false
+    update_interval: never
+    rotation: 0
+    dimensions:
+      width: 320
+      height: 240
+
+touchscreen:
+  - platform: xpt2046
+    id: cyd_touch
+    spi_id: touch_spi
+    cs_pin: 33
+    interrupt_pin: 36
+    threshold: 400
+    # Placeholder calibration — every panel is different out of the
+    # factory. MUST be re-calibrated per physical unit after first
+    # flash; see README.md "Touch calibration".
+    calibration:
+      x_min: 280
+      x_max: 3860
+      y_min: 340
+      y_max: 3860
+    transform:
+      swap_xy: true
+
+output:
+  # Backlight: GPIO21, active-HIGH. Wrapped in a monochromatic light
+  # with restore_mode ALWAYS_ON below — without that the screen is
+  # black after every reboot (light components default to OFF).
+  - platform: ledc
+    id: backlight_pwm_output
+    pin: 21
+  # RGB status LED, active-LOW (CYD wiring) — each channel inverted.
+  - platform: ledc
+    id: led_red_output
+    pin:
+      number: 4
+      inverted: true
+  - platform: ledc
+    id: led_green_output
+    pin:
+      number: 16
+      inverted: true
+  - platform: ledc
+    id: led_blue_output
+    pin:
+      number: 17
+      inverted: true
+
+light:
+  - platform: monochromatic
+    id: panel_backlight
+    name: "Panel Backlight"
+    output: backlight_pwm_output
+    restore_mode: ALWAYS_ON
+  - platform: rgb
+    id: status_led
+    name: "Panel Status LED"
+    red: led_red_output
+    green: led_green_output
+    blue: led_blue_output
+    restore_mode: ALWAYS_OFF
+
+# ---------------------------------------------------------------------
+# Runtime state. Kept as plain globals ("the firmware stays dumb", per
+# the API design in Issue #9) — no client-side sorting/filtering, the
+# bridge already returns profiles in the order to display.
+# ---------------------------------------------------------------------
+
+globals:
+  - id: profile_count
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: slot_name_0
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_1
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_2
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_3
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_4
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_5
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_0
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_1
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_2
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_3
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_4
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_5
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: selected_profile
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: scan_in_progress
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: bridge_reachable
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: scan_http_status
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: scan_error_code
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+
+# ---------------------------------------------------------------------
+# scan-bridge HTTP calls. Kept as scripts so both on_boot and the
+# interval triggers below share one code path.
+# ---------------------------------------------------------------------
+
+script:
+  - id: refresh_profiles
+    mode: restart
+    then:
+      - http_request.get:
+          url: "${bridge_base_url}/profiles"
+          request_headers:
+            Authorization: !lambda 'return std::string("Bearer ${bridge_token}");'
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code != 200) {
+                    ESP_LOGW("panel", "GET /profiles failed: %d", response->status_code);
+                    return;
+                  }
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    if (!root["profiles"].is<JsonArray>()) {
+                      ESP_LOGW("panel", "GET /profiles: unexpected body shape");
+                      return false;
+                    }
+                    JsonArray arr = root["profiles"];
+                    const size_t max_slots = 6;
+                    size_t count = arr.size() < max_slots ? arr.size() : max_slots;
+                    id(profile_count) = static_cast<int>(count);
+
+                    std::string names[max_slots];
+                    std::string descs[max_slots];
+                    for (size_t i = 0; i < count; i++) {
+                      JsonObject p = arr[i];
+                      names[i] = p["name"] | std::string("");
+                      descs[i] = p["description"] | std::string("");
+                    }
+                    id(slot_name_0) = count > 0 ? names[0] : "";
+                    id(slot_name_1) = count > 1 ? names[1] : "";
+                    id(slot_name_2) = count > 2 ? names[2] : "";
+                    id(slot_name_3) = count > 3 ? names[3] : "";
+                    id(slot_name_4) = count > 4 ? names[4] : "";
+                    id(slot_name_5) = count > 5 ? names[5] : "";
+                    id(slot_desc_0) = count > 0 ? descs[0] : "";
+                    id(slot_desc_1) = count > 1 ? descs[1] : "";
+                    id(slot_desc_2) = count > 2 ? descs[2] : "";
+                    id(slot_desc_3) = count > 3 ? descs[3] : "";
+                    id(slot_desc_4) = count > 4 ? descs[4] : "";
+                    id(slot_desc_5) = count > 5 ? descs[5] : "";
+                    return true;
+                  });
+              # Push the parsed globals into the fixed LVGL slots. Split
+              # out of the parsing lambda above on purpose — see the PR
+              # description for why (LVGL widget updates go through the
+              # documented lvgl.* actions, not raw pointers from inside
+              # a JSON-parsing callback).
+              - lvgl.widget.update:
+                  id: slot0_btn
+                  hidden: !lambda "return id(profile_count) < 1;"
+              - lvgl.label.update:
+                  id: slot0_label
+                  text: !lambda "return id(slot_name_0);"
+              - lvgl.label.update:
+                  id: slot0_sub_label
+                  text: !lambda "return id(slot_desc_0);"
+              - lvgl.widget.update:
+                  id: slot1_btn
+                  hidden: !lambda "return id(profile_count) < 2;"
+              - lvgl.label.update:
+                  id: slot1_label
+                  text: !lambda "return id(slot_name_1);"
+              - lvgl.label.update:
+                  id: slot1_sub_label
+                  text: !lambda "return id(slot_desc_1);"
+              - lvgl.widget.update:
+                  id: slot2_btn
+                  hidden: !lambda "return id(profile_count) < 3;"
+              - lvgl.label.update:
+                  id: slot2_label
+                  text: !lambda "return id(slot_name_2);"
+              - lvgl.label.update:
+                  id: slot2_sub_label
+                  text: !lambda "return id(slot_desc_2);"
+              - lvgl.widget.update:
+                  id: slot3_btn
+                  hidden: !lambda "return id(profile_count) < 4;"
+              - lvgl.label.update:
+                  id: slot3_label
+                  text: !lambda "return id(slot_name_3);"
+              - lvgl.label.update:
+                  id: slot3_sub_label
+                  text: !lambda "return id(slot_desc_3);"
+              - lvgl.widget.update:
+                  id: slot4_btn
+                  hidden: !lambda "return id(profile_count) < 5;"
+              - lvgl.label.update:
+                  id: slot4_label
+                  text: !lambda "return id(slot_name_4);"
+              - lvgl.label.update:
+                  id: slot4_sub_label
+                  text: !lambda "return id(slot_desc_4);"
+              - lvgl.widget.update:
+                  id: slot5_btn
+                  hidden: !lambda "return id(profile_count) < 6;"
+              - lvgl.label.update:
+                  id: slot5_label
+                  text: !lambda "return id(slot_name_5);"
+              - lvgl.label.update:
+                  id: slot5_sub_label
+                  text: !lambda "return id(slot_desc_5);"
+          on_error:
+            then:
+              - lambda: 'ESP_LOGW("panel", "GET /profiles: request failed");'
+
+  - id: check_bridge_health
+    mode: restart
+    then:
+      - http_request.get:
+          url: "${bridge_base_url}/health"
+          capture_response: false
+          on_response:
+            then:
+              - lambda: "id(bridge_reachable) = (response->status_code == 200);"
+              - if:
+                  condition:
+                    lambda: "return id(bridge_reachable);"
+                  then:
+                    - lvgl.label.update:
+                        id: bridge_status_label
+                        text: "Bridge: OK"
+                  else:
+                    - lvgl.label.update:
+                        id: bridge_status_label
+                        text: "Bridge: ERR"
+          on_error:
+            then:
+              - lambda: "id(bridge_reachable) = false;"
+              - lvgl.label.update:
+                  id: bridge_status_label
+                  text: "Bridge: --"
+
+  - id: do_scan
+    mode: single
+    then:
+      - lambda: "id(scan_in_progress) = true;"
+      - lvgl.widget.update: { id: slot0_btn, state: { disabled: true } }
+      - lvgl.widget.update: { id: slot1_btn, state: { disabled: true } }
+      - lvgl.widget.update: { id: slot2_btn, state: { disabled: true } }
+      - lvgl.widget.update: { id: slot3_btn, state: { disabled: true } }
+      - lvgl.widget.update: { id: slot4_btn, state: { disabled: true } }
+      - lvgl.widget.update: { id: slot5_btn, state: { disabled: true } }
+      - light.turn_on:
+          id: status_led
+          red: 100%
+          green: 65%
+          blue: 0%
+      - lvgl.label.update:
+          id: status_label
+          text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
+      - http_request.post:
+          url: "${bridge_base_url}/scan"
+          request_headers:
+            Authorization: !lambda 'return std::string("Bearer ${bridge_token}");'
+          json:
+            profile: !lambda "return id(selected_profile);"
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  id(scan_http_status) = response->status_code;
+                  id(scan_error_code) = "";
+                  if (response->status_code != 200) {
+                    json::parse_json(body, [](JsonObject root) -> bool {
+                      if (root["error"].is<const char *>()) {
+                        id(scan_error_code) = root["error"].as<std::string>();
+                      }
+                      return true;
+                    });
+                  }
+              - if:
+                  condition:
+                    lambda: "return id(scan_http_status) == 200;"
+                  then:
+                    - light.turn_on: { id: status_led, red: 0%, green: 100%, blue: 0% }
+                    - lvgl.label.update:
+                        id: status_label
+                        text: !lambda 'return std::string("Done: ") + id(selected_profile);'
+                    - delay: 2s
+                    - light.turn_off: status_led
+                    - lvgl.label.update: { id: status_label, text: "idle" }
+              - if:
+                  condition:
+                    lambda: "return id(scan_http_status) == 422;"
+                  then:
+                    - light.turn_on: { id: status_led, red: 100%, green: 40%, blue: 0% }
+                    - lvgl.label.update: { id: status_label, text: "No paper in feeder" }
+              - if:
+                  condition:
+                    lambda: "return id(scan_http_status) == 401 || id(scan_http_status) == 403;"
+                  then:
+                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                    - lvgl.label.update: { id: status_label, text: "Unauthorized — check bridge_token" }
+              - if:
+                  condition:
+                    lambda: "return id(scan_http_status) == 404;"
+                  then:
+                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                    - lvgl.label.update: { id: status_label, text: "Unknown profile" }
+              - if:
+                  condition:
+                    lambda: |-
+                      return id(scan_http_status) != 200
+                          && id(scan_http_status) != 422
+                          && id(scan_http_status) != 401
+                          && id(scan_http_status) != 403
+                          && id(scan_http_status) != 404;
+                  then:
+                    - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+                    - lvgl.label.update:
+                        id: status_label
+                        text: !lambda 'return std::string("Error ") + std::to_string(id(scan_http_status));'
+              - lambda: "id(scan_in_progress) = false;"
+              - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+          on_error:
+            then:
+              - lambda: "id(scan_in_progress) = false;"
+              - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
+              - lvgl.label.update: { id: status_label, text: "Bridge unreachable" }
+              - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot2_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
+              - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+
+interval:
+  - interval: 30s
+    then:
+      - script.execute: refresh_profiles
+  - interval: 15s
+    then:
+      - script.execute: check_bridge_health
+
+# ---------------------------------------------------------------------
+# UI: fixed landscape 320x240 layout. Widgets are declared once with
+# explicit x/y/width/height (no flex/grid layout engine) so the six
+# button slots are predictable; content is filled at runtime by
+# refresh_profiles above via lvgl.label.update / lvgl.widget.update.
+# Portrait is a later option (see README.md).
+# ---------------------------------------------------------------------
+
+lvgl:
+  displays:
+    - cyd_display
+  touchscreens:
+    - cyd_touch
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 22
+            pad_all: 0
+            border_width: 0
+            widgets:
+              - label:
+                  id: title_label
+                  x: 4
+                  y: 2
+                  text: "Scan Profiles"
+              - label:
+                  id: wifi_status_label
+                  x: 130
+                  y: 2
+                  text: "WiFi: --"
+              - label:
+                  id: bridge_status_label
+                  x: 220
+                  y: 2
+                  text: "Bridge: --"
+
+        - button:
+            id: slot0_btn
+            x: 0
+            y: 24
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot0_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot0_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_0);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot1_btn
+            x: 108
+            y: 24
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot1_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot1_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_1);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot2_btn
+            x: 216
+            y: 24
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot2_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot2_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_2);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot3_btn
+            x: 0
+            y: 123
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot3_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot3_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_3);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot4_btn
+            x: 108
+            y: 123
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot4_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot4_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_4);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot5_btn
+            x: 216
+            y: 123
+            width: 104
+            height: 95
+            hidden: true
+            widgets:
+              - label:
+                  id: slot5_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot5_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_5);"
+                      - script.execute: do_scan
+
+        - label:
+            id: status_label
+            x: 0
+            y: 220
+            width: 320
+            height: 20
+            align: TOP_MID
+            text: "idle"
