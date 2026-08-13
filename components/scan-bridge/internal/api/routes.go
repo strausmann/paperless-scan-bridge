@@ -14,6 +14,12 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /version", s.handleVersion)
 
+	// Readiness — real as of Phase 1.2h (issue #9): reports whether
+	// profiles are loaded and sane-runtime answers its own health
+	// check. Like /health, it is NOT behind requireBearer — a
+	// monitoring probe should not need a bearer token.
+	mux.HandleFunc("GET /ready", s.handleReady)
+
 	// Profiles — read-only, served straight out of the in-memory Set.
 	mux.HandleFunc("GET /profiles", s.handleProfilesList)
 	mux.HandleFunc("GET /profiles/{name}", s.handleProfileDetail)
@@ -28,7 +34,6 @@ func (s *Server) Router() http.Handler {
 
 	// Endpoints whose backing subsystem has not landed yet. They
 	// return a uniform 501 envelope so clients see a stable schema.
-	mux.Handle("GET /ready", s.notImplemented("readiness probe needs dispatch subsystem"))
 	mux.Handle("GET /jobs", s.notImplemented("job store has not landed yet"))
 	mux.Handle("GET /jobs/{id}", s.notImplemented("job store has not landed yet"))
 	mux.Handle("POST /jobs/{id}/cancel", s.notImplemented("job store has not landed yet"))
