@@ -12,17 +12,20 @@ not, and knowing what to do when something breaks.
 | Endpoint | Meaning |
 | --- | --- |
 | `GET /health` | Process liveness. Answers "is the daemon up?" and nothing more. |
-| `GET /ready` | Dependency readiness — scanner reachable, Paperless reachable, storage writable. |
+| `GET /ready` | Dependency readiness — profiles loaded and `sane-runtime` reachable. |
 | `GET /version` | Build version and commit, for correlating behaviour with a release. |
 
 Liveness and readiness are deliberately separate: a daemon that is alive
 but cannot reach the scanner should not be restarted by an orchestrator,
 it should be reported.
 
-!!! note "`/ready` not implemented yet"
-
-    `GET /ready` currently returns `501 Not Implemented`. The dependency
-    probes land with the scan dispatch path.
+`GET /ready` returns `200 {"status":"ready"}` when at least one scan
+profile is loaded and `sane-runtime` answers its own health check
+within 3 seconds, `503` otherwise (`no_profiles_loaded` or
+`sane_runtime_unreachable` — see the [API
+reference](../api-reference/index.md) for the full response shape).
+It does not check Paperless-ngx or storage writability; those checks
+are not implemented.
 
 ## Backup and recovery
 

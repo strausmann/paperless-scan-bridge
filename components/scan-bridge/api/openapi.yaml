@@ -1,0 +1,634 @@
+openapi: 3.1.0
+info:
+  title: scan-bridge API
+  description: |
+    HTTP surface of the `scan-bridge` daemon (Phase 1.2h,
+    [Issue #9](https://github.com/strausmann/paperless-scan-bridge/issues/9)).
+
+    This document describes the API surface **as actually implemented**
+    in `components/scan-bridge/internal/api/`, not the aspirational
+    surface from `CONTAINER_SUITE.md` §4.4. Three details worth knowing
+    before reading the paths below:
+
+    - `GET /profiles/{name}` returns the `profiles.Profile` Go struct
+      encoded directly by `encoding/json`. That struct only carries
+      `yaml` tags (its YAML source is `internal/profiles/defaults.yaml`),
+      no `json` tags — so the wire response uses the **capitalized Go
+      field names** (`Name`, `Description`, `Resolution`, ...), not the
+      `snake_case` used everywhere else in this API. This is a known
+      inconsistency, not a documentation error; see the "wire-format
+      consistency" follow-up referenced in the project issue tracker.
+    - `GET /ready` is real as of Phase 1.2h: `200` when profiles are
+      loaded and `sane-runtime` answers its own health check, `503`
+      otherwise. Earlier drafts of this project's docs describe it as a
+      `501` stub; that was accurate before Phase 1.2h and is not
+      anymore.
+    - `GET /jobs`, `GET /jobs/{id}` and `POST /jobs/{id}/cancel` are
+      real `501 Not Implemented` stubs today — there is no job store
+      yet (`internal/jobs` is a placeholder). They are documented here
+      because clients see them in the route table and get a stable
+      JSON envelope back, not a bare 404.
+  version: 0.1.0
+  license:
+    name: MIT
+    url: https://github.com/strausmann/paperless-scan-bridge/blob/main/LICENSE
+externalDocs:
+  description: paperless-scan-bridge documentation
+  url: https://scan-bridge.strausmann.de/
+servers:
+  - url: http://localhost:8080
+    description: Default listen address (config.ServerConfig.Listen, ":8080")
+
+tags:
+  - name: health
+    description: Liveness, readiness and version — never behind auth.
+  - name: profiles
+    description: Read-only access to configured scan profiles.
+  - name: scan
+    description: Trigger a scan (bearer-token or IP-allowlist auth).
+  - name: jobs
+    description: >-
+      Job store surface. Not implemented yet (Phase 1.4) — every
+      operation here returns 501.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Liveness check
+      description: >-
+        Cheap, always-real liveness probe. Never behind auth. Answers
+        "is the daemon process up?" and nothing more — it does not
+        check `sane-runtime` reachability or profile availability, see
+        `GET /ready` for that.
+      security: []
+      responses:
+        "200":
+          description: The daemon process is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+
+  /version:
+    get:
+      operationId: getVersion
+      tags: [health]
+      summary: Build version
+      description: >-
+        Version, commit and build date as stamped in at build time via
+        `-ldflags`. Never behind auth.
+      security: []
+      responses:
+        "200":
+          description: Build identity of the running binary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
+              example:
+                version: v1.0.0
+                commit: a1b2c3d
+                build_date: "2026-08-13T00:00:00Z"
+
+  /ready:
+    get:
+      operationId: getReady
+      tags: [health]
+      summary: Readiness check
+      description: >-
+        Reports whether the daemon can currently serve `POST /scan`:
+        at least one profile must be loaded, and `sane-runtime` must
+        answer its own health check within 3 seconds. Never behind
+        auth — a monitoring probe should not need a bearer token. The
+        profile check runs first and short-circuits before any network
+        round trip to `sane-runtime`.
+      security: []
+      responses:
+        "200":
+          description: Ready to serve `POST /scan`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+              example:
+                status: ready
+        "503":
+          description: >-
+            Not ready. `error` distinguishes the two possible causes:
+            `no_profiles_loaded` (no scan profiles configured — every
+            `POST /scan` would 404 regardless of `sane-runtime`) or
+            `sane_runtime_unreachable` (`sane-runtime` did not answer
+            its health check within the 3s timeout).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                no_profiles_loaded:
+                  value:
+                    error: no_profiles_loaded
+                    hint: >-
+                      No scan profiles are configured; check
+                      internal/profiles/defaults.yaml.
+                sane_runtime_unreachable:
+                  value:
+                    error: sane_runtime_unreachable
+                    hint: sane-runtime did not answer its health check in time.
+
+  /profiles:
+    get:
+      operationId: listProfiles
+      tags: [profiles]
+      summary: List configured scan profiles
+      description: >-
+        Returns the name and description of every configured profile,
+        in deterministic (alphabetical by name) order. For the full
+        profile definition, call `GET /profiles/{name}`. Never behind
+        auth.
+      security: []
+      responses:
+        "200":
+          description: The configured profiles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfilesListResponse"
+              example:
+                profiles:
+                  - name: invoices
+                    description: Duplex A4 invoices, OCR-friendly grayscale.
+                  - name: photos
+                    description: Single-sided color photos at high resolution.
+
+  /profiles/{name}:
+    get:
+      operationId: getProfile
+      tags: [profiles]
+      summary: Get one scan profile
+      description: >-
+        Returns the full definition of one configured profile. **The
+        response body uses capitalized field names** (`Name`,
+        `Description`, `Resolution`, ...) — see the note at the top of
+        this document. Never behind auth.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The profile's `name`, as returned by `GET /profiles`.
+          schema:
+            type: string
+          example: invoices
+      security: []
+      responses:
+        "200":
+          description: The profile definition, wire-encoded from the Go struct.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+              example:
+                Name: invoices
+                Description: Duplex A4 invoices, OCR-friendly grayscale.
+                Source: "avision:libusb:001:002"
+                Resolution: 300
+                Mode: Gray
+                Format: pdf
+                TargetSubdir: invoices
+                Deskew: true
+                RemoveBlank: true
+                RotatePages: true
+                PageSize: A4
+                TimeoutSeconds: 120
+                MetadataTemplate:
+                  PaperlessTags: ["invoice", "unprocessed"]
+                  PaperlessCorrespondent: null
+        "404":
+          description: No profile with that name is configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: profile_not_found
+                hint: "GET /profiles to list configured profile names."
+
+  /scan:
+    post:
+      operationId: postScan
+      tags: [scan]
+      summary: Trigger a scan
+      description: >-
+        The single canonical trigger for every client (ADR 0005) —
+        Zigbee remote, n8n workflow, web UI, or plain `curl` all POST
+        here. Dispatches synchronously to `sane-runtime` and returns
+        the finished result inline as `200 OK`; there is no async
+        `202` + polling flow (a documented deviation from earlier
+        drafts of the design). Requires authentication — see
+        `security` below and the description of the `bearerAuth`
+        scheme for the alternative IP-allowlist auth mode.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
+            example:
+              profile: invoices
+              tag_ids: [12, 47]
+              tag_strategy: add
+      responses:
+        "200":
+          description: Scan completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+              example:
+                scan_id: 3f2a9c7e1b4d4a5f8e9d0c1b2a3f4e5d
+                profile: invoices
+                page_count: 3
+                pages:
+                  - /var/lib/scan-bridge/3f2a9c7e/page-1.tiff
+                  - /var/lib/scan-bridge/3f2a9c7e/page-2.tiff
+                  - /var/lib/scan-bridge/3f2a9c7e/page-3.tiff
+                duration_ms: 8342
+                effective_tag_ids: [12, 47]
+        "400":
+          description: The request body was not valid JSON, or contained unknown fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: invalid_body
+                hint: 'json: unknown field "foo"'
+        "401":
+          description: >-
+            Missing or invalid bearer token (`token` auth mode), or the
+            caller's source IP is not on the allowlist
+            (`ip_allowlist` auth mode). **Never 403** — this API does
+            not distinguish "authenticated but forbidden" from "not
+            authenticated" on this endpoint.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              description: 'Always `Bearer realm="scan-bridge"`.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: unauthorized
+        "404":
+          description: No profile with that name is configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: profile_not_found
+                hint: "GET /profiles to list configured profile names."
+        "409":
+          description: sane-runtime is already processing another job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: scanner_busy
+                hint: the scanner is already processing another job.
+        "422":
+          description: The scan ran, but the feeder was empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: no_documents
+                hint: no documents were found in the feeder.
+        "500":
+          description: scan-bridge failed before it could dispatch the scan (e.g. scan-ID generation failed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: internal
+                hint: failed to generate a scan id
+        "502":
+          description: sane-runtime dispatch failed for a reason not covered by the other statuses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: dispatch_failed
+                hint: sane-runtime dispatch failed; see daemon logs.
+        "503":
+          description: sane-runtime has not detected an attached scanner yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: no_scanner_detected
+                hint: sane-runtime has not detected an attached scanner yet.
+        "504":
+          description: >-
+            The scan did not complete within the profile's
+            `timeout_seconds`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: timeout
+                hint: the scan did not complete within the profile's timeout_seconds.
+
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List scan jobs (not implemented)
+      description: >-
+        Stub. There is no job store yet (`internal/jobs`, Phase 1.4).
+        Always returns `501` with the uniform not-implemented envelope
+        so clients can rely on the schema before the subsystem lands.
+      security: []
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get one scan job (not implemented)
+      description: Stub — see `GET /jobs`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A job ID, as it would be returned once the job store lands.
+          schema:
+            type: string
+      security: []
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+  /jobs/{id}/cancel:
+    post:
+      operationId: cancelJob
+      tags: [jobs]
+      summary: Cancel a scan job (not implemented)
+      description: Stub — see `GET /jobs`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A job ID, as it would be returned once the job store lands.
+          schema:
+            type: string
+      security: []
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        `POST /scan` supports two mutually exclusive auth modes,
+        selected by the daemon's own `auth.mode` config (`token` or
+        `ip_allowlist`) — a single deployment runs one or the other,
+        never both. In `token` mode (the default, and what this
+        security scheme documents), the client must send
+        `Authorization: Bearer <token>`; the daemon compares the
+        token's SHA-256 digest against the configured hash in constant
+        time. In `ip_allowlist` mode the daemon instead checks the
+        TCP peer address against `auth.allowed_cidrs` and needs no
+        header at all — OpenAPI has no vocabulary for network-level
+        auth, so that mode is not represented as a second security
+        scheme here, only in this description. Either way, a failed
+        check returns `401` with a `WWW-Authenticate: Bearer
+        realm="scan-bridge"` header — never `403`.
+
+  responses:
+    NotImplemented:
+      description: This part of the API surface has not landed yet.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: not_implemented
+            hint: job store has not landed yet
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    VersionResponse:
+      type: object
+      required: [version, commit, build_date]
+      properties:
+        version:
+          type: string
+          example: v1.0.0
+        commit:
+          type: string
+          example: a1b2c3d
+        build_date:
+          type: string
+          example: "2026-08-13T00:00:00Z"
+
+    ReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ready
+
+    ErrorResponse:
+      type: object
+      description: The canonical error envelope for every 4xx and 5xx response.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: A short, stable, machine-readable error code.
+        hint:
+          type: string
+          description: A human-readable hint. Omitted when there is nothing useful to add.
+
+    ProfileSummary:
+      type: object
+      description: The list-shape of a profile — see `Profile` for the full definition.
+      required: [name, description]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    ProfilesListResponse:
+      type: object
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfileSummary"
+
+    Profile:
+      type: object
+      description: >-
+        `internal/profiles.Profile`, encoded directly by
+        `encoding/json`. The Go struct carries only `yaml` tags (its
+        source of truth is `internal/profiles/defaults.yaml`) — with
+        no `json` tags, `encoding/json` falls back to the **exported
+        Go field names verbatim**, so every key here is capitalized.
+        This is the one place in the API that is not `snake_case`; see
+        the note at the top of this document.
+      required:
+        - Name
+        - Description
+        - Source
+        - Resolution
+        - Mode
+        - Format
+        - TargetSubdir
+        - Deskew
+        - RemoveBlank
+        - RotatePages
+        - PageSize
+        - TimeoutSeconds
+        - MetadataTemplate
+      properties:
+        Name:
+          type: string
+        Description:
+          type: string
+        Source:
+          type: string
+          description: The SANE source string (e.g. `avision:libusb:001:002`).
+        Resolution:
+          type: integer
+          description: Scan resolution in DPI. Validated to 100-1200 at profile load.
+          minimum: 100
+          maximum: 1200
+        Mode:
+          type: string
+          enum: [Color, Gray, Lineart]
+        Format:
+          type: string
+          enum: [pdf, jpeg, tiff]
+        TargetSubdir:
+          type: string
+        Deskew:
+          type: boolean
+        RemoveBlank:
+          type: boolean
+        RotatePages:
+          type: boolean
+        PageSize:
+          type: string
+          enum: [A4, Letter, A5, auto]
+        TimeoutSeconds:
+          type: integer
+          description: >-
+            Bounds both the `POST /scan` dispatch context and (once
+            the job store lands) job execution.
+        MetadataTemplate:
+          $ref: "#/components/schemas/MetadataTemplate"
+
+    MetadataTemplate:
+      type: object
+      description: >-
+        `internal/profiles.MetadataTemplate`, same capitalized-field
+        caveat as `Profile` (no `json` tags, only `yaml`).
+      required: [PaperlessTags, PaperlessCorrespondent]
+      properties:
+        PaperlessTags:
+          type: array
+          items:
+            type: string
+        PaperlessCorrespondent:
+          type: [string, "null"]
+          description: >-
+            A Go `*string` — `null` when the profile does not set a
+            default correspondent.
+
+    ScanRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Decoded with `json.Decoder.DisallowUnknownFields` — an unknown
+        field is a `400 invalid_body`, not a silently ignored one.
+      required: [profile]
+      properties:
+        profile:
+          type: string
+          description: A profile `name`, as returned by `GET /profiles`.
+        tag_ids:
+          type: array
+          items:
+            type: integer
+          description: Caller-supplied Paperless tag IDs, merged per `tag_strategy`.
+        tag_strategy:
+          type: string
+          enum: [add, override, remove]
+          description: >-
+            How `tag_ids` merges with the profile's own default tags
+            (not yet populated by any shipped profile — see
+            `internal/tag.Merge`). `add` (default when omitted) unions
+            both sets, `override` discards the profile defaults and
+            uses only `tag_ids`, `remove` drops any profile default
+            also present in `tag_ids`.
+
+    ScanResult:
+      type: object
+      required:
+        - scan_id
+        - profile
+        - page_count
+        - pages
+        - duration_ms
+        - effective_tag_ids
+      properties:
+        scan_id:
+          type: string
+          description: A random 128-bit hex ID, unique per dispatch call.
+        profile:
+          type: string
+        page_count:
+          type: integer
+        pages:
+          type: array
+          items:
+            type: string
+          description: Absolute paths to the raw page images sane-runtime produced.
+        duration_ms:
+          type: integer
+          description: Wall-clock duration of the dispatch call, in milliseconds.
+        effective_tag_ids:
+          type: array
+          items:
+            type: integer
+          description: The resolved Paperless tag IDs after applying `tag_strategy`.

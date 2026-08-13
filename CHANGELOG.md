@@ -87,6 +87,17 @@ between releases as a running list.
   `scanbd` was dropped from the Phase 1.2 design. Empirically verified
   on the reference hardware on 2026-04-30; evidence and method in
   `docs/research/scanner-hardware-events.md`.
+- OpenAPI 3.1 spec for `scan-bridge`
+  (`components/scan-bridge/api/openapi.yaml`), grounded against the
+  handlers actually implemented in `internal/api/` rather than the
+  aspirational surface `CONTAINER_SUITE.md` §4.4 used to reference,
+  rendered as an interactive [API
+  reference](https://scan-bridge.strausmann.de/api-reference/) page
+  via a self-hosted [Scalar](https://github.com/scalar/scalar)
+  bundle (`.github/scripts/vendor-scalar.sh`, same
+  pinned-and-digest-verified vendoring pattern as Mermaid and ESP Web
+  Tools — no request to `proxy.scalar.com` or `fonts.scalar.com`).
+  Issue #9, phase F1.
 
 ### Changed
 

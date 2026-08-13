@@ -49,6 +49,7 @@ nav = [
     "operations/index.md",
     "operations/troubleshooting.md",
   ] },
+  { "API reference" = ["api-reference/index.md"] },
   { "Blog" = "blog/index.md" },
 ]
 
