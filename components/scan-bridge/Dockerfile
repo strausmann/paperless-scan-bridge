@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.7
-ARG GO_VERSION=1.23
-ARG ALPINE_VERSION=3.19
+# go.mod declares `go 1.25.0`; GO_VERSION here must stay at or above
+# that or `go mod download`/`go build` fail with "go.mod requires go
+# >= 1.25.0" before a single source file is even compiled. Discovered
+# building this Dockerfile locally for the Task 15 compose stack — the
+# previous default (1.23) predates a go.mod bump that was never
+# mirrored here. Matches sane-runtime/Dockerfile's GO_VERSION=1.25.
+ARG GO_VERSION=1.25
+# golang:1.25-alpine3.19 and -alpine3.20 are not published upstream
+# (verified: `docker pull` 404s on both); -alpine3.21 is the oldest
+# Alpine base actually paired with a 1.25.x golang tag on Docker Hub.
+ARG ALPINE_VERSION=3.21
 
 # ---- Build stage ----
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
