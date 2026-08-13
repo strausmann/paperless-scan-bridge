@@ -6,10 +6,18 @@
 # site/de/. English must run before German, never the other way round.
 # Tracked in issue #13; upstream in zensical/backlog#2 and #1.
 #
-# The site makes no third-party requests at runtime. Mermaid is vendored
-# (Zensical would otherwise fetch it from unpkg.com) and Google Fonts is
-# off via `font = false`. Both are asserted below, because a silent
-# regression here is exactly the kind that nobody notices.
+# The site makes no third-party requests at runtime. Mermaid and ESP Web
+# Tools are vendored (both would otherwise be fetched from unpkg.com /
+# the npm CDN) and Google Fonts is off via `font = false`. All of that
+# is asserted below, because a silent regression here is exactly the
+# kind that nobody notices.
+#
+# The firmware job (calls esphome-firmware.yml) runs on every trigger of
+# this workflow, not just when firmware/ changed: a Pages deployment
+# replaces the whole published site tree each time, so site/firmware/
+# would otherwise go missing from a deploy triggered by a docs-only
+# change. This is deliberately not incremental — see the PR that
+# introduced it for the CI-cost tradeoff that was accepted here.
 
 name: Docs
 
@@ -17,18 +25,22 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
-      - "zensical.toml"
-      - "zensical.de.toml"
-      - "requirements-docs.txt"
-      - ".github/workflows/docs.yml"
+      - 'docs/**'
+      - 'firmware/esp32-panel/**'
+      - 'zensical.toml'
+      - 'zensical.de.toml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/esphome-firmware.yml'
   pull_request:
     paths:
-      - "docs/**"
-      - "zensical.toml"
-      - "zensical.de.toml"
-      - "requirements-docs.txt"
-      - ".github/workflows/docs.yml"
+      - 'docs/**'
+      - 'firmware/esp32-panel/**'
+      - 'zensical.toml'
+      - 'zensical.de.toml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+      - '.github/workflows/esphome-firmware.yml'
   workflow_dispatch:
 
 permissions:
@@ -42,15 +54,20 @@ env:
   SITE_DOMAIN: scan-bridge.strausmann.de
 
 jobs:
+  firmware:
+    name: Firmware
+    uses: ./.github/workflows/esphome-firmware.yml
+
   build:
     name: Build site
+    needs: firmware
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements-docs.txt
 
@@ -59,6 +76,9 @@ jobs:
 
       - name: Vendor Mermaid
         run: ./.github/scripts/vendor-mermaid.sh
+
+      - name: Vendor ESP Web Tools
+        run: ./.github/scripts/vendor-esp-web-tools.sh
 
       - name: Build English site
         run: zensical build -f zensical.toml --strict
@@ -76,6 +96,12 @@ jobs:
             echo "::error::site/de/index.html missing - build order wrong?"
             exit 1
           fi
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.firmware.outputs.artifact-name }}
+          path: site/firmware
 
       - name: Assert no third-party assets are referenced
         run: python3 .github/scripts/check_no_external_assets.py site

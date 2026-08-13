@@ -1,0 +1,118 @@
+# Build the CYD scan-control panel firmware (Issue #9, phase E) and
+# produce an ESP Web Tools manifest.json so it can be flashed straight
+# from a browser. This only works because the firmware is secret-free
+# (see firmware/esp32-panel/README.md "Secret-free firmware") — a
+# public CI artifact cannot carry Wi-Fi credentials, a bridge URL, or a
+# bearer token.
+#
+# This workflow is both standalone (its own push/workflow_dispatch
+# triggers, for an ad-hoc build+artifact without touching docs) and
+# reusable (`workflow_call`) — the Docs workflow (docs.yml) calls it as
+# a job so every Pages deploy carries a firmware build from the same
+# commit, without standing up a second Pages deployment. See docs.yml
+# for how the `esp32-firmware` artifact this job uploads gets copied
+# into site/firmware/ before the Pages upload.
+
+name: ESPHome firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/esp32-panel/**'
+      - '.github/workflows/esphome-firmware.yml'
+  workflow_dispatch:
+  # No standalone `pull_request:` trigger here — docs.yml already has
+  # `firmware/esp32-panel/**` in its own pull_request paths and calls
+  # this workflow as a job, so a firmware-touching PR would otherwise
+  # compile twice (once here, once via the reusable call).
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: 'Name of the uploaded firmware + manifest.json artifact'
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+env:
+  ESPHOME_VERSION: '2026.7.4'
+  FIRMWARE_NAME: cyd-scan-panel
+  ARTIFACT_NAME: esp32-firmware
+
+permissions:
+  contents: read
+
+concurrency:
+  group: esphome-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile + manifest
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact-name: ${{ env.ARTIFACT_NAME }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install ESPHome
+        run: pip install "esphome==${{ env.ESPHOME_VERSION }}"
+
+      - name: Compile firmware
+        working-directory: firmware/esp32-panel
+        run: esphome compile "${{ env.FIRMWARE_NAME }}.yaml"
+
+      # esphome's ESP-IDF-based build (the current default for esp32 +
+      # arduino framework) writes the merged, flash-ready factory image
+      # somewhere under .esphome/build/<name>/ — the exact subpath has
+      # moved between ESPHome releases (older PlatformIO-only builds
+      # used .pioenvs/<name>/), so this locates it by name instead of
+      # hardcoding a path that the next ESPHome upgrade could silently
+      # break.
+      - name: Locate factory image
+        id: locate
+        working-directory: firmware/esp32-panel
+        run: |
+          set -euo pipefail
+          image="$(find ".esphome/build/${{ env.FIRMWARE_NAME }}" -name '*.factory.bin' -print -quit)"
+          if [ -z "$image" ]; then
+            echo "::error::no *.factory.bin found under .esphome/build/${{ env.FIRMWARE_NAME }}"
+            find ".esphome/build/${{ env.FIRMWARE_NAME }}" -maxdepth 5 -name '*.bin' || true
+            exit 1
+          fi
+          echo "Found: $image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble dist/ (binary + ESP Web Tools manifest)
+        working-directory: firmware/esp32-panel
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "${{ steps.locate.outputs.image }}" "dist/${{ env.FIRMWARE_NAME }}.factory.bin"
+          version="${GITHUB_SHA:0:7}"
+          cat > dist/manifest.json <<EOF
+          {
+            "name": "CYD Scan Panel",
+            "version": "${version}",
+            "new_install_prompt_erase": true,
+            "builds": [
+              {
+                "chipFamily": "ESP32",
+                "parts": [
+                  { "path": "${{ env.FIRMWARE_NAME }}.factory.bin", "offset": 0 }
+                ]
+              }
+            ]
+          }
+          EOF
+          python3 -m json.tool dist/manifest.json > /dev/null
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: firmware/esp32-panel/dist/
+          retention-days: 30
+          if-no-files-found: error
