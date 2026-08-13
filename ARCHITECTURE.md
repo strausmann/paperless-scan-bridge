@@ -29,6 +29,22 @@ trade-offs in default configurations.
 
 ## High-level data flow
 
+> **Status (2026-08-13):** this diagram reflects what is actually
+> built today. Earlier drafts of this document described
+> `scan-processor` reading from a shared volume and writing its
+> output to a Synology NFS consume directory that Paperless-ngx polls
+> or inotify-watches — that model was never implemented. The real
+> pipeline is request/response end-to-end: `scan-bridge` is the only
+> component that talks to `sane-runtime`, `scan-processor`, and
+> Paperless-ngx; neither of the other two ever talks to the other
+> directly, and none of them write to a directory the next stage
+> watches. See
+> [`docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md`](docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md)
+> for the design that replaced the shared-volume/inotify/callback
+> sketch, and
+> [`components/scan-processor/README.md`](components/scan-processor/README.md)
+> for `scan-processor`'s authoritative contract.
+
 ```
 [ Trigger source ]                         [ Scanner hardware ]
    Zigbee button                              Kodak ScanMate i1120
@@ -39,28 +55,56 @@ trade-offs in default configurations.
   POST /scan to scan-bridge                          |
         |                                            v
         v                              [ sane-runtime container ]
-   scan-bridge daemon  -------exec----->   scanimage --batch
+   scan-bridge daemon  ----HTTP/Unix-socket-->  scanimage --batch
    (Go, REST, profiles)                         |
-        |                                       v
-        |                              raw TIFF/JPEG batch
-        v                                       |
-   [ scan-processor container ] <----------------+
-   (Go, deskew, blank-page filter, PDF assembly)
+        ^                                       v
+        |                              multipart: TIFF pages back
+        +---------------------------------------+
+        |
+        v  scan-bridge writes the pages to its own OutputDir, then
+        |  re-reads them and POSTs them (HTTP over a SECOND, separate
+        |  Unix socket) to:
+        v
+   [ scan-processor container ]
+   (Go; shells out to convert(1)/tesseract(1)/qpdf(1) for deskew,
+    blank-page removal, rotation, OCR deu+eng, format conversion,
+    multi-page assembly)
         |
         v
-  /mnt/synology/consume/<profile>/<timestamp>.pdf
+   assembled document(s) returned to scan-bridge in the SAME HTTP
+   response (multipart/mixed) -- no shared volume, no callback URL
         |
         v
-  [ Paperless-ngx container ]
-   (consumes via inotify or polling)
+   scan-bridge resolves the profile's configured destinations
+   (ADR 0016) and delivers each document to every one of them. The
+   only destination built today:
+        |
+        v
+  POST /api/documents/post_document/ on Paperless-ngx
+  (multipart/form-data, Token auth, direct API call -- not a
+   consume-directory write)
+        |
+        v
+  200 {"task_id": "..."} -- Paperless-ngx accepted the upload for
+  its own asynchronous Celery consumption task
         |
         v
   PostgreSQL metadata + searchable PDF/A
 ```
 
-Everything between the trigger and the final PDF is containerized. Only
-the USB device node and the NFS mount cross the host-container
-boundary.
+Everything between the trigger and the finished Paperless-ngx document
+is containerized. Only the USB device node crosses the host-container
+boundary; the NFS mount from the "Storage topologies" section below is
+relevant to a possible future NFS/SMB destination module (not built —
+see `docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md`
+sec. 1/12), not to the pipeline this diagram shows.
+
+`scan-bridge`'s `POST /scan` call is synchronous end-to-end today: it
+blocks through scan → processing → every destination's upload
+*submission* (not upload completion) and returns the finished result
+inline as `200 OK`. `GET /jobs/:id` below is not yet backed by an
+implementation and currently always returns `501` — there is no async
+job queue to poll (design doc sec. 7, Option A).
 
 ## Component inventory
 
@@ -77,9 +121,17 @@ small memory footprint, and easy ARM64 cross-compilation.
   `GET /health`, `GET /metrics`
 - Accept Webhook calls from Home Assistant, n8n, or any HTTP client
 - Load profile definitions from a YAML file mounted into the container
-- Dispatch scan jobs to the `sane-runtime` container via a Unix socket
+- Dispatch scan jobs to the `sane-runtime` container via a Unix
+  socket, then the resulting pages to the `scan-processor` container
+  over a second Unix socket, then each assembled document to the
+  profile's configured destinations (ADR 0016; Paperless-ngx is the
+  only destination built today) — all within the one synchronous
+  `POST /scan` call
 - Track job status in an in-memory queue; persist completed jobs to a
-  small SQLite database for inspection
+  small SQLite database for inspection — **not implemented yet**:
+  `GET /jobs/:id` and the rest of `/jobs*` currently return `501`;
+  `POST /scan` is fully synchronous instead (design doc sec. 7,
+  Option A)
 - Export Prometheus metrics: scan duration, queue depth, error rate,
   profile usage distribution
 - Optional gRPC endpoint for Pi-to-Pi communication in HA setups
@@ -117,27 +169,55 @@ a SANE update from forcing a daemon redeploy.
 
 #### `scan-processor`
 
-The pipeline worker. Takes raw scan output and produces consumable PDFs.
+The OCR/image-processing pipeline worker. Takes a job's raw TIFF pages
+from `scan-bridge` over a Unix socket and hands back the assembled,
+processed document(s) the same way — it never touches a shared volume
+and never calls back into `scan-bridge` or anywhere else.
 
 **Responsibilities:**
 
-- Read raw image batch from a shared volume
-- Apply deskew via Leptonica bindings or imagemagick fallback
-- Detect and remove blank pages using pixel-density thresholds
-- Optional rotation correction
-- Merge images into a single PDF with pdfcpu
-- Optional local OCR pass with tesseract (off by default — Paperless
-  does this better on the bigger Docker host)
-- Write output atomically to `/mnt/synology/consume/<profile>/` using
-  `O_TMPFILE` + `linkat` so Paperless never sees a partially written
-  file
-- Clean up the working directory
+- Serve `POST /process` (`multipart/mixed` request: JSON control
+  payload + raw TIFF pages; `multipart/mixed` response: JSON metadata
+  + assembled document(s)) and `GET /health` on a Unix-domain socket
+  (`/run/scan-processor/scan-processor.sock` by default) —
+  single-flight, a second concurrent request gets `409` immediately
+- Deskew (`convert -deskew`), blank-page removal (mean-brightness
+  threshold), and rotation correction (`tesseract --psm 0` + `convert
+  -rotate`) — each independently profile-gated
+- OCR via `tesseract` (`deu+eng` by default when enabled; **off by
+  default**, matching this document's long-standing "Paperless does
+  this better on the bigger Docker host" rationale) — produces a
+  searchable PDF directly when `output_format=pdf` (Tesseract's own
+  PDF output mode), no separate assemble-then-OCR step
+- Format conversion and multi-page assembly (`qpdf` for PDF, `convert`
+  for a multi-page TIFF) per the profile's `assembly.page_grouping`:
+  `combined` merges a job's surviving pages into one document,
+  `per_page` emits one document per surviving source page
+- Return the assembled document(s), page counts, and any warnings to
+  `scan-bridge` in the `POST /process` HTTP response itself — there is
+  no consume directory, no atomic-rename dance, and no NFS write on
+  this component's part. Where the resulting document(s) end up
+  (Paperless-ngx today; NFS/SMB/fileee are designed as registry slots
+  but not built) is entirely `scan-bridge`'s decision, made *after*
+  this response, per the profile's `destinations` list (ADR 0016) —
+  `scan-processor` does not know Paperless, or any other destination,
+  exists
 
 **Image:** `ghcr.io/strausmann/paperless-scan-bridge/scan-processor:vX.Y.Z`
 
-**Why a separate container:** PDF processing is CPU-intensive and can
-be scaled independently. On a busy day with 50+ scans, you might run
-two processor containers behind a queue.
+**Why a separate container:** Tesseract, its language data
+(`deu`+`eng`), and the ImageMagick/`qpdf` toolchain are a materially
+different dependency surface and update cadence than `scan-bridge`'s
+REST/dispatch code (ADR 0003) — keeping them in their own container
+keeps `scan-bridge` small (its own `under 25 MB` goal above) and lets
+the two update independently.
+
+See [`components/scan-processor/README.md`](components/scan-processor/README.md)
+for the authoritative API contract, configuration, and pipeline-stage
+list, and
+[`docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md`](docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md)
+sec. 4 for the design that replaced this document's original
+shared-volume/inotify/callback sketch.
 
 ### Adopted upstream containers
 

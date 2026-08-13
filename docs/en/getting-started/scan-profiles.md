@@ -37,7 +37,7 @@ Both endpoints are implemented today.
 
 ## Schema
 
-This is the complete set of fields the daemon accepts right now.
+This is the base set of fields every profile can set.
 
 ```yaml
 profiles:
@@ -66,36 +66,32 @@ profiles:
 | `resolution` | DPI, 100–1200. |
 | `mode` | `Color`, `Gray`, `Lineart` |
 | `format` | `pdf`, `jpeg`, `tiff` |
-| `target_subdir` | Subdirectory under the consume directory. |
+| `target_subdir` | Superseded by `destinations` for any profile that adopts it — see [Profile schema reference](profile-schema.md#fields-that-predate-destinations). |
 | `deskew` | `true` / `false` |
 | `remove_blank` | `true` / `false` |
 | `rotate_pages` | `true` / `false` |
 | `page_size` | `A4`, `Letter`, `A5`, `auto` |
-| `timeout_seconds` | Scan timeout. |
-| `metadata_template.paperless_tags` | List of tag names. |
-| `metadata_template.paperless_correspondent` | Correspondent name, or `null`. |
+| `timeout_seconds` | Bounds the whole `POST /scan` call — scan, `scan-processor`, and every destination's upload submission together. |
+| `metadata_template.paperless_tags` | List of tag names. Superseded by a `paperless` destination's `config.tag_ids` (integer IDs) — see [Profile schema reference](profile-schema.md#fields-that-predate-destinations). |
+| `metadata_template.paperless_correspondent` | Correspondent name, or `null`. Same caveat as above. |
 
 The post-processing flags (`deskew`, `remove_blank`, `rotate_pages`) are
-part of the schema and validated, but nothing acts on them yet — the
-`scan-processor` container is not written.
+acted on by the `scan-processor` container, over the same `POST /scan`
+call — see [Profile schema reference](profile-schema.md) for the full
+set of fields, including `ocr`, `assembly`, `document_type`, and
+`destinations`.
 
 ## Not in the schema yet
 
-The Phase 1.2 design adds several things this page deliberately does not
-document as if they worked:
-
-- **Secret references.** Profiles will reference Paperless credentials
-  by name, resolved from a Docker secret file, an environment variable,
-  or a SOPS-encrypted file. There is no resolver in the code today, and
-  a `paperless:` block in a profile file would fail the strict decode.
-- **Tag-merge modes** (`add` / `override` / `remove`) for combining
-  profile tags with request tags.
+- **Tag-merge modes** (`add` / `override` / `remove`) exist, but only
+  as a `paperless` destination's `config.tag_strategy` — there is no
+  profile-wide tag-merge default outside a destination's own config.
 - **Separator-page splitting** and ASN-based splitting.
-- **Profile CRUD over the API**, including the JSON schema mirror at
-  `components/scan-bridge/api/schema/profile.json`.
+- **Profile CRUD over the API**, including a JSON Schema mirror of
+  `profiles.yaml` itself.
 
-Until those land, keep credentials out of profile files entirely and
-configure Paperless access through the daemon's own configuration.
+See [Profile schema reference](profile-schema.md#not-in-the-schema-yet)
+for the complete, current list.
 
 ## Adding a profile
 
