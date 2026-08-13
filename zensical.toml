@@ -43,6 +43,7 @@ nav = [
   { "Hardware" = [
     "hardware/index.md",
     "hardware/kodak-scanmate-i1120.md",
+    "hardware/cyd-scan-panel.md",
   ] },
   { "Operations" = [
     "operations/index.md",

@@ -47,6 +47,43 @@ Upstream, [zensical/backlog#155](https://github.com/zensical/backlog/issues/155)
 proposes rendering diagrams at build time. That would remove the 3.5 MB
 client-side bundle altogether and make this whole section obsolete.
 
+## ESP Web Tools, from unpkg.com
+
+The [CYD scan-control panel](../hardware/cyd-scan-panel.md) installer
+page embeds [ESP Web Tools](https://esphome.github.io/esp-web-tools/), a
+web component that flashes ESP32 firmware over Web Serial straight from
+the browser. Every published usage example loads it from unpkg.com:
+
+```html
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+```
+
+Unlike Mermaid, this isn't a single self-contained bundle — the entry
+point dynamically `import()`s a shared dialog/console chunk and one
+flasher stub per chip family, all as paths relative to its own URL
+(verified against the published package contents: no absolute CDN URL
+appears anywhere in the bundle). Loading only `install-button.js`
+ourselves would still leave those relative imports resolving against
+*our* origin but pointing at files that don't exist there — the whole
+`dist/web/` directory has to be vendored together, or the dynamic
+imports 404.
+
+`.github/scripts/vendor-esp-web-tools.sh` downloads a pinned npm
+package, verifies the tarball against the SHA-512 integrity hash the
+registry itself publishes for that version, and writes every file under
+`dist/web/` into `docs/en/javascripts/esp-web-tools/`. The installer
+page references it directly:
+
+```html
+<script type="module" src="/javascripts/esp-web-tools/install-button.js"></script>
+```
+
+Same trade-off as Mermaid: about 540 KB, not committed (a reproducible
+build artifact, fetched during the build and served from our own
+origin), and CI's external-asset check would catch a regression here
+too — a root-relative `src` is same-origin by construction, so there is
+nothing to allowlist.
+
 ## Google Fonts
 
 The default theme loads Inter and JetBrains Mono from

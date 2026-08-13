@@ -26,6 +26,12 @@ likely-compatible candidates, trigger devices, and storage backends,
 lives in
 [`HARDWARE_COMPATIBILITY.md`](https://github.com/strausmann/paperless-scan-bridge/blob/main/HARDWARE_COMPATIBILITY.md).
 
+## Trigger hardware
+
+Not a scanner — a companion device. The [CYD scan-control
+panel](cyd-scan-panel.md) is a touch screen that lists scan profiles and
+triggers a scan over HTTP, flashable straight from a browser.
+
 ## Testing your own scanner
 
 The verification procedure has four stages:

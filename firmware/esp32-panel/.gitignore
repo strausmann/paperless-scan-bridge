@@ -1,4 +1,8 @@
-# Real secrets — never commit. Copy secrets.yaml.example instead.
+# This firmware ships no build-time secrets (see README.md "Secret-free
+# firmware") — `esphome config`/`compile` run without any secrets.yaml.
+# Kept ignored anyway as a guard: if a local checkout ever adds one back
+# (e.g. to re-enable `api:` with an encryption key for local HA testing),
+# it must never be committed.
 secrets.yaml
 
 # ESPHome build cache and compiled artifacts for this device. Per-build
