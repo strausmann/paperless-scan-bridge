@@ -1,0 +1,135 @@
+# Phase 1.2 (Task 15) compose stack: scan-bridge + sane-runtime, wired
+# over the ADR 0009 shared Unix socket, deployed on hhplex01 for the
+# hardware smoke test explicitly anticipated in
+# components/sane-runtime/Dockerfile's root-tradeoff comment ("the
+# Task 13 hardware smoke test on hhplex01").
+#
+# Lives at the repo root, NOT under deploy/compose/ as originally
+# sketched in docs/superpowers/plans/2026-04-30-phase-1.2-plan-
+# zusammenfassung-de.md ("deploy/compose/scan-stack.compose.yml").
+# Moved here after the first real deploy attempt via Dockhand's
+# `POST /api/git/stacks` failed with "unable to prepare context: path
+# '/docker/components/sane-runtime' not found" — the upward-escaping
+# `build.context: ../../components/sane-runtime` a nested composePath
+# would have required could not be resolved against the git-stack's
+# checkout root on the Hawser-edge agent. Every other git-stack
+# already running in this Dockhand instance (25+, spanning 6+
+# environments) uses `composePath: "compose.yaml"` at the repo root
+# with zero exceptions — no nested composePath + upward-escaping
+# build context exists anywhere in the fleet to compare against.
+# Rather than debug closed-source Hawser path resolution blind, this
+# stays at the empirically-proven location: build contexts and the
+# config/profile mounts below are root-relative (components/...,
+# deploy/...), no `../` needed anywhere.
+#
+# Data placement follows the HomeLab bind-mount convention (data lives
+# under /docker/stacks/<stack>/<service>/ on the host, one subdirectory
+# per container — NO named Docker volumes). This intentionally departs
+# from the CONTAINER_SUITE.md sec. 7.1/8.1 sketch, which predates that
+# convention and shows a named `sane-socket` volume; the Unix-socket
+# *transport* it specifies (ADR 0009) is unchanged, only the volume
+# backing it is a bind mount instead of a named volume.
+#
+# uid/gid coordination (main.go's "finalized in Task 13/15 (brief D3)"
+# TODO): sane-runtime still runs as root (documented, temporary
+# exception in its own Dockerfile — USB access, no udev/non-root wiring
+# on the host yet). scan-bridge runs as the distroless base image's
+# built-in `nonroot` user (UID/GID 65532 — GoogleContainerTools/
+# distroless convention). The socket sane-runtime creates is therefore
+# owned by root:root, mode 0660 (cmd/sane-runtime/main.go
+# newUnixListener) — a UID-65532 process cannot open it. Rather than
+# widening sane-runtime's own hardening further, scan-bridge is given
+# `group_add: ["0"]`: a supplementary GID (root's) added at container
+# creation, honored by the kernel for the socket's group permission
+# check without changing scan-bridge's own UID or requiring a shell
+# inside its distroless image. The one-shot `init-permissions` service
+# below does the equivalent for the bind-mounted state/output
+# directory, which Docker would otherwise auto-create as root:root
+# 0755 (bind-mounts-statt-named-volumes.md's "neu angelegte
+# Bind-Mount-Verzeichnisse gehoeren root" pitfall) — UID 65532 cannot
+# write job output into a directory it does not own. This is the
+# interim wiring for this smoke test, not a claim that ADR 0008/0013
+# (non-root sane-runtime) are satisfied.
+#
+# No named `volumes:` top-level block — see
+# .claude/rules/bind-mounts-statt-named-volumes.md in the
+# homelab-management repo.
+
+services:
+  # One-shot: fixes ownership of the two host bind-mount directories
+  # before either real service starts, so a fresh (Docker-auto-created)
+  # directory does not leave scan-bridge unable to write its own output
+  # or read/write the shared socket. See the uid/gid note above.
+  init-permissions:
+    image: busybox:1.36
+    user: "0:0"
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /data/scan-bridge /data/socket
+        chown -R 65532:0 /data/scan-bridge
+        chmod -R 0770 /data/scan-bridge
+        chown -R 0:0 /data/socket
+        chmod 0770 /data/socket
+    volumes:
+      - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/data/scan-bridge
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/data/socket
+
+  sane-runtime:
+    build:
+      context: components/sane-runtime
+      args:
+        VERSION: phase-1.2-task-15
+    container_name: paperless-scan-bridge-sane-runtime
+    restart: unless-stopped
+    # USB passthrough (ADR 0008: device-cgroup permissions, never
+    # --privileged). Scanner is at /dev/bus/usb/001/004 on hhplex01
+    # (avision:libusb:001:004); the whole bus is passed through because
+    # deploy/udev/ (stable per-device symlink) is still empty
+    # (.gitkeep only, per repo-root CLAUDE.md) — narrowing this to the
+    # specific device node is tracked, not this task's scope.
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    environment:
+      SANE_RUNTIME_SOCKET: /run/sane-runtime/sane.sock
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/run/sane-runtime
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+
+  scan-bridge:
+    build:
+      context: components/scan-bridge
+      args:
+        VERSION: phase-1.2-task-15
+    container_name: paperless-scan-bridge-scan-bridge
+    restart: unless-stopped
+    # See the uid/gid note above — scan-bridge keeps the image's
+    # built-in nonroot UID (65532) and only gains GID 0 as a
+    # supplementary group so it can dial the root-owned Unix socket.
+    group_add:
+      - "0"
+    ports:
+      - "18080:8080"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/run/sane-runtime:ro
+      - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/var/lib/scan-bridge
+      # Config/profiles are read straight out of the git-stack's own
+      # checkout (relative to this compose file), not
+      # /docker/stacks/paperless-scan-bridge/ — they are versioned
+      # inputs, not runtime state, so there is nothing host-side to
+      # pre-create or own-fix for them (read-only, world-readable in
+      # the checkout).
+      - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
+      - ./deploy/profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+      sane-runtime:
+        condition: service_started
