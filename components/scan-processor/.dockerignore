@@ -1,0 +1,5 @@
+# Keep the build context (this module directory) limited to what the
+# Dockerfile's `go build ./cmd/scan-processor` actually needs — same
+# rationale as components/sane-runtime/.dockerignore.
+.git
+**/*_test.go
