@@ -60,7 +60,13 @@ README for why a single public binary works here at all.
    this project's own deployment — ask whoever manages your HomeLab
    Vaultwarden for access, or use your own bridge's token). Both persist
    across reboots; nothing here needs a re-flash.
-5. **Touch calibration** — the one step the browser installer can't do.
+5. **Grid size (optional)** — the same dashboard has **Grid Rows** and
+   **Grid Cols** (1–3 each, default 2x3 — today's fixed 6-button
+   layout, unchanged unless you opt in). Raise either to show more
+   profiles at once, up to 3x3 = 9. If the bridge has more profiles
+   than fit on one page, the footer's `<`/`>` buttons page through the
+   rest.
+6. **Touch calibration** — the one step the browser installer can't do.
    Every physical panel is different; see the README's "Touch
    calibration" section (needs a local `esphome` install and a re-flash,
    over USB or OTA).
@@ -68,5 +74,7 @@ README for why a single public binary works here at all.
 ## Known limitations
 
 No portrait layout, no job polling, no on-device touch-calibration
-wizard, LVGL memory budget not hardware-verified — see the firmware
-README's "Scope and known limitations" for the full, current list.
+wizard, LVGL memory budget not hardware-verified, grid size (up to
+3x3 = 9 slots) and paging not hardware-verified either — see the
+firmware README's "Scope and known limitations" for the full, current
+list.

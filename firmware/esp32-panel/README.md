@@ -113,6 +113,15 @@ Nothing to copy or fill in before flashing — everything below happens
    Both persist across reboots. Until **both** are set, the profile grid
    stays empty and tapping a (non-existent) button is a no-op — see
    `do_scan`'s guard in `cyd-scan-panel.yaml`.
+3. **Grid Rows / Grid Cols:** on the same dashboard, two more entities
+   let you resize the button grid at runtime, no re-flash needed —
+   **Grid Rows** (1–3) and **Grid Cols** (1–3), default 2x3 (today's
+   fixed 6-button layout, unchanged unless you opt in). Both persist
+   across reboots. Nine button slots exist in the firmware; the grid
+   size controls how many of them show at once (up to 3x3 = 9). If
+   the bridge has more profiles than fit on one page, use the **`<`**
+   / **`>`** buttons in the footer to page through them — see "Scope
+   and known limitations" below.
 
 ## Touch calibration (required after first flash)
 
@@ -126,8 +135,10 @@ After flashing:
    screen and note the raw touch coordinates ESPHome reports.
 2. Update the four `calibration.*` values in `cyd-scan-panel.yaml` to
    match, and re-flash (over USB or OTA).
-3. Verify all six button slots respond accurately across the whole
-   screen, not just near the calibration points you tested.
+3. Verify all 9 button slots respond accurately across the whole
+   screen (not just the ones visible at the default 2x3 grid size —
+   set "Grid Rows"/"Grid Cols" to 3x3 first to check the rest), not
+   just near the calibration points you tested.
 
 There is no on-device calibration wizard — see "Scope and known
 limitations" below. This step still needs the source tree and a local
@@ -188,17 +199,21 @@ with a publicly downloadable binary.
 What it does:
 
 - Reads the scan profiles from `GET /profiles` on boot and every 30s
-  (once Bridge URL and Bridge Token are both set), and fills up to
-  **six** fixed button slots (name as the button label, description as
-  a smaller sub-label), hiding any slots beyond the number of profiles
-  returned. The bridge currently exposes exactly one profile
-  ("default"); more profiles show up automatically, up to six.
+  (once Bridge URL and Bridge Token are both set) into an internal list
+  of up to 100 profiles, and fills as many of the **9** button slots as
+  the current grid size (**Grid Rows** x **Grid Cols**, 1–3 each,
+  default 2x3 = 6, see "Configuration: runtime settings" above) allows
+  per page, hiding any slots beyond that page's profile count. The
+  bridge currently exposes exactly one profile ("default"); more
+  profiles show up automatically, paged via the footer's `<`/`>`
+  buttons once they no longer fit on one page.
 - Shows a "Bridge: OK/ERR/--/not set" indicator (from `GET /health`,
   polled every 15s — only Bridge URL is required for this, not the
   token) and a "WiFi: OK/--" indicator in the top bar.
 - Tapping a profile button sends `POST /scan {"profile": "<name>"}` with
-  the bearer token, disables all six buttons and turns the status LED
-  amber while the request is in flight, then shows the result and
+  the bearer token, disables all 9 button slots plus the `<`/`>` paging
+  buttons and turns the status LED amber while the request is in
+  flight, then shows the result and
   **resets the LED and status label back to idle after a delay in every
   case** — green flash + "Done: `<profile>`" on `200` (2s), "No paper in
   feeder" (amber-red) on `422` (4s), "Unauthorized" on `401`/`403` (4s),
@@ -210,9 +225,10 @@ What it does:
 What it deliberately does **not** do yet (see Issue #9 for phases beyond
 D/E):
 
-- **No portrait layout.** Only the 320x240 landscape 2x3 grid described
-  in Issue #9's mockups is implemented; portrait (240x320, 1-column) is
-  a later option.
+- **No portrait layout.** Only the 320x240 landscape grid (2x2 up to
+  3x3, configurable at runtime, default 2x3 as described in Issue #9's
+  mockups) is implemented; portrait (240x320, 1-column) is a later
+  option.
 - **No job polling / `GET /jobs/{id}`.** The live bridge dispatches
   `POST /scan` synchronously and returns the finished result inline
   (200 OK with the scan outcome, or an error status) — there is no job
@@ -234,6 +250,11 @@ D/E):
   `lvgl: buffer_size:` override) have not been confirmed against real
   RAM headroom on physical hardware — if flashing reports a memory
   allocation failure, tuning the buffer size is the first thing to try.
+- **Grid size and paging (B1/B2) are not hardware-verified either.**
+  The templatable `x`/`y`/`width`/`height` on the 9 button slots and
+  the paging buttons compile and pass `esphome config`/`esphome
+  compile` against this exact ESPHome version, but nothing beyond
+  that — see "Hardware verification status" below.
 
 ## Hardware verification status
 
@@ -250,6 +271,8 @@ laptop on the LAN) has **no** verification beyond "the firmware compiles
 and the manifest is well-formed" — it needs a real flash to confirm.
 Please report back (open a follow-up issue referencing #9) once you've
 flashed it — in particular the touch calibration values, whether the
-LVGL memory budget is fine as-is, whether all six button slots render
-and respond correctly, and whether the ESP Web Tools + Improv +
-dashboard flow works end-to-end from a browser.
+LVGL memory budget is fine as-is, whether all 9 button slots render and
+respond correctly at every grid size from 2x2 to 3x3, whether the `<`/
+`>` paging buttons correctly page through more profiles than fit on one
+page, and whether the ESP Web Tools + Improv + dashboard flow works
+end-to-end from a browser.

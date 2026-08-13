@@ -7,9 +7,12 @@
 # (Issue #9, phase E). Wi-Fi is provisioned in-browser via Improv right
 # after flashing; the bridge URL and bearer token are `text` entities
 # held in flash (NVS) and set from the panel's own `web_server`
-# dashboard afterwards. Fixed 6-button landscape grid populated at
-# runtime from GET /profiles, tap-to-scan via POST /scan. See README.md
-# for flashing, the mandatory post-flash touch calibration, and known
+# dashboard afterwards. Landscape grid (2x2 up to 3x3, configurable at
+# runtime via the "Grid Rows"/"Grid Cols" `number` entities, default
+# 2x3 = today's fixed 6-button layout) populated at runtime from
+# GET /profiles, tap-to-scan via POST /scan. Profiles beyond one page
+# are reachable via the footer's prev/next buttons. See README.md for
+# flashing, the mandatory post-flash touch calibration, and known
 # limitations.
 #
 # Hardware bring-up values below (pins, SPI buses, display/touch options)
@@ -25,6 +28,19 @@ esphome:
   on_boot:
     priority: -100
     then:
+      # -100 is very late — guaranteed to run after every component's
+      # setup(), including LVGL's (which is what actually constructs
+      # the 9 button widgets `relayout_grid` below updates). Setting
+      # `ui_ready` here, not at compile-time, is what makes it safe for
+      # `grid_rows_cfg`/`grid_cols_cfg` to call `relayout_grid` from
+      # their own `on_value` — including the one `on_value` fires
+      # during their own setup() while restoring a persisted value,
+      # which can run before or after LVGL's setup() depending on
+      # component setup-priority ordering. `relayout_grid` checks
+      # `ui_ready` first and no-ops otherwise, so that early call can
+      # never touch a not-yet-created widget.
+      - lambda: "id(ui_ready) = true;"
+      - script.execute: relayout_grid
       - script.execute: refresh_profiles
       - script.execute: check_bridge_health
 
@@ -143,6 +159,49 @@ text:
     mode: password
 
 # ---------------------------------------------------------------------
+# Grid size (Issue #9 item B1). Two persistent `number` entities, same
+# runtime-configurable idiom as the `text` entities above (restore_value
+# true, editable from the same `web_server` dashboard, no re-flash
+# needed). `initial_value: 2` / `initial_value: 3` reproduce today's
+# fixed 2x3 = 6-slot layout byte-for-byte on a freshly flashed panel —
+# see `globals: grid_rows`/`grid_cols` below, which mirror these at
+# `on_boot` and stay the actual source of truth the LVGL widget geometry
+# lambdas read (decoupled from `number` restore timing on purpose: a
+# plain `int` global with a compile-time `initial_value` is guaranteed
+# ready before LVGL builds its widgets; whether `number.template`'s
+# `restore_value` has already run its NVS read by that point in
+# `setup()` is not something this firmware wants to depend on). Range
+# 1..3 each — 3x3 is the largest grid the 9 static button slots below
+# support; see `relayout_grid`/`render_page` in `script:`.
+number:
+  - platform: template
+    name: "Grid Rows"
+    id: grid_rows_cfg
+    optimistic: true
+    restore_value: true
+    initial_value: 2
+    min_value: 1
+    max_value: 3
+    step: 1
+    on_value:
+      then:
+        - lambda: "id(grid_rows) = (int) x;"
+        - script.execute: relayout_grid
+  - platform: template
+    name: "Grid Cols"
+    id: grid_cols_cfg
+    optimistic: true
+    restore_value: true
+    initial_value: 3
+    min_value: 1
+    max_value: 3
+    step: 1
+    on_value:
+      then:
+        - lambda: "id(grid_cols) = (int) x;"
+        - script.execute: relayout_grid
+
+# ---------------------------------------------------------------------
 # Board bring-up: two independent SPI buses (mandatory on the CYD — the
 # display and the touch controller are NOT on a shared bus), the
 # ILI9341 display, the XPT2046 touch controller, the GPIO21 backlight,
@@ -253,13 +312,34 @@ light:
 # Runtime state. Kept as plain globals ("the firmware stays dumb", per
 # the API design in Issue #9) — no client-side sorting/filtering, the
 # bridge already returns profiles in the order to display.
+#
+# Grid size (B1) and paging (B2): `grid_rows`/`grid_cols` are the source
+# of truth the 9 static LVGL button slots' x/y/width/height lambdas
+# read — a plain `int` global with a compile-time `initial_value` (not
+# the `grid_rows_cfg`/`grid_cols_cfg` `number` entities' `.state`
+# directly), so widget geometry never depends on whether `number`'s
+# `restore_value` has already run by the time LVGL builds its widgets.
+# `all_profile_names`/`all_profile_descs` hold every profile the bridge
+# returned (capped defensively, see `refresh_profiles`); the 9
+# `slot_name_N`/`slot_desc_N` globals below hold only the current page's
+# slice, filled by `render_page`. `ui_ready` guards `relayout_grid`
+# against running before LVGL has actually constructed the 9 button
+# widgets — see the `on_boot` comment.
 # ---------------------------------------------------------------------
 
 globals:
-  - id: profile_count
+  - id: ui_ready
+    type: bool
+    restore_value: false
+    initial_value: "false"
+  - id: grid_rows
     type: int
     restore_value: false
-    initial_value: "0"
+    initial_value: "2"
+  - id: grid_cols
+    type: int
+    restore_value: false
+    initial_value: "3"
   - id: slot_name_0
     type: std::string
     restore_value: false
@@ -281,6 +361,18 @@ globals:
     restore_value: false
     initial_value: '""'
   - id: slot_name_5
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_6
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_7
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_name_8
     type: std::string
     restore_value: false
     initial_value: '""'
@@ -308,6 +400,44 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
+  - id: slot_desc_6
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_7
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: slot_desc_8
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  # Every profile the bridge returned (not just the current page). No
+  # `initial_value:` on purpose — `std::vector<std::string>` has no
+  # unambiguous single-argument constructor for an "empty vector"
+  # literal here (`initial_value: "{}"` makes `esphome compile` fail
+  # with "call of overloaded ... is ambiguous"; verified against this
+  # exact ESPHome version). Omitting `initial_value` makes ESPHome
+  # codegen the no-args constructor instead, which default-constructs
+  # an empty vector — unambiguous and exactly what's needed.
+  - id: all_profile_names
+    type: std::vector<std::string>
+    restore_value: false
+  - id: all_profile_descs
+    type: std::vector<std::string>
+    restore_value: false
+  - id: total_profile_count
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: page_offset
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: page_visible_count
+    type: int
+    restore_value: false
+    initial_value: "0"
   - id: selected_profile
     type: std::string
     restore_value: false
@@ -369,8 +499,8 @@ script:
     then:
       # Nothing to fetch without both a bridge URL and a bearer token —
       # skip the request rather than firing it at an empty/default
-      # target. Slots simply stay hidden (profile_count stays at its
-      # initial 0) until both are set from the web_server dashboard.
+      # target. Slots simply stay hidden (total_profile_count stays at
+      # its initial 0) until both are set from the web_server dashboard.
       - if:
           condition:
             lambda: "return !id(bridge_url).state.empty() && !id(bridge_token).state.empty();"
@@ -396,94 +526,257 @@ script:
                             return false;
                           }
                           JsonArray arr = root["profiles"];
-                          const size_t max_slots = 6;
-                          size_t count = arr.size() < max_slots ? arr.size() : max_slots;
-                          id(profile_count) = static_cast<int>(count);
-
-                          std::string names[max_slots];
-                          std::string descs[max_slots];
+                          // Cap defensively — the 9 static button slots
+                          // can only ever show one page's worth at a
+                          // time (up to 3x3), but `render_page` walks
+                          // this whole vector's `.size()` to compute
+                          // page count, so an unbounded bridge response
+                          // must not be able to grow it unbounded too.
+                          const size_t cap = 100;
+                          size_t count = arr.size() < cap ? arr.size() : cap;
+                          id(total_profile_count) = static_cast<int>(count);
+                          id(all_profile_names).clear();
+                          id(all_profile_descs).clear();
+                          id(all_profile_names).reserve(count);
+                          id(all_profile_descs).reserve(count);
                           for (size_t i = 0; i < count; i++) {
                             JsonObject p = arr[i];
-                            names[i] = p["name"] | std::string("");
-                            descs[i] = p["description"] | std::string("");
+                            id(all_profile_names).push_back(p["name"] | std::string(""));
+                            id(all_profile_descs).push_back(p["description"] | std::string(""));
                           }
-                          id(slot_name_0) = count > 0 ? names[0] : "";
-                          id(slot_name_1) = count > 1 ? names[1] : "";
-                          id(slot_name_2) = count > 2 ? names[2] : "";
-                          id(slot_name_3) = count > 3 ? names[3] : "";
-                          id(slot_name_4) = count > 4 ? names[4] : "";
-                          id(slot_name_5) = count > 5 ? names[5] : "";
-                          id(slot_desc_0) = count > 0 ? descs[0] : "";
-                          id(slot_desc_1) = count > 1 ? descs[1] : "";
-                          id(slot_desc_2) = count > 2 ? descs[2] : "";
-                          id(slot_desc_3) = count > 3 ? descs[3] : "";
-                          id(slot_desc_4) = count > 4 ? descs[4] : "";
-                          id(slot_desc_5) = count > 5 ? descs[5] : "";
                           return true;
                         });
-                    # Push the parsed globals into the fixed LVGL slots.
+                    # Apply the just-parsed profile list to the grid.
                     # Split out of the parsing lambda above on purpose —
                     # see the PR description for why (LVGL widget
                     # updates go through the documented lvgl.* actions,
                     # not raw pointers from inside a JSON-parsing
-                    # callback).
-                    - lvgl.widget.update:
-                        id: slot0_btn
-                        hidden: !lambda "return id(profile_count) < 1;"
-                    - lvgl.label.update:
-                        id: slot0_label
-                        text: !lambda "return id(slot_name_0);"
-                    - lvgl.label.update:
-                        id: slot0_sub_label
-                        text: !lambda "return id(slot_desc_0);"
-                    - lvgl.widget.update:
-                        id: slot1_btn
-                        hidden: !lambda "return id(profile_count) < 2;"
-                    - lvgl.label.update:
-                        id: slot1_label
-                        text: !lambda "return id(slot_name_1);"
-                    - lvgl.label.update:
-                        id: slot1_sub_label
-                        text: !lambda "return id(slot_desc_1);"
-                    - lvgl.widget.update:
-                        id: slot2_btn
-                        hidden: !lambda "return id(profile_count) < 3;"
-                    - lvgl.label.update:
-                        id: slot2_label
-                        text: !lambda "return id(slot_name_2);"
-                    - lvgl.label.update:
-                        id: slot2_sub_label
-                        text: !lambda "return id(slot_desc_2);"
-                    - lvgl.widget.update:
-                        id: slot3_btn
-                        hidden: !lambda "return id(profile_count) < 4;"
-                    - lvgl.label.update:
-                        id: slot3_label
-                        text: !lambda "return id(slot_name_3);"
-                    - lvgl.label.update:
-                        id: slot3_sub_label
-                        text: !lambda "return id(slot_desc_3);"
-                    - lvgl.widget.update:
-                        id: slot4_btn
-                        hidden: !lambda "return id(profile_count) < 5;"
-                    - lvgl.label.update:
-                        id: slot4_label
-                        text: !lambda "return id(slot_name_4);"
-                    - lvgl.label.update:
-                        id: slot4_sub_label
-                        text: !lambda "return id(slot_desc_4);"
-                    - lvgl.widget.update:
-                        id: slot5_btn
-                        hidden: !lambda "return id(profile_count) < 6;"
-                    - lvgl.label.update:
-                        id: slot5_label
-                        text: !lambda "return id(slot_name_5);"
-                    - lvgl.label.update:
-                        id: slot5_sub_label
-                        text: !lambda "return id(slot_desc_5);"
+                    # callback). `relayout_grid` first (re-applies
+                    # geometry in case `grid_rows`/`grid_cols` changed
+                    # since the last fetch) then `render_page` (clamps
+                    # `page_offset` against the possibly-changed
+                    # `total_profile_count` and repaints the current
+                    # page) — `relayout_grid` also calls `render_page`
+                    # itself at its own end, so this second explicit
+                    # call re-runs the same deterministic computation
+                    # against unchanged state; harmless, and keeps both
+                    # scripts' triggers exactly as documented in the PR
+                    # description rather than relying on the chaining
+                    # being obvious from reading `relayout_grid` alone.
+                    - script.execute: relayout_grid
+                    - script.execute: render_page
                 on_error:
                   then:
                     - lambda: 'ESP_LOGW("panel", "GET /profiles: request failed");'
+
+  # Repositions/resizes the 9 static button slots for the current
+  # `grid_rows`x`grid_cols` (B1). Triggered from `grid_rows_cfg`'s and
+  # `grid_cols_cfg`'s `on_value` and from the end of `refresh_profiles`
+  # above. Geometry-only: hiding/showing individual slots and filling
+  # their text is `render_page`'s job (called at the end of this
+  # script, since a grid-size change also changes how many profiles fit
+  # per page and which slice of `all_profile_names`/`all_profile_descs`
+  # is "the current page").
+  - id: relayout_grid
+    mode: restart
+    then:
+      # See `ui_ready` in `globals:` — without this guard, a `number`
+      # entity restoring a persisted grid size during its own setup()
+      # could call this before LVGL has actually created the 9 button
+      # widgets below, touching a not-yet-existing widget.
+      - if:
+          condition:
+            lambda: "return id(ui_ready);"
+          then:
+            - lvgl.widget.update:
+                id: slot0_btn
+                x: &slot0_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 0 % cols;
+                    return col * (col_w + gap);
+                y: &slot0_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 0 / cols;
+                    return 24 + row * (row_h + gap);
+                width: &slot_col_width !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    return (320 - (cols - 1) * gap) / cols;
+                height: &slot_row_height !lambda |-
+                    int rows = id(grid_rows);
+                    if (rows < 1) rows = 1;
+                    int gap = 4;
+                    return (194 - (rows - 1) * gap) / rows;
+            - lvgl.widget.update:
+                id: slot1_btn
+                x: &slot1_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 1 % cols;
+                    return col * (col_w + gap);
+                y: &slot1_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 1 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot2_btn
+                x: &slot2_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 2 % cols;
+                    return col * (col_w + gap);
+                y: &slot2_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 2 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot3_btn
+                x: &slot3_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 3 % cols;
+                    return col * (col_w + gap);
+                y: &slot3_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 3 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot4_btn
+                x: &slot4_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 4 % cols;
+                    return col * (col_w + gap);
+                y: &slot4_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 4 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot5_btn
+                x: &slot5_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 5 % cols;
+                    return col * (col_w + gap);
+                y: &slot5_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 5 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot6_btn
+                x: &slot6_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 6 % cols;
+                    return col * (col_w + gap);
+                y: &slot6_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 6 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot7_btn
+                x: &slot7_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 7 % cols;
+                    return col * (col_w + gap);
+                y: &slot7_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 7 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - lvgl.widget.update:
+                id: slot8_btn
+                x: &slot8_x !lambda |-
+                    int cols = id(grid_cols);
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int col_w = (320 - (cols - 1) * gap) / cols;
+                    int col = 8 % cols;
+                    return col * (col_w + gap);
+                y: &slot8_y !lambda |-
+                    int rows = id(grid_rows);
+                    int cols = id(grid_cols);
+                    if (rows < 1) rows = 1;
+                    if (cols < 1) cols = 1;
+                    int gap = 4;
+                    int row_h = (194 - (rows - 1) * gap) / rows;
+                    int row = 8 / cols;
+                    return 24 + row * (row_h + gap);
+                width: *slot_col_width
+                height: *slot_row_height
+            - script.execute: render_page
 
   - id: check_bridge_health
     mode: restart
@@ -527,15 +820,169 @@ script:
                 id: bridge_status_label
                 text: "Bridge: not set"
 
+  - id: render_page
+    mode: restart
+    then:
+      # Single authoritative "paint the current page" step. Clamps
+      # `page_offset` first (defensive — covers both a `refresh_profiles`
+      # that shrunk `total_profile_count` and a grid-size change that
+      # shrunk `page_size`), then slices `all_profile_names`/
+      # `all_profile_descs` into the 9 `slot_name_N`/`slot_desc_N`
+      # globals for this page (blank beyond the page's actual profile
+      # count). The label/hidden/prev-next updates below read the
+      # result — kept as separate lvgl.* actions on purpose, same
+      # reasoning as the split in refresh_profiles above.
+      - lambda: |-
+          int rows = id(grid_rows);
+          int cols = id(grid_cols);
+          if (rows < 1) rows = 1;
+          if (rows > 3) rows = 3;
+          if (cols < 1) cols = 1;
+          if (cols > 3) cols = 3;
+          int page_size = rows * cols;
+          int total = id(total_profile_count);
+          int max_page = total > 0 ? (total - 1) / page_size : 0;
+          if (id(page_offset) > max_page) id(page_offset) = max_page;
+          if (id(page_offset) < 0) id(page_offset) = 0;
+          int start = id(page_offset) * page_size;
+          int remaining = total - start;
+          int visible = remaining < 0 ? 0 : (remaining < page_size ? remaining : page_size);
+          id(page_visible_count) = visible;
+          std::string blank = "";
+          id(slot_name_0) = (0 < visible) ? id(all_profile_names)[start + 0] : blank;
+          id(slot_desc_0) = (0 < visible) ? id(all_profile_descs)[start + 0] : blank;
+          id(slot_name_1) = (1 < visible) ? id(all_profile_names)[start + 1] : blank;
+          id(slot_desc_1) = (1 < visible) ? id(all_profile_descs)[start + 1] : blank;
+          id(slot_name_2) = (2 < visible) ? id(all_profile_names)[start + 2] : blank;
+          id(slot_desc_2) = (2 < visible) ? id(all_profile_descs)[start + 2] : blank;
+          id(slot_name_3) = (3 < visible) ? id(all_profile_names)[start + 3] : blank;
+          id(slot_desc_3) = (3 < visible) ? id(all_profile_descs)[start + 3] : blank;
+          id(slot_name_4) = (4 < visible) ? id(all_profile_names)[start + 4] : blank;
+          id(slot_desc_4) = (4 < visible) ? id(all_profile_descs)[start + 4] : blank;
+          id(slot_name_5) = (5 < visible) ? id(all_profile_names)[start + 5] : blank;
+          id(slot_desc_5) = (5 < visible) ? id(all_profile_descs)[start + 5] : blank;
+          id(slot_name_6) = (6 < visible) ? id(all_profile_names)[start + 6] : blank;
+          id(slot_desc_6) = (6 < visible) ? id(all_profile_descs)[start + 6] : blank;
+          id(slot_name_7) = (7 < visible) ? id(all_profile_names)[start + 7] : blank;
+          id(slot_desc_7) = (7 < visible) ? id(all_profile_descs)[start + 7] : blank;
+          id(slot_name_8) = (8 < visible) ? id(all_profile_names)[start + 8] : blank;
+          id(slot_desc_8) = (8 < visible) ? id(all_profile_descs)[start + 8] : blank;
+      # Push the just-computed slice into the 9 static widgets:
+      # text/sub-text always, hidden only for slots beyond this page's
+      # visible count (which the geometry lambdas in relayout_grid
+      # already positioned correctly for the current grid_rows/
+      # grid_cols, whether or not they end up hidden here).
+      - lvgl.label.update:
+          id: slot0_label
+          text: !lambda "return id(slot_name_0);"
+      - lvgl.label.update:
+          id: slot0_sub_label
+          text: !lambda "return id(slot_desc_0);"
+      - lvgl.widget.update:
+          id: slot0_btn
+          hidden: !lambda "return 0 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot1_label
+          text: !lambda "return id(slot_name_1);"
+      - lvgl.label.update:
+          id: slot1_sub_label
+          text: !lambda "return id(slot_desc_1);"
+      - lvgl.widget.update:
+          id: slot1_btn
+          hidden: !lambda "return 1 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot2_label
+          text: !lambda "return id(slot_name_2);"
+      - lvgl.label.update:
+          id: slot2_sub_label
+          text: !lambda "return id(slot_desc_2);"
+      - lvgl.widget.update:
+          id: slot2_btn
+          hidden: !lambda "return 2 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot3_label
+          text: !lambda "return id(slot_name_3);"
+      - lvgl.label.update:
+          id: slot3_sub_label
+          text: !lambda "return id(slot_desc_3);"
+      - lvgl.widget.update:
+          id: slot3_btn
+          hidden: !lambda "return 3 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot4_label
+          text: !lambda "return id(slot_name_4);"
+      - lvgl.label.update:
+          id: slot4_sub_label
+          text: !lambda "return id(slot_desc_4);"
+      - lvgl.widget.update:
+          id: slot4_btn
+          hidden: !lambda "return 4 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot5_label
+          text: !lambda "return id(slot_name_5);"
+      - lvgl.label.update:
+          id: slot5_sub_label
+          text: !lambda "return id(slot_desc_5);"
+      - lvgl.widget.update:
+          id: slot5_btn
+          hidden: !lambda "return 5 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot6_label
+          text: !lambda "return id(slot_name_6);"
+      - lvgl.label.update:
+          id: slot6_sub_label
+          text: !lambda "return id(slot_desc_6);"
+      - lvgl.widget.update:
+          id: slot6_btn
+          hidden: !lambda "return 6 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot7_label
+          text: !lambda "return id(slot_name_7);"
+      - lvgl.label.update:
+          id: slot7_sub_label
+          text: !lambda "return id(slot_desc_7);"
+      - lvgl.widget.update:
+          id: slot7_btn
+          hidden: !lambda "return 7 >= id(page_visible_count);"
+      - lvgl.label.update:
+          id: slot8_label
+          text: !lambda "return id(slot_name_8);"
+      - lvgl.label.update:
+          id: slot8_sub_label
+          text: !lambda "return id(slot_desc_8);"
+      - lvgl.widget.update:
+          id: slot8_btn
+          hidden: !lambda "return 8 >= id(page_visible_count);"
+      # Paging buttons (B2): disabled, not hidden, at either boundary —
+      # a single-page profile list (today's live bridge: exactly one
+      # profile) simply keeps both permanently disabled.
+      - lvgl.widget.update:
+          id: prev_page_btn
+          state:
+            disabled: !lambda "return id(page_offset) <= 0;"
+      - lvgl.widget.update:
+          id: next_page_btn
+          state:
+            disabled: !lambda |-
+              int rows = id(grid_rows);
+              int cols = id(grid_cols);
+              if (rows < 1) rows = 1;
+              if (rows > 3) rows = 3;
+              if (cols < 1) cols = 1;
+              if (cols > 3) cols = 3;
+              int page_size = rows * cols;
+              return (id(page_offset) + 1) * page_size >= id(total_profile_count);
+
   - id: do_scan
     mode: single
     then:
-      # Defense in depth: the six buttons are only unhidden once
-      # refresh_profiles has populated them, which itself requires both
-      # values to be non-empty — so this path should be unreachable via
-      # the touchscreen. Still checked here directly (not just relying
-      # on button visibility) in case a stale profile_count from a
-      # previous configuration is ever tapped mid-reconfiguration.
+      # Defense in depth: the button slots are only unhidden once
+      # refresh_profiles/render_page have populated them, which itself
+      # requires both bridge values to be non-empty — so this path
+      # should be unreachable via the touchscreen. Still checked here
+      # directly (not just relying on button visibility) in case a
+      # stale page from a previous configuration is ever tapped
+      # mid-reconfiguration.
       - if:
           condition:
             lambda: "return id(bridge_url).state.empty() || id(bridge_token).state.empty();"
@@ -551,6 +998,11 @@ script:
             - lvgl.widget.update: { id: slot3_btn, state: { disabled: true } }
             - lvgl.widget.update: { id: slot4_btn, state: { disabled: true } }
             - lvgl.widget.update: { id: slot5_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot6_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot7_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: slot8_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: prev_page_btn, state: { disabled: true } }
+            - lvgl.widget.update: { id: next_page_btn, state: { disabled: true } }
             - light.turn_on:
                 id: status_led
                 red: 100%
@@ -650,6 +1102,20 @@ script:
                     - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot6_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot7_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot8_btn, state: { disabled: false } }
+                    # Not a blanket `disabled: false` for prev/next like
+                    # the 9 slots above — their enabled state also
+                    # depends on the page boundary (B2), which a
+                    # unconditional re-enable would ignore and could
+                    # wrongly re-enable a "next" button already at the
+                    # last page. render_page recomputes both correctly
+                    # from the unchanged page_offset/total_profile_count
+                    # (a scan doesn't change either); the slot text/
+                    # hidden state it also touches is unaffected too, so
+                    # this is a correctness fix, not just a refresh.
+                    - script.execute: render_page
                 on_error:
                   then:
                     - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
@@ -664,6 +1130,13 @@ script:
                     - lvgl.widget.update: { id: slot3_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot4_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot5_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot6_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot7_btn, state: { disabled: false } }
+                    - lvgl.widget.update: { id: slot8_btn, state: { disabled: false } }
+                    # See the comment on the same pattern in on_response
+                    # above — prev/next need render_page, not a blanket
+                    # disabled: false.
+                    - script.execute: render_page
 
 interval:
   - interval: 30s
@@ -715,10 +1188,10 @@ lvgl:
 
         - button:
             id: slot0_btn
-            x: 0
-            y: 24
-            width: 104
-            height: 95
+            x: *slot0_x
+            y: *slot0_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -744,10 +1217,10 @@ lvgl:
 
         - button:
             id: slot1_btn
-            x: 108
-            y: 24
-            width: 104
-            height: 95
+            x: *slot1_x
+            y: *slot1_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -773,10 +1246,10 @@ lvgl:
 
         - button:
             id: slot2_btn
-            x: 216
-            y: 24
-            width: 104
-            height: 95
+            x: *slot2_x
+            y: *slot2_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -802,10 +1275,10 @@ lvgl:
 
         - button:
             id: slot3_btn
-            x: 0
-            y: 123
-            width: 104
-            height: 95
+            x: *slot3_x
+            y: *slot3_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -831,10 +1304,10 @@ lvgl:
 
         - button:
             id: slot4_btn
-            x: 108
-            y: 123
-            width: 104
-            height: 95
+            x: *slot4_x
+            y: *slot4_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -860,10 +1333,10 @@ lvgl:
 
         - button:
             id: slot5_btn
-            x: 216
-            y: 123
-            width: 104
-            height: 95
+            x: *slot5_x
+            y: *slot5_y
+            width: *slot_col_width
+            height: *slot_row_height
             hidden: true
             widgets:
               - label:
@@ -887,11 +1360,151 @@ lvgl:
                       - lambda: "id(selected_profile) = id(slot_name_5);"
                       - script.execute: do_scan
 
-        - label:
-            id: status_label
+        - button:
+            id: slot6_btn
+            x: *slot6_x
+            y: *slot6_y
+            width: *slot_col_width
+            height: *slot_row_height
+            hidden: true
+            widgets:
+              - label:
+                  id: slot6_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot6_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_6);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot7_btn
+            x: *slot7_x
+            y: *slot7_y
+            width: *slot_col_width
+            height: *slot_row_height
+            hidden: true
+            widgets:
+              - label:
+                  id: slot7_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot7_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_7);"
+                      - script.execute: do_scan
+
+        - button:
+            id: slot8_btn
+            x: *slot8_x
+            y: *slot8_y
+            width: *slot_col_width
+            height: *slot_row_height
+            hidden: true
+            widgets:
+              - label:
+                  id: slot8_label
+                  align: TOP_MID
+                  y: 6
+                  text: ""
+              - label:
+                  id: slot8_sub_label
+                  align: BOTTOM_MID
+                  y: -6
+                  width: 96
+                  long_mode: DOT
+                  text: ""
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress);"
+                    then:
+                      - lambda: "id(selected_profile) = id(slot_name_8);"
+                      - script.execute: do_scan
+
+        # Footer (B2): paging buttons flank the status label, fixed
+        # 320-wide row (40 + 236 + 40 + 2x2px gap). Enabled state is
+        # data-driven (page boundary) — see render_page in script:, not
+        # set here; do_scan disables both during a scan regardless.
+        - button:
+            id: prev_page_btn
             x: 0
             y: 220
-            width: 320
+            width: 40
+            height: 20
+            widgets:
+              - label:
+                  id: prev_page_label
+                  align: CENTER
+                  text: "<"
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: "return !id(scan_in_progress) && id(page_offset) > 0;"
+                    then:
+                      - lambda: "id(page_offset) -= 1;"
+                      - script.execute: render_page
+
+        - label:
+            id: status_label
+            x: 42
+            y: 220
+            width: 236
             height: 20
             align: TOP_MID
             text: "idle"
+
+        - button:
+            id: next_page_btn
+            x: 280
+            y: 220
+            width: 40
+            height: 20
+            widgets:
+              - label:
+                  id: next_page_label
+                  align: CENTER
+                  text: ">"
+            on_press:
+              then:
+                - if:
+                    condition:
+                      lambda: |-
+                        if (id(scan_in_progress)) return false;
+                        int rows = id(grid_rows);
+                        int cols = id(grid_cols);
+                        if (rows < 1) rows = 1;
+                        if (rows > 3) rows = 3;
+                        if (cols < 1) cols = 1;
+                        if (cols > 3) cols = 3;
+                        int page_size = rows * cols;
+                        return (id(page_offset) + 1) * page_size < id(total_profile_count);
+                    then:
+                      - lambda: "id(page_offset) += 1;"
+                      - script.execute: render_page
