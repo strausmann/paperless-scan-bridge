@@ -68,3 +68,11 @@ node_modules/
 # .github/scripts/vendor-mermaid.sh, pinned + digest-verified).
 # Not committed: it is a reproducible build artifact, not source.
 docs/*/javascripts/mermaid.min.js
+
+# Vendored ESP Web Tools bundle (~540 KB, the whole dist/web/ directory
+# — it dynamically imports its own per-chip chunks relative to its own
+# URL, so it can't be split into a single file the way Mermaid was.
+# Fetched by .github/scripts/vendor-esp-web-tools.sh, pinned + digest-
+# verified against the npm registry's published integrity hash. Not
+# committed: it is a reproducible build artifact, not source.
+docs/en/javascripts/esp-web-tools/

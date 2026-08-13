@@ -56,6 +56,16 @@ between releases as a running list.
   `.pre-commit-config.yaml` (hooks staged manual), and a `Makefile`
   orchestrator that lists every Phase 1 test target.
 
+- Browser-based [ESP Web Tools](https://esphome.github.io/esp-web-tools/)
+  installer for the CYD scan-control panel firmware (Issue #9, phase
+  E): a new `esphome-firmware.yml` CI workflow compiles
+  `firmware/esp32-panel/cyd-scan-panel.yaml` and produces an ESP Web
+  Tools `manifest.json`, published alongside the docs site at
+  `/firmware/`; a new page under Hardware embeds the install button.
+  Flashing needs Chrome or Edge (Web Serial) and no local toolchain.
+  Not yet verified against real hardware — see the firmware README's
+  "Hardware verification status".
+
 ### Documentation
 
 - Documentation site at
@@ -80,9 +90,39 @@ between releases as a running list.
 
 ### Changed
 
+- CYD scan-control panel firmware (`firmware/esp32-panel/`) is now
+  **secret-free**: Wi-Fi credentials, the bridge URL and the bearer
+  token are no longer build-time `!secret` values. Wi-Fi is provisioned
+  in-browser via Improv right after flashing; the bridge URL and token
+  are now `text` entities held in flash (NVS) and set from the panel's
+  own `web_server` dashboard at its IP. This is what makes the ESP Web
+  Tools installer above possible — a public binary cannot carry a
+  per-device secret. **Breaking for existing v1 flashes:** re-flashing
+  with this firmware clears the old build-time Wi-Fi/bridge
+  configuration; the two `text` entities need to be set again from the
+  dashboard afterwards. `secrets.yaml.example` was removed — nothing in
+  the shipped config uses `!secret` anymore.
+
 ### Fixed
 
+- CYD scan-control panel firmware: the status LED and on-screen status
+  label now reset back to idle after every scan outcome, not just a
+  successful one. Previously, only the `200` branch reset the display —
+  an error (`422`/`401`/`403`/`404`/other) or a network failure left the
+  red/amber LED and its message on screen indefinitely, until the next
+  scan attempt overwrote it.
+
 ### Security
+
+- CYD scan-control panel firmware: going secret-free also means the
+  ESPHome native API (`api:`) and OTA updates no longer have a
+  build-time encryption key / password — a public binary cannot embed
+  either as a per-device secret, and there is currently no on-device way
+  to set one before the first flash. Both are now LAN-trust, the same
+  posture v1 already accepted for plain-HTTP bridge communication and
+  unauthenticated Improv provisioning. Documented in the firmware
+  README's new "Security model" section, including what to change if
+  deploying on a less-trusted network.
 
 ---
 
