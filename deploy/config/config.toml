@@ -18,7 +18,7 @@ metrics_listen = ":9090"
 
 [auth]
 mode = "token"
-token_hash = "7fb3050638dfe8ea0795b94a6f90de8cfa27a6a0a379758c018b7d56452a5628"
+token_hash = "8a6d19146ff50a7a12c0fcbd7444a5e041a7900a7c4e186d11af304f2894e30a"
 
 [paths]
 profiles = "/etc/scan-bridge/profiles.yaml"
