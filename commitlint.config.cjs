@@ -12,8 +12,9 @@ module.exports = {
       2,
       'always',
       [
-        'scan-bridge', 'sane-runtime', 'scan-processor', 'api', 'profiles', 'tag', 'dispatch', 'jobs',
-        'config', 'metrics', 'deploy', 'docker', 'firmware', 'ci', 'docs', 'deps', 'release',
+        'scan-bridge', 'sane-runtime', 'scan-processor', 'api', 'profiles', 'tag', 'dispatch',
+        'destinations', 'jobs', 'config', 'metrics', 'deploy', 'docker', 'firmware', 'ci', 'docs',
+        'deps', 'release',
       ],
     ],
     'subject-case': [2, 'never', ['sentence-case', 'start-case', 'pascal-case', 'upper-case']],

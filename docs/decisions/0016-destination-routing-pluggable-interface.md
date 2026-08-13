@@ -1,6 +1,6 @@
 # 0016 — Destination routing via a pluggable `Destination` interface + registry
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-13
 - **Deciders:** strausmann
 - **Tags:** scan-processor, profiles, config
@@ -33,10 +33,12 @@ single scan).
 
 **Interaction with ADR [0004](0004-synology-source-of-truth.md):** under this model, Synology
 becomes **one (common) NFS/SMB destination among several**, not a mandatory single sink baked into
-the architecture. This ADR does **not** decide whether Synology archival stays mandatory for every
-profile regardless of chosen destinations, or becomes purely a per-profile opt-in like any other
-destination — **that needs explicit operator confirmation** (see References and the pull request
-description). ADR 0004's status is left as-is pending that confirmation; it is not superseded here.
+the architecture. Whether Synology archival stayed mandatory for every profile regardless of chosen
+destinations, or became a purely per-profile opt-in like any other destination, needed explicit
+operator confirmation before either ADR's status could be finalized. **The operator has confirmed:
+Synology archival becomes purely per-profile** — a profile now opts into an NFS/SMB destination
+(Synology or otherwise) like any other target, rather than every scan implicitly landing on
+Synology. ADR 0004 is accordingly marked `Superseded by 0016` (see that ADR's own status line).
 
 ## Options considered
 
