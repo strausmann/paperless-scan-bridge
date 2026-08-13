@@ -27,6 +27,7 @@ subject imperative, header ≤ 120 chars.
 | `profiles` | scan profiles (`internal/profiles`) |
 | `tag` | Paperless tag-merge engine (`internal/tag`) |
 | `dispatch` | job dispatch / IPC (`internal/dispatch`) |
+| `destinations` | destination registry / modules (`internal/destinations`) |
 | `jobs` | job store/lifecycle (`internal/jobs`) |
 | `config` | configuration (`internal/config`) |
 | `metrics` | metrics/health (`internal/metrics`, `internal/healthcheck`) |
