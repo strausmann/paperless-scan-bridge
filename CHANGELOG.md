@@ -104,6 +104,25 @@ between releases as a running list.
   real hardware — see the firmware README's "Hardware verification
   status".
 
+- CYD scan-control panel firmware: a three-state, color-coded top-bar
+  chain-status indicator (Issue #9, item B6). `check_bridge_health` now
+  polls `GET /ready` instead of the old plain `GET /health`, mirroring
+  scan-bridge's real readiness contract
+  (`components/scan-bridge/internal/api/ready.go`) via the same
+  `json::parse_json` + `root["error"]` body-parsing idiom `do_scan`
+  already used for its own error responses: green "Bridge: OK" on `200`
+  (profiles loaded and sane-runtime reachable), blue "Scanner: offline"
+  on `503 {"error":"sane_runtime_unreachable"}` (the bridge process
+  itself answered, only the scanner backend is down), and red
+  "Bridge: ERR" for every other not-ready status, keeping the existing
+  red "Bridge: --" (network-level failure) and "Bridge: not set" (no
+  Bridge URL configured) states. Colors are applied via
+  `lvgl.label.update`'s `text_color` on the existing
+  `bridge_status_label`; the separate `status_led`/scan-in-progress
+  spinner (B5) are untouched — they remain exclusive to `do_scan`'s scan
+  feedback. Not yet verified against real hardware — see the firmware
+  README's "Hardware verification status".
+
 ### Documentation
 
 - Documentation site at

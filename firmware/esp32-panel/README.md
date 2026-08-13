@@ -287,9 +287,29 @@ What it does:
   bridge currently exposes exactly one profile ("default"); more
   profiles show up automatically, paged via the footer's `<`/`>`
   buttons once they no longer fit on one page.
-- Shows a "Bridge: OK/ERR/--/not set" indicator (from `GET /health`,
-  polled every 15s — only Bridge URL is required for this, not the
-  token) and a "WiFi: OK/--" indicator in the top bar.
+- Shows a three-state, color-coded Bridge indicator in the top bar
+  (Issue #9 item B6), polled every 15s — only Bridge URL is required
+  for this, not the token — plus a "WiFi: OK/--" indicator next to it.
+  The indicator now calls `GET /ready` instead of the old plain
+  `GET /health`, so it reflects scan-bridge's actual readiness contract
+  (`components/scan-bridge/internal/api/ready.go`) rather than a bare
+  process-up/-down check:
+  - **green "Bridge: OK"** — `200`: profiles are loaded and
+    sane-runtime answered its own health check. The panel is actually
+    ready to serve a scan.
+  - **blue "Scanner: offline"** — `503`
+    `{"error":"sane_runtime_unreachable"}`: the bridge process itself
+    answered, but the scanner backend specifically did not. Its own
+    color on purpose — it points at "restart sane-runtime", not "the
+    bridge is down".
+  - **red "Bridge: ERR"** — any other `503` (e.g.
+    `no_profiles_loaded`) or an unexpected status: the bridge answered
+    but is not ready for another reason.
+  - **red "Bridge: --"** — a network-level failure (timeout, DNS,
+    connection refused): the bridge did not answer at all, same
+    network-error case the old `/health` check had.
+  - **red "Bridge: not set"** — no Bridge URL configured yet, so no
+    request was even attempted.
 - Tapping a profile button sends `POST /scan {"profile": "<name>"}` with
   the bearer token, disables all 9 button slots plus the `<`/`>` paging
   buttons and turns the status LED amber while the request is in
@@ -359,6 +379,14 @@ D/E):
   and pass at both orientations, but not that the LVGL spinner animation
   actually renders/spins smoothly on real hardware within this board's
   no-PSRAM LVGL buffer budget.
+- **Chain-status indicator (B6) is config-verified only, not
+  hardware-verified.** `esphome config`/`esphome compile` confirm the
+  three `text_color` values resolve as intended (green `0x00A000`, blue
+  `0x0080FF`, red `0xE00000`) and that the `GET /ready` body-parsing
+  lambda is schema-valid, but nothing beyond that — a stub or emulator
+  hitting the real bridge is what would confirm the panel actually
+  turns blue when `sane-runtime` is stopped and green again once it
+  comes back, not just that the YAML compiles.
 
 ## Hardware verification status
 
@@ -383,4 +411,9 @@ end-to-end from a browser, and — if you build the portrait override
 (see "Display orientation" above) — whether `lvgl.rotation: 90` and the
 swapped `display.dimensions` actually render right-side-up and whether
 the flipped touch calibration needs the sign convention this firmware
-guesses at, or the opposite one.
+guesses at, or the opposite one. Also worth confirming for the
+chain-status indicator (B6): that the Bridge label actually renders
+green/blue/red distinguishably on the physical panel (not just that the
+merged config resolves the right hex values), and that stopping/
+restarting `sane-runtime` on the bridge host flips the indicator between
+green and blue within one 15s poll cycle.

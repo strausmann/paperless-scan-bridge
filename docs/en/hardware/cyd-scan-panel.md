@@ -59,7 +59,14 @@ README for why a single public binary works here at all.
    Vaultwarden item *"paperless-scan-bridge test token (hhplex01)"* for
    this project's own deployment — ask whoever manages your HomeLab
    Vaultwarden for access, or use your own bridge's token). Both persist
-   across reboots; nothing here needs a re-flash.
+   across reboots; nothing here needs a re-flash. Once set, the top bar's
+   Bridge indicator turns **green "Bridge: OK"** as soon as the bridge
+   answers `GET /ready` with `200` — profiles loaded and the scanner
+   backend reachable. **Blue "Scanner: offline"** means the bridge
+   itself answered but the scanner backend specifically did not; **red**
+   covers every other not-ready or unreachable case (wrong URL, bridge
+   down, misconfigured). See the firmware README's "Scope and known
+   limitations" for the full state table.
 5. **Grid size (optional)** — the same dashboard has **Grid Rows** and
    **Grid Cols** (1–3 each, default 2x3 — today's fixed 6-button
    layout, unchanged unless you opt in). Raise either to show more
@@ -78,5 +85,8 @@ either orientation, but the header/footer rows are still landscape-only
 — see the firmware README's "Display orientation"), no job polling, no
 on-device touch-calibration wizard, LVGL memory budget not
 hardware-verified, grid size (1x1 up to 3x3 = 9 slots) and paging not
-hardware-verified either — see the firmware README's "Scope and known
-limitations" for the full, current list.
+hardware-verified either, and the three-state Bridge indicator's colors
+are config-verified only (schema-valid, resolve to the intended hex
+values) — not yet confirmed to actually turn blue on the physical panel
+when the scanner backend goes down — see the firmware README's "Scope
+and known limitations" for the full, current list.
