@@ -14,6 +14,7 @@ import (
 
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/procclient"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
 )
 
@@ -45,11 +46,26 @@ type Server struct {
 	// handleScan (scan.go) calls to actually run a scan. Tests supply
 	// an in-memory fake; main.go wires dispatch.NewHTTPUnixClient.
 	Dispatch dispatch.Client
+	// ProcClient is the client to scan-processor (design doc
+	// docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+	// sec. 4.2/9 Task 5/7) that handleScan calls after a successful
+	// dispatch to run OCR/deskew/blank-removal/rotation/format-
+	// conversion/assembly on the scanned pages. Tests supply an
+	// in-memory fake; main.go wires procclient.NewHTTPUnixClient.
+	ProcClient procclient.Client
+	// Secrets resolves named secrets (e.g. a Paperless API token) for
+	// destination modules built via destinations.Build (design doc
+	// sec. 5.3). main.go wires config.NewSecretResolver over
+	// /run/secrets and os.LookupEnv; tests supply a resolver backed by
+	// an in-memory map.
+	Secrets config.SecretResolver
 	// OutputDir is where the dispatch client writes completed scan
-	// pages (config.PathsConfig.OutputDir). Server does not use it
-	// directly today — it is threaded through so main.go has one
-	// place to wire dispatch.NewHTTPUnixClient's outputDir argument
-	// from the same config value the rest of the daemon reports in
-	// Description() — but a future job-store/cleanup subsystem will.
+	// pages, and where the ProcClient writes the assembled documents
+	// scan-processor returns (config.PathsConfig.OutputDir). Server
+	// does not use it directly today — it is threaded through so
+	// main.go has one place to wire dispatch.NewHTTPUnixClient's and
+	// procclient.NewHTTPUnixClient's outputDir argument from the same
+	// config value the rest of the daemon reports in Description() —
+	// but a future job-store/cleanup subsystem will.
 	OutputDir string
 }

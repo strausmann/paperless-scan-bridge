@@ -316,6 +316,35 @@ func TestValidateRejectsEmptyOutputDir(t *testing.T) {
 	}
 }
 
+// TestDefaultIncludesScanProcessorSocket pins the compiled-in default
+// for the scan-processor client's Unix-socket path (design doc
+// docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+// sec. 9 Task 7) -- mirrors TestDefaultIncludesOutputDir's pattern for
+// SaneSocket's newer sibling.
+func TestDefaultIncludesScanProcessorSocket(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if cfg.Paths.ScanProcessorSocket != "/run/scan-processor/scan-processor.sock" {
+		t.Errorf("Default Paths.ScanProcessorSocket = %q, want /run/scan-processor/scan-processor.sock",
+			cfg.Paths.ScanProcessorSocket)
+	}
+}
+
+func TestLoadScanProcessorSocketEnvOverride(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("", envFunc(map[string]string{
+		"SCAN_BRIDGE_SCAN_PROCESSOR_SOCKET": "/custom/scan-processor.sock",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Paths.ScanProcessorSocket != "/custom/scan-processor.sock" {
+		t.Errorf("Paths.ScanProcessorSocket = %q, want /custom/scan-processor.sock", cfg.Paths.ScanProcessorSocket)
+	}
+}
+
 func TestDescriptionDoesNotLeakSecrets(t *testing.T) {
 	t.Parallel()
 

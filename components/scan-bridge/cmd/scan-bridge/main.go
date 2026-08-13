@@ -30,7 +30,15 @@ import (
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/metrics"
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/procclient"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
+
+	// Destination modules register themselves via init() (ADR 0016,
+	// destinations.Register) — main.go blank-imports only the modules
+	// it wants compiled in (design doc
+	// docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+	// sec. 5.1). v1 blank-imports paperless only.
+	_ "github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations/paperless"
 )
 
 // dispatchClientTimeout bounds the whole HTTP round trip to
@@ -39,8 +47,17 @@ import (
 // resolution/etc. but not timeout_seconds) — the per-call deadline
 // that actually governs a scan comes from the context handleScan
 // derives from the profile (internal/api/scan.go), not from this
-// value.
+// value. Reused as procClientTimeout below for the scan-processor
+// leg of the pipeline — same reasoning applies verbatim.
 const dispatchClientTimeout = 5 * time.Minute
+
+// secretsDir is the Docker secrets directory config.SecretResolver
+// checks first (design doc sec. 5.3, matching the 2026-04-30 spec's
+// documented convention). Not exposed as a config.PathsConfig field:
+// it is a Docker/Compose deployment convention, not something an
+// operator has a reason to override per-instance the way
+// SaneSocket/ScanProcessorSocket are.
+const secretsDir = "/run/secrets"
 
 // Build identity, populated by ldflags. Defaults are useful in
 // `go run` and `go test` contexts.
@@ -131,6 +148,11 @@ func run(args []string, stdout, stderr io.Writer) error {
 	dispatchClient := dispatch.NewHTTPUnixClient(cfg.Paths.SaneSocket, cfg.Paths.OutputDir, dispatchClientTimeout)
 	defer dispatchClient.Close()
 
+	procClient := procclient.NewHTTPUnixClient(cfg.Paths.ScanProcessorSocket, cfg.Paths.OutputDir, dispatchClientTimeout)
+	defer procClient.Close()
+
+	secrets := config.NewSecretResolver(secretsDir, os.LookupEnv)
+
 	apiServer := &api.Server{
 		Profiles: profileSet,
 		Build: api.BuildInfo{
@@ -138,10 +160,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 			Commit:    commit,
 			BuildDate: buildDate,
 		},
-		Logger:    logger,
-		Auth:      cfg.Auth,
-		Dispatch:  dispatchClient,
-		OutputDir: cfg.Paths.OutputDir,
+		Logger:     logger,
+		Auth:       cfg.Auth,
+		Dispatch:   dispatchClient,
+		ProcClient: procClient,
+		Secrets:    secrets,
+		OutputDir:  cfg.Paths.OutputDir,
 	}
 
 	publicSrv := &http.Server{
