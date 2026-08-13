@@ -66,6 +66,17 @@ between releases as a running list.
   Not yet verified against real hardware — see the firmware README's
   "Hardware verification status".
 
+- CYD scan-control panel firmware: configurable grid size and profile
+  paging (Issue #9, items B1/B2). Two new persistent `number` entities
+  on the panel's own dashboard, **Grid Rows** and **Grid Cols** (1–3
+  each, default 2x3 — today's fixed 6-button layout, unchanged unless
+  a flasher opts in), resize the button grid at runtime up to 3x3 = 9
+  slots, no re-flash needed. New `<`/`>` footer buttons page through
+  profile lists longer than one page (the internal profile list is now
+  capped at 100, up from the previous hard 6-slot limit). Not yet
+  verified against real hardware — see the firmware README's "Hardware
+  verification status".
+
 ### Documentation
 
 - Documentation site at
