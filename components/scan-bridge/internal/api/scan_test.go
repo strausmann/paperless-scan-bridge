@@ -88,7 +88,7 @@ func (f *fakeProcClient) Close() error { return nil }
 // a duplicate Register call).
 type fakeDestinationDouble struct {
 	name      string
-	deliverFn func(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) error
+	deliverFn func(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) (destinations.DeliveryResult, error)
 	calls     []fakeDeliverCall
 }
 
@@ -98,12 +98,19 @@ type fakeDeliverCall struct {
 	cfg  destinations.ProfileDestinationConfig
 }
 
+// fakeDestinationDoubleDefaultResult is what Deliver returns on
+// success when a test does not set deliverFn — "submitted", matching
+// this suite's long-standing expectation for the plain happy path,
+// with no destination-specific reference (tests that care about
+// TaskID/Reference propagation set deliverFn explicitly).
+var fakeDestinationDoubleDefaultResult = destinations.DeliveryResult{Status: "submitted"}
+
 func (f *fakeDestinationDouble) Name() string { return f.name }
 
-func (f *fakeDestinationDouble) Deliver(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) error {
+func (f *fakeDestinationDouble) Deliver(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) (destinations.DeliveryResult, error) {
 	f.calls = append(f.calls, fakeDeliverCall{doc: doc, meta: meta, cfg: cfg})
 	if f.deliverFn == nil {
-		return nil
+		return fakeDestinationDoubleDefaultResult, nil
 	}
 	return f.deliverFn(ctx, doc, meta, cfg)
 }
@@ -612,6 +619,61 @@ func TestScanDeliversToDestinationReturnsSubmitted(t *testing.T) {
 	}
 }
 
+// TestScanDeliversToDestinationReturnsTaskID covers the gap
+// destinations.Destination.Deliver's (DeliveryResult, error) signature
+// closes (see internal/destinations/destination.go and
+// internal/destinations/paperless/paperless.go): a destination's
+// DeliveryResult.Reference (Paperless's task_id in production) must
+// reach the response's destinationResult.TaskID field on a successful
+// delivery — the design doc sec. 8 shape
+// "destinations: [{name, status, task_id}]" is not fully honoured
+// until this is wired through deliverToDestination
+// (internal/api/scan_destinations.go).
+func TestScanDeliversToDestinationReturnsTaskID(t *testing.T) {
+	t.Parallel()
+
+	const wantTaskID = "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+	dest := &fakeDestinationDouble{
+		deliverFn: func(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) (destinations.DeliveryResult, error) {
+			return destinations.DeliveryResult{Status: "submitted", Reference: wantTaskID}, nil
+		},
+	}
+	target := registerTestDestination(t, dest)
+
+	dispatchClient := &fakeDispatchClient{
+		dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+			return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+		},
+	}
+	processedDoc := writeProcessedDoc(t, 0, "receipt.pdf", "pdf-bytes")
+	procClient := &fakeProcClient{
+		processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+			return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{processedDoc}}, nil
+		},
+	}
+
+	srv := newScanTestServer(t, scanTestProfileWithDestination(target, ""), tokenAuth(t, "correct-token"), dispatchClient, procClient)
+	rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var body scanResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Documents) != 1 || len(body.Documents[0].Destinations) != 1 {
+		t.Fatalf("documents = %+v, want exactly one document with one destination result", body.Documents)
+	}
+	got := body.Documents[0].Destinations[0]
+	if got.Status != "submitted" {
+		t.Errorf("status = %q, want submitted", got.Status)
+	}
+	if got.TaskID != wantTaskID {
+		t.Errorf("task_id = %q, want %q (the destination's DeliveryResult.Reference)", got.TaskID, wantTaskID)
+	}
+}
+
 // TestScanDestinationFailureDoesNotFailWholeScan covers the
 // destination-error path (design doc sec. 8: "eine
 // Destination-Failure ≠ Scan-Failure"): a fake destination's Deliver
@@ -623,8 +685,8 @@ func TestScanDestinationFailureDoesNotFailWholeScan(t *testing.T) {
 
 	wantErr := errors.New("paperless: upload rejected (401): invalid token")
 	dest := &fakeDestinationDouble{
-		deliverFn: func(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) error {
-			return wantErr
+		deliverFn: func(ctx context.Context, doc destinations.Document, meta destinations.Metadata, cfg destinations.ProfileDestinationConfig) (destinations.DeliveryResult, error) {
+			return destinations.DeliveryResult{}, wantErr
 		},
 	}
 	target := registerTestDestination(t, dest)

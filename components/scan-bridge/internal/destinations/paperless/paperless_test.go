@@ -216,8 +216,16 @@ func TestDeliverHappyPathSubmitsMultipartUpload(t *testing.T) {
 		ASN:           &asn,
 	}
 
-	if err := dest.Deliver(context.Background(), doc, meta, profileCfg(map[string]any{"base_url": srv.URL})); err != nil {
+	const wantTaskID = "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+	result, err := dest.Deliver(context.Background(), doc, meta, profileCfg(map[string]any{"base_url": srv.URL}))
+	if err != nil {
 		t.Fatalf("Deliver() error = %v, want nil", err)
+	}
+	if result.Status != "submitted" {
+		t.Errorf("Deliver() result.Status = %q, want %q", result.Status, "submitted")
+	}
+	if result.Reference != wantTaskID {
+		t.Errorf("Deliver() result.Reference = %q, want %q (Paperless's task_id)", result.Reference, wantTaskID)
 	}
 
 	if gotMethod != http.MethodPost {
@@ -279,8 +287,12 @@ func TestDeliverOmitsAbsentOptionalFields(t *testing.T) {
 	doc := destinations.Document{Filename: "bare.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
 	meta := destinations.Metadata{} // nothing set beyond zero values
 
-	if err := dest.Deliver(context.Background(), doc, meta, profileCfg(map[string]any{"base_url": srv.URL})); err != nil {
+	result, err := dest.Deliver(context.Background(), doc, meta, profileCfg(map[string]any{"base_url": srv.URL}))
+	if err != nil {
 		t.Fatalf("Deliver() error = %v, want nil", err)
+	}
+	if result.Reference != "task-1" {
+		t.Errorf("Deliver() result.Reference = %q, want %q", result.Reference, "task-1")
 	}
 
 	for _, field := range []string{"title", "created", "correspondent", "document_type", "archive_serial_number", "tags"} {
@@ -306,9 +318,12 @@ func TestDeliverMissingTokenSecretFailsWithoutHTTPCall(t *testing.T) {
 	}
 
 	doc := destinations.Document{Filename: "x.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
-	err = dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
+	result, err := dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
 	if err == nil {
 		t.Fatal("Deliver() with unresolved token = nil error, want error")
+	}
+	if result != (destinations.DeliveryResult{}) {
+		t.Errorf("Deliver() result = %+v, want zero value on error", result)
 	}
 	if called {
 		t.Error("Deliver() made an HTTP call despite failing to resolve the token secret first")
@@ -388,7 +403,7 @@ func TestDeliverErrorPathsFromPaperless(t *testing.T) {
 			}
 
 			doc := destinations.Document{Filename: "x.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
-			err = dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
+			_, err = dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
 			if err == nil {
 				t.Fatalf("Deliver() = nil error, want error wrapping %v", tc.wantErr)
 			}
@@ -419,7 +434,7 @@ func TestDeliverNetworkErrorUnreachable(t *testing.T) {
 	}
 
 	doc := destinations.Document{Filename: "x.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
-	err = dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": baseURL}))
+	_, err = dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": baseURL}))
 	if err == nil {
 		t.Fatal("Deliver() against a closed server = nil error, want error")
 	}
@@ -448,7 +463,7 @@ func TestDeliverContextDeadlineExceededIsTimeout(t *testing.T) {
 	defer cancel()
 
 	doc := destinations.Document{Filename: "x.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
-	err = dest.Deliver(ctx, doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
+	_, err = dest.Deliver(ctx, doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
 	if err == nil {
 		t.Fatal("Deliver() with an expired context = nil error, want error")
 	}

@@ -82,6 +82,26 @@ type ProfileDestinationConfig struct {
 	Config       map[string]any
 }
 
+// DeliveryResult describes the outcome of a successful Deliver call —
+// the destination-defined status plus an optional destination-specific
+// reference (e.g. Paperless-ngx's post_document/ task_id) a caller can
+// surface for correlation. Zero value (empty Status, empty Reference)
+// is what Deliver returns alongside a non-nil error; callers must not
+// read a DeliveryResult's fields when Deliver's error is non-nil.
+type DeliveryResult struct {
+	// Status is the destination-defined outcome label, e.g.
+	// "submitted" for an asynchronous destination that accepted the
+	// document but has not finished processing it. Each destination
+	// module documents the values it returns.
+	Status string
+	// Reference is a destination-specific identifier for the
+	// delivered document (e.g. Paperless-ngx's task_id), for
+	// correlation by a caller that wants to look the delivery up in
+	// the destination system later. Empty when the destination has no
+	// such identifier to offer.
+	Reference string
+}
+
 // Destination is implemented by each built-in destination module (ADR
 // 0016). Deliver sends one assembled Document, labelled by meta, to
 // the destination described by cfg. Deliver must not retain doc.Content
@@ -93,11 +113,14 @@ type Destination interface {
 	// Deliver sends doc to this destination, using meta for the
 	// fields this destination understands and cfg for its own
 	// per-profile configuration. A nil error means the destination
-	// accepted the document; for destinations with asynchronous
+	// accepted the document, and the returned DeliveryResult carries
+	// its status/reference; for destinations with asynchronous
 	// server-side processing (e.g. Paperless-ngx's Celery consumption
 	// task), "accepted" means "submitted", not "fully processed" —
-	// each module documents what its own nil error means.
-	Deliver(ctx context.Context, doc Document, meta Metadata, cfg ProfileDestinationConfig) error
+	// each module documents what its own nil error and DeliveryResult
+	// mean. On a non-nil error, the returned DeliveryResult is the
+	// zero value and must not be used.
+	Deliver(ctx context.Context, doc Document, meta Metadata, cfg ProfileDestinationConfig) (DeliveryResult, error)
 }
 
 // Constructor builds a Destination from its profile-level config block
