@@ -10,12 +10,13 @@
 # dashboard afterwards. Grid (1x1 up to 3x3, configurable at runtime via
 # the "Grid Rows"/"Grid Cols" `number` entities, default 2x3 = today's
 # fixed 6-button layout) populated at runtime from GET /profiles,
-# tap-to-scan via POST /scan. Profiles beyond one page are reachable via
-# the footer's prev/next buttons. Display orientation (landscape by
-# default, portrait via a `packages:` override — Issue #9 item B4) is a
-# build-time choice, not runtime-configurable. See README.md for
-# flashing, the mandatory post-flash touch calibration, how to build a
-# portrait variant, and known limitations.
+# tap-to-scan via POST /scan, with a centered spinner shown for the
+# duration of the request (Issue #9 item B5). Profiles beyond one page
+# are reachable via the footer's prev/next buttons. Display orientation
+# (landscape by default, portrait via a `packages:` override — Issue #9
+# item B4) is a build-time choice, not runtime-configurable. See
+# README.md for flashing, the mandatory post-flash touch calibration,
+# how to build a portrait variant, and known limitations.
 #
 # Hardware bring-up values below (pins, SPI buses, display/touch options)
 # are cross-verified for the ESP32-2432S028R and must not be changed
@@ -1079,6 +1080,7 @@ script:
             - lvgl.label.update:
                 id: status_label
                 text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
+            - lvgl.widget.update: { id: scan_spinner, hidden: false }
             - lambda: |-
                 id(scan_url) = id(bridge_url).state + "/scan";
                 id(scan_auth) = std::string("Bearer ") + id(bridge_token).state;
@@ -1163,6 +1165,7 @@ script:
                           - delay: 4s
                           - light.turn_off: status_led
                           - lvgl.label.update: { id: status_label, text: "idle" }
+                    - lvgl.widget.update: { id: scan_spinner, hidden: true }
                     - lambda: "id(scan_in_progress) = false;"
                     - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
@@ -1191,6 +1194,7 @@ script:
                     - delay: 4s
                     - light.turn_off: status_led
                     - lvgl.label.update: { id: status_label, text: "idle" }
+                    - lvgl.widget.update: { id: scan_spinner, hidden: true }
                     - lambda: "id(scan_in_progress) = false;"
                     - lvgl.widget.update: { id: slot0_btn, state: { disabled: false } }
                     - lvgl.widget.update: { id: slot1_btn, state: { disabled: false } }
@@ -1584,3 +1588,32 @@ lvgl:
                     then:
                       - lambda: "id(page_offset) += 1;"
                       - script.execute: render_page
+
+        # Scan-in-progress indicator (Issue #9 item B5). Centered on the
+        # page (not pixel-positioned over the button grid specifically) —
+        # `align: CENTER` centers on the whole 320x240/240x320 page
+        # regardless of orientation (B4), which lands close enough to the
+        # visual center of the button-grid area too (the 42px of
+        # header+footer chrome is small relative to the full screen) and
+        # needs no `screen_width`/`screen_height`-driven geometry lambda
+        # like the 9 button slots have. Listed last in `widgets:` on
+        # purpose — LVGL draws widgets in list order, so this paints on
+        # top of the button grid whenever it is shown. `hidden: true` is
+        # the default (idle) state; `do_scan` below unhides it right
+        # before firing the blocking `http_request.post`, and every
+        # terminal branch — the shared post-if-chain block in
+        # `on_response` (success and all four error branches funnel
+        # through it) and `on_error` — hides it again, mirroring the
+        # existing per-status LED/label reset discipline (Review-Fund
+        # PR #31).
+        - spinner:
+            id: scan_spinner
+            align: CENTER
+            hidden: true
+            width: 60
+            height: 60
+            spin_time: 1s
+            arc_length: 60deg
+            indicator:
+              arc_color: 0x0080FF
+              arc_width: 8

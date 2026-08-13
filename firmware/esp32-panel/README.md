@@ -301,6 +301,14 @@ What it does:
   (4s), and "Bridge unreachable" on a network-level failure (timeout,
   DNS, connection refused; 4s). Earlier revisions only reset after
   success and left error states on screen indefinitely.
+- Shows a centered spinner while a scan is in flight (Issue #9 item
+  B5), on top of the button grid, from the moment `POST /scan` is fired
+  until the result is known. The "Scanning: `<profile>`..." status
+  label and amber LED already persisted for the whole (synchronous,
+  blocking) request duration before this — the spinner does not fix a
+  missing state, it makes an already-correct in-flight state visually
+  louder than a 20px footer label. Hidden again in every terminal
+  branch, the same discipline as the LED/label reset above.
 
 What it deliberately does **not** do yet (see Issue #9 for phases beyond
 D/E):
@@ -346,6 +354,11 @@ D/E):
   and the `lvgl.rotation`/swapped-`dimensions` pairing are schema-valid
   ESPHome — not that a physical portrait panel renders right-side-up or
   that the guessed-at swapped touch calibration is correct.
+- **Scan spinner (B5) is config-verified only, not hardware-verified.**
+  `esphome config`/`esphome compile` confirm the widget is schema-valid
+  and pass at both orientations, but not that the LVGL spinner animation
+  actually renders/spins smoothly on real hardware within this board's
+  no-PSRAM LVGL buffer budget.
 
 ## Hardware verification status
 

@@ -77,6 +77,33 @@ between releases as a running list.
   verified against real hardware — see the firmware README's "Hardware
   verification status".
 
+- CYD scan-control panel firmware: display orientation substitutions
+  for a portrait override (Issue #9, item B4). Nine new build-time
+  `substitutions:` (`orientation`, `screen_width`/`screen_height`,
+  `panel_rotation`, `touch_swap_xy`/`touch_x_min`/`touch_x_max`/
+  `touch_y_min`/`touch_y_max`) drive `display.dimensions`,
+  `lvgl.rotation` and the touchscreen `calibration`/`transform.swap_xy`,
+  letting a local build flip the panel from landscape to portrait via a
+  documented `packages:` override — no pin/SPI/runtime-script changes
+  needed. Defaults reproduce the existing landscape build byte-for-byte
+  (merged `display.dimensions`/`lvgl.rotation` unchanged). The B1 grid
+  geometry lambdas now read the new `screen_width`/`screen_height`
+  globals instead of two hardcoded 320x240 literals, so the button grid
+  stays correctly laid out in either orientation. Not yet verified
+  against real hardware — see the firmware README's "Hardware
+  verification status".
+
+- CYD scan-control panel firmware: a centered scan-in-progress spinner
+  (Issue #9, item B5). A new LVGL `spinner:` widget is shown on top of
+  the button grid for the full duration of `POST /scan` and hidden
+  again in every terminal branch (success, each HTTP error status, and
+  a network-level failure) — the existing "Scanning: `<profile>`..."
+  status label and amber LED already persisted correctly for the whole
+  in-flight request before this; the spinner makes that state visually
+  louder than the 20px footer label alone. Not yet verified against
+  real hardware — see the firmware README's "Hardware verification
+  status".
+
 ### Documentation
 
 - Documentation site at
