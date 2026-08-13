@@ -78,13 +78,57 @@ func TestNewUnixListener_CreatesSocketAndRemovesStaleFile(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestNewUnixListener_MissingParentDirFails(t *testing.T) {
+// TestNewUnixListener_CreatesMissingParentDir covers the compose /
+// bare `docker run` path where the socket's parent directory has
+// never been created on the host side: newUnixListener must create it
+// (mode 0o750) rather than fail with ENOENT. A shared named volume
+// mounted by both containers creates the mountpoint directory itself,
+// so this mainly matters for a standalone `docker run` or a fresh
+// bind mount that Docker has not pre-created yet.
+//
+// This replaces the previous TestNewUnixListener_MissingParentDirFails,
+// which asserted the opposite (pre-fix) behaviour: newUnixListener
+// used to require the parent directory to already exist.
+func TestNewUnixListener_CreatesMissingParentDir(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "does-not-exist", "sane.sock")
-	if _, err := newUnixListener(path); err == nil {
-		t.Fatal("expected error for socket path with missing parent directory")
+	// "d" (not a descriptive name like "does-not-exist") is deliberate:
+	// AF_UNIX socket paths are capped at 108 bytes (Linux sun_path), and
+	// t.TempDir() already spends most of that budget on this sandbox's
+	// long $TMPDIR prefix plus the test name. A longer subdirectory name
+	// here reproducibly overflows the limit with "bind: invalid
+	// argument" — a test-environment artifact unrelated to the
+	// behaviour under test.
+	parent := filepath.Join(t.TempDir(), "d")
+	path := filepath.Join(parent, "sane.sock")
+
+	ln, err := newUnixListener(path)
+	if err != nil {
+		t.Fatalf("newUnixListener: %v", err)
 	}
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(path)
+	}()
+
+	info, err := os.Stat(parent)
+	if err != nil {
+		t.Fatalf("stat parent dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("parent %q was created but is not a directory", parent)
+	}
+	if perm := info.Mode().Perm(); perm != 0o750 {
+		t.Errorf("parent dir perm = %o, want 750", perm)
+	}
+
+	// Confirm the socket itself is actually accepting connections, not
+	// just a file on disk with the right name.
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial socket: %v", err)
+	}
+	_ = conn.Close()
 }
 
 // TestEnvOr deliberately does NOT call t.Parallel() and manipulates

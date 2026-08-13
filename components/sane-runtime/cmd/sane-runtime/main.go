@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -143,7 +144,17 @@ func shutdown(logger *slog.Logger, srv *http.Server) error {
 // network namespace (scan-bridge) can connect. uid/gid coordination
 // between the two containers is finalized in Task 13/15 (brief D3);
 // 0o660 is the interim, least-surprising default.
+//
+// It also creates path's parent directory (mode 0o750) if it does not
+// exist yet. A Compose-managed shared volume already creates its own
+// mountpoint before either container starts, so this mainly guards a
+// standalone `docker run` (or any future deploy path that does not
+// pre-create the mount) against failing with a bare, unhelpful ENOENT
+// from net.Listen.
 func newUnixListener(path string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, fmt.Errorf("create socket parent dir for %s: %w", path, err)
+	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("remove stale socket %s: %w", path, err)
 	}
