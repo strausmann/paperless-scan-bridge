@@ -11,12 +11,17 @@
 # the "Grid Rows"/"Grid Cols" `number` entities, default 2x3 = today's
 # fixed 6-button layout) populated at runtime from GET /profiles,
 # tap-to-scan via POST /scan, with a centered spinner shown for the
-# duration of the request (Issue #9 item B5). Profiles beyond one page
-# are reachable via the footer's prev/next buttons. Display orientation
-# (landscape by default, portrait via a `packages:` override — Issue #9
-# item B4) is a build-time choice, not runtime-configurable. See
-# README.md for flashing, the mandatory post-flash touch calibration,
-# how to build a portrait variant, and known limitations.
+# duration of the request (Issue #9 item B5). A three-state top-bar
+# indicator (green/red/blue) polls GET /ready instead of the old plain
+# GET /health, so it reflects the bridge's actual readiness contract —
+# green when profiles are loaded and sane-runtime answers, blue when
+# only the scanner backend specifically is down, red for every other
+# not-ready/unreachable case (Issue #9 item B6). Profiles beyond one
+# page are reachable via the footer's prev/next buttons. Display
+# orientation (landscape by default, portrait via a `packages:` override
+# — Issue #9 item B4) is a build-time choice, not runtime-configurable.
+# See README.md for flashing, the mandatory post-flash touch
+# calibration, how to build a portrait variant, and known limitations.
 #
 # Hardware bring-up values below (pins, SPI buses, display/touch options)
 # are cross-verified for the ESP32-2432S028R and must not be changed
@@ -508,6 +513,20 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"
+  # ready_http_status/ready_error_code (Issue #9 item B6) mirror
+  # scan_http_status/scan_error_code below, but for GET /ready in
+  # check_bridge_health rather than POST /scan in do_scan — same reason:
+  # capture_response's on_response lambda and the follow-up branching
+  # if:s are separate script steps, so the parsed status/error need a
+  # global to survive between them.
+  - id: ready_http_status
+    type: int
+    restore_value: false
+    initial_value: "0"
+  - id: ready_error_code
+    type: std::string
+    restore_value: false
+    initial_value: '""'
   - id: scan_http_status
     type: int
     restore_value: false
@@ -533,7 +552,7 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
-  - id: health_url
+  - id: ready_url
     type: std::string
     restore_value: false
     initial_value: '""'
@@ -850,44 +869,109 @@ script:
   - id: check_bridge_health
     mode: restart
     then:
-      # Health has no auth requirement (see ADR-0006 / README "Security
-      # model") — only the bridge URL matters here, not the token. An
-      # empty token still shows "Bridge: OK" if the URL answers; the
+      # GET /ready (Issue #9 item B6) replaces the old plain GET
+      # /health. /ready is a strict superset for the "is the process
+      # even up" question: if the bridge is down, /ready fails at the
+      # network level exactly like /health did — the on_error branch
+      # below is unchanged in spirit. The new value is the JSON body a
+      # running bridge sends when it is up but not (yet) ready to serve
+      # POST /scan — see
+      # components/scan-bridge/internal/api/ready.go, whose handler
+      # this mirrors:
+      #   - 200 {"status":"ready"}: profiles loaded AND sane-runtime
+      #     answered its own health check. GREEN.
+      #   - 503 {"error":"sane_runtime_unreachable"}: the bridge process
+      #     itself IS reachable, only the scanner backend specifically
+      #     is down. Its own BLUE state, deliberately not lumped in with
+      #     a generic error — a flasher standing in front of the panel
+      #     can tell "restart sane-runtime" apart from "bridge is
+      #     unreachable/misconfigured" at a glance.
+      #   - 503 {"error":"no_profiles_loaded"}, or any other/unexpected
+      #     status: the bridge answered but is otherwise not ready. RED.
+      # Auth: no bearer token needed for /ready, same as /health before
+      # it (see ADR-0006 / README "Security model") — only the bridge
+      # URL matters here. An empty token still drives the indicator; the
       # profile grid simply stays empty until a token is set too (see
       # refresh_profiles above).
       - if:
           condition:
             lambda: "return !id(bridge_url).state.empty();"
           then:
-            - lambda: 'id(health_url) = id(bridge_url).state + "/health";'
+            - lambda: 'id(ready_url) = id(bridge_url).state + "/ready";'
             - http_request.get:
-                url: !lambda 'return id(health_url).c_str();'
-                capture_response: false
+                url: !lambda 'return id(ready_url).c_str();'
+                capture_response: true
                 on_response:
                   then:
-                    - lambda: "id(bridge_reachable) = (response->status_code == 200);"
+                    # Any HTTP response at all — 200 or a 503 with a
+                    # body — means the bridge process answered; only
+                    # on_error below (a network-level failure) means it
+                    # did not. Parsed the same way do_scan's on_response
+                    # parses its error body: json::parse_json +
+                    # root["error"], guarded by is<const char *>() so a
+                    # missing/malformed field never throws.
+                    - lambda: |-
+                        id(bridge_reachable) = true;
+                        id(ready_http_status) = response->status_code;
+                        id(ready_error_code) = "";
+                        if (response->status_code != 200) {
+                          json::parse_json(body, [](JsonObject root) -> bool {
+                            if (root["error"].is<const char *>()) {
+                              id(ready_error_code) = root["error"].as<std::string>();
+                            }
+                            return true;
+                          });
+                        }
                     - if:
                         condition:
-                          lambda: "return id(bridge_reachable);"
+                          lambda: "return id(ready_http_status) == 200;"
                         then:
                           - lvgl.label.update:
                               id: bridge_status_label
                               text: "Bridge: OK"
-                        else:
+                              text_color: 0x00A000
+                    - if:
+                        condition:
+                          lambda: |-
+                            return id(ready_http_status) == 503
+                                && id(ready_error_code) == "sane_runtime_unreachable";
+                        then:
+                          - lvgl.label.update:
+                              id: bridge_status_label
+                              text: "Scanner: offline"
+                              text_color: 0x0080FF
+                    - if:
+                        condition:
+                          lambda: |-
+                            return id(ready_http_status) != 200
+                                && !(id(ready_http_status) == 503
+                                     && id(ready_error_code) == "sane_runtime_unreachable");
+                        then:
                           - lvgl.label.update:
                               id: bridge_status_label
                               text: "Bridge: ERR"
+                              text_color: 0xE00000
                 on_error:
                   then:
                     - lambda: "id(bridge_reachable) = false;"
                     - lvgl.label.update:
                         id: bridge_status_label
                         text: "Bridge: --"
+                        text_color: 0xE00000
           else:
+            # Not one of the three /ready-driven states — no URL is
+            # configured yet, so no request was even attempted. Colored
+            # the same RED as the network-unreachable case above: from a
+            # "can the panel scan right now" standpoint both mean no,
+            # and adding a fifth (e.g. neutral/gray) color for this
+            # pre-configuration state is out of scope for B6, whose
+            # DONE-when criteria names exactly three /ready-driven
+            # colors.
             - lambda: "id(bridge_reachable) = false;"
             - lvgl.label.update:
                 id: bridge_status_label
                 text: "Bridge: not set"
+                text_color: 0xE00000
 
   - id: render_page
     mode: restart
