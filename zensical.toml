@@ -34,6 +34,7 @@ nav = [
     "getting-started/index.md",
     "getting-started/quickstart.md",
     "getting-started/scan-profiles.md",
+    "getting-started/profile-schema.md",
   ] },
   { "Architecture" = [
     "architecture/index.md",

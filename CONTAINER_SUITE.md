@@ -946,20 +946,61 @@ of the runtime config.
 
 The pipeline worker.
 
+> **Status (2026-08-13):** sections 6.1–6.7 below are this document's
+> *original design sketch* and predate the actual implementation on
+> several points that matter — most importantly the transport (6.1's
+> "shared volume" + "callback URL" was never built; see the sec. 7.2
+> correction below) and the processing toolchain (6.3's Leptonica
+> CGO bindings + pdfcpu Go library were replaced by shelling out to
+> `convert(1)`/`tesseract(1)`/`qpdf(1)`, per
+> `components/scan-processor/internal/pipeline/exec_pipeline.go`).
+> The authoritative, up-to-date description of what is actually built
+> — API surface, configuration, pipeline stages, source layout — is
+> [`components/scan-processor/README.md`](components/scan-processor/README.md);
+> the design that replaced this section's transport/responsibility
+> model is
+> [`docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md`](docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md)
+> sec. 4. The rest of this section is kept for historical/roadmap
+> context (e.g. the blank-page threshold reasoning in 6.6 still
+> matches the shipped default), not as a description of the running
+> system.
+
 ### 6.1 Responsibility
 
-`scan-processor` is the image-to-PDF pipeline. It:
+`scan-processor` is the OCR/image-processing pipeline. It:
 
-- Consumes raw image batches from a shared volume
-- Applies deskew via Leptonica or ImageMagick
-- Detects and removes blank pages using configurable thresholds
-- Optionally rotates pages based on Tesseract orientation detection
-- Merges images into a PDF using pdfcpu
-- Writes the final PDF atomically to the consume directory
-- Cleans up the working directory
-- Reports status back to the bridge via callback URL
+- Serves `POST /process` on a Unix-domain socket (`scan-bridge` dials
+  it directly, HTTP over Unix socket — the same pattern `scan-bridge`
+  already uses to dial `sane-runtime`, sec. 7.1) — **not** a shared
+  volume it watches
+- Receives a job's raw TIFF pages as `multipart/mixed` request-body
+  parts, alongside a JSON control payload carrying the profile's
+  processing flags
+- Applies deskew (`convert -deskew`), blank-page removal
+  (mean-brightness threshold), and rotation correction (`tesseract
+  --psm 0` orientation detection + `convert -rotate`) — each
+  independently profile-gated
+- Runs OCR via `tesseract` (`deu+eng` default, off by default overall)
+  when the profile enables it — producing a searchable PDF directly
+  for `output_format=pdf`
+- Converts to the profile's `output_format` and assembles pages per
+  `assembly.page_grouping` (`qpdf`/`convert`)
+- Returns the assembled document(s) as `multipart/mixed` response-body
+  parts, in the **same** `POST /process` HTTP response — **not** a
+  write to a consume directory, and **not** a callback to the bridge.
+  `scan-processor` does not know Paperless-ngx, or any other
+  destination, exists
 
 ### 6.2 Source layout
+
+> This tree is the original design sketch (Leptonica CGO bindings,
+> pdfcpu, a bridge-callback `jobs/client.go`) and does not match the
+> built module. The real layout — `cmd/scan-processor/main.go`,
+> `internal/procapi/` (HTTP handlers, routes, multipart (de)coding),
+> `internal/pipeline/` (the `Pipeline` interface + the `convert(1)`/
+> `tesseract(1)`/`qpdf(1)`-shelling `ExecPipeline`), no `go.sum` (no
+> third-party dependencies) — is documented in
+> [`components/scan-processor/README.md`](components/scan-processor/README.md#layout).
 
 ```
 components/scan-processor/
@@ -1212,32 +1253,56 @@ volumes:
   sane-socket:
 ```
 
-### 7.2 sane-runtime to scan-processor: shared volume + callback
+### 7.2 scan-bridge to scan-processor: HTTP over a second Unix socket
 
-When a scan completes, sane-runtime writes the raw images to a tmpfs
-volume `/var/scans/<job-id>/`. The scan-processor watches this
-directory via inotify (it is local tmpfs, so inotify works).
+> **Status (2026-08-13):** this section originally described
+> "sane-runtime to scan-processor: shared volume + callback". That
+> model was never built. What ships today mirrors sec. 7.1 exactly,
+> one level further down the pipeline — see
+> `docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md`
+> sec. 4.2 for the design and
+> [`components/scan-bridge/internal/procclient`](components/scan-bridge/internal/procclient/procclient.go)
+> for the frozen wire contract both sides implement.
 
-When the processor finishes, it calls back to scan-bridge:
+`sane-runtime` never talks to `scan-processor` — it only ever talks to
+`scan-bridge` (sec. 7.1). `scan-bridge` is the orchestrator: once it
+has written a completed scan's raw TIFF pages to its own `OutputDir`
+(the same volume sec. 7.1's dispatch already writes pages to), it
+re-reads them off disk and POSTs them to `scan-processor` over a
+**second, separate** Unix socket — a new named volume/socket at
+`/run/scan-processor/scan-processor.sock`, mounted only by
+`scan-bridge` and `scan-processor` (never by `sane-runtime`).
 
-```
-POST http://scan-bridge:8080/internal/jobs/<id>/complete
-```
+The request is `multipart/mixed`: part 0 a JSON control payload
+(OCR/deskew/blank/rotate flags, `page_grouping`, `output_format`,
+`timeout_seconds`), parts 1..N the job's TIFF pages. `scan-processor`
+replies `multipart/mixed` in the **same HTTP response**: part 0 a JSON
+metadata block (`request_id`, one `documents[]` entry per assembled
+document, `duration_ms`), parts 1..N the assembled document bytes.
 
-The `/internal/` prefix is reserved for inter-container calls and
-is not exposed externally. The bridge serves `/internal/` only on
-the internal network within the compose stack.
+There is no shared volume for image bytes between `scan-bridge` and
+`scan-processor` (each side only ever sees the other's bytes as an
+HTTP multipart part), and no callback endpoint — `scan-bridge` never
+exposes anything like the `/internal/jobs/<id>/complete` URL this
+section originally sketched, because `scan-processor` has nothing to
+call back to: it answers within the same request it received.
 
 ### 7.3 Scan-bridge as the orchestrator
 
-All status flows back to the bridge. Sane-runtime updates job state
-("scan started", "scanning page 3 of 10", "scan complete"). Scan-processor
-updates job state ("processing started", "PDF assembled", "written
-to consume").
-
-This makes the bridge the single source of truth for job state. The
-user's API queries always hit the bridge; they never need to talk to
-sane-runtime or scan-processor directly.
+`scan-bridge` is still the single component every other container
+talks to — `sane-runtime` and `scan-processor` never talk to each
+other, and a caller never talks to either of them directly (unchanged
+from the original design intent). What differs from this section's
+original wording is *how* status reaches the bridge: there is no
+push-style "job state update" stream from `sane-runtime` or
+`scan-processor` today. Instead, `scan-bridge`'s single `POST /scan`
+call blocks synchronously through dispatch → processing → every
+configured destination's delivery, and the finished outcome (which
+pages were captured, what `scan-processor` assembled, what each
+destination reported) is returned inline as that call's `200 OK`
+response body — there is no job-state store for a caller to poll
+separately (`GET /jobs/:id` returns `501`; design doc sec. 7,
+Option A).
 
 ---
 
@@ -1245,10 +1310,22 @@ sane-runtime or scan-processor directly.
 
 ### 8.1 Named volumes
 
+> **Status (2026-08-13):** the `scan-scratch` row below (`sane-runtime`
+> and `processor` sharing one tmpfs) describes the shared-volume model
+> sec. 7.2 corrects — it was never built, and there is no volume
+> mounted by both `sane-runtime` and `scan-processor` today.
+> `sane-runtime` and `scan-processor` each get their own socket volume
+> shared only with `scan-bridge` (`sane-socket` and, new,
+> `scan-processor-socket`); raw pages only ever live under
+> `scan-bridge`'s own `OutputDir` bind mount. The deployed `compose.yaml`
+> also uses bind mounts under `/docker/stacks/paperless-scan-bridge/`
+> rather than the named volumes this table sketches — see `compose.yaml`
+> for the actual, current volume layout.
+
 | Volume name        | Mounted by              | Purpose                                |
 | ------------------ | ----------------------- | -------------------------------------- |
 | `sane-socket`      | bridge, sane-runtime    | Unix socket for dispatch               |
-| `scan-scratch`     | sane-runtime, processor | tmpfs for raw scan output              |
+| `scan-scratch`     | sane-runtime, processor | **superseded** — tmpfs for raw scan output; never built, see status note above |
 | `bridge-data`      | bridge                  | Job database (BoltDB)                  |
 | `bridge-config`    | bridge                  | Read-only config files                 |
 | `runtime-config`   | sane-runtime            | Read-only config files                 |
