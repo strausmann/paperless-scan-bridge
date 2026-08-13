@@ -139,7 +139,8 @@ func TestProfileDetailUnknown(t *testing.T) {
 
 // TestNotImplementedEndpoints covers the endpoints still stubbed at
 // 501. POST /scan is real as of Phase 1.2 (ADR 0005) and is instead
-// covered by internal/api/scan_test.go.
+// covered by internal/api/scan_test.go; GET /ready is real as of
+// Phase 1.2h (issue #9) and is covered by internal/api/ready_test.go.
 func TestNotImplementedEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -147,7 +148,6 @@ func TestNotImplementedEndpoints(t *testing.T) {
 	cases := []struct {
 		method, path string
 	}{
-		{http.MethodGet, "/ready"},
 		{http.MethodGet, "/jobs"},
 		{http.MethodGet, "/jobs/01HJ"},
 		{http.MethodPost, "/jobs/01HJ/cancel"},

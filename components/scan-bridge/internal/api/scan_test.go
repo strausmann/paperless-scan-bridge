@@ -24,6 +24,10 @@ import (
 // internal/dispatch/http_client_test.go.
 type fakeDispatchClient struct {
 	dispatchFn func(ctx context.Context, req dispatch.Request) (dispatch.Response, error)
+	// pingFn backs Ping for ready_test.go. Unset (nil) keeps the
+	// long-standing default of every other test here: Ping always
+	// succeeds.
+	pingFn func(ctx context.Context) error
 }
 
 func (f *fakeDispatchClient) Dispatch(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
@@ -37,7 +41,12 @@ func (f *fakeDispatchClient) Cancel(ctx context.Context, jobID string) error {
 	return dispatch.ErrNotImplemented
 }
 
-func (f *fakeDispatchClient) Ping(ctx context.Context) error { return nil }
+func (f *fakeDispatchClient) Ping(ctx context.Context) error {
+	if f.pingFn == nil {
+		return nil
+	}
+	return f.pingFn(ctx)
+}
 
 func (f *fakeDispatchClient) Close() error { return nil }
 

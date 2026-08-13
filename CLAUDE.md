@@ -10,10 +10,14 @@ Phase 0 is complete. The repository is in **early Phase 1** — see
 What exists on disk:
 
 - `components/scan-bridge/` — a real Go daemon (Phase 1.1). `GET /health`,
-  `GET /version`, `GET /profiles` and `GET /profiles/{name}` are
-  implemented. `GET /ready`, `POST /scan` and the `/jobs` endpoints
-  return `501 Not Implemented`; `dispatch`, `jobs`, `healthcheck` and
-  `metrics` are stubs marked `TODO(phase 1.4)`.
+  `GET /version`, `GET /profiles`, `GET /profiles/{name}` and
+  `GET /ready` are implemented. `GET /ready` returns
+  `200 {"status":"ready"}` when profiles are loaded and sane-runtime
+  answers its own health check within 3s, otherwise `503` (`{"error":
+  "no_profiles_loaded"}` or `{"error":"sane_runtime_unreachable"}`).
+  `POST /scan` and the `/jobs` endpoints return `501 Not Implemented`;
+  `dispatch`, `jobs`, `healthcheck` and `metrics` are stubs marked
+  `TODO(phase 1.4)`.
 - The documentation site: `zensical.toml`, `zensical.de.toml`,
   `docs/en/`, `docs/de/`, `requirements-docs.txt`.
 - `Makefile`, `.pre-commit-config.yaml`, `.markdownlint.json`, the
