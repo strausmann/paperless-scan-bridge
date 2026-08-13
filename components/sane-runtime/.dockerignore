@@ -1,0 +1,9 @@
+# Keep the build context (this module directory) limited to what the
+# Dockerfile's `go build ./cmd/sane-runtime` actually needs. None of
+# this is secret or large; it just doesn't belong in the image layer
+# cache invalidation surface.
+.git
+.gitkeep
+README.md
+**/*_test.go
+internal/scanner/testdata/
