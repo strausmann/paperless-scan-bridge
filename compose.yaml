@@ -4,6 +4,24 @@
 # components/sane-runtime/Dockerfile's root-tradeoff comment ("the
 # Task 13 hardware smoke test on hhplex01").
 #
+# Lives at the repo root, NOT under deploy/compose/ as originally
+# sketched in docs/superpowers/plans/2026-04-30-phase-1.2-plan-
+# zusammenfassung-de.md ("deploy/compose/scan-stack.compose.yml").
+# Moved here after the first real deploy attempt via Dockhand's
+# `POST /api/git/stacks` failed with "unable to prepare context: path
+# '/docker/components/sane-runtime' not found" — the upward-escaping
+# `build.context: ../../components/sane-runtime` a nested composePath
+# would have required could not be resolved against the git-stack's
+# checkout root on the Hawser-edge agent. Every other git-stack
+# already running in this Dockhand instance (25+, spanning 6+
+# environments) uses `composePath: "compose.yaml"` at the repo root
+# with zero exceptions — no nested composePath + upward-escaping
+# build context exists anywhere in the fleet to compare against.
+# Rather than debug closed-source Hawser path resolution blind, this
+# stays at the empirically-proven location: build contexts and the
+# config/profile mounts below are root-relative (components/...,
+# deploy/...), no `../` needed anywhere.
+#
 # Data placement follows the HomeLab bind-mount convention (data lives
 # under /docker/stacks/<stack>/<service>/ on the host, one subdirectory
 # per container — NO named Docker volumes). This intentionally departs
@@ -62,7 +80,7 @@ services:
 
   sane-runtime:
     build:
-      context: ../../components/sane-runtime
+      context: components/sane-runtime
       args:
         VERSION: phase-1.2-task-15
     container_name: paperless-scan-bridge-sane-runtime
@@ -86,7 +104,7 @@ services:
 
   scan-bridge:
     build:
-      context: ../../components/scan-bridge
+      context: components/scan-bridge
       args:
         VERSION: phase-1.2-task-15
     container_name: paperless-scan-bridge-scan-bridge
@@ -108,8 +126,8 @@ services:
       # inputs, not runtime state, so there is nothing host-side to
       # pre-create or own-fix for them (read-only, world-readable in
       # the checkout).
-      - ../config/config.toml:/etc/scan-bridge/config.toml:ro
-      - ../profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
+      - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
+      - ./deploy/profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
     depends_on:
       init-permissions:
         condition: service_completed_successfully
