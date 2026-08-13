@@ -64,7 +64,11 @@ Synology. ADR 0004 is accordingly marked `Superseded by 0016` (see that ADR's ow
   repo's mutation-function testing convention).
 - **Neutral / follow-ups:** the exact `Destination` interface signature, the `profiles.go` schema
   extension, and the fileee client mechanism (existing `go-fileee` library vs. a new client) are
-  implementation details for the plan that implements this ADR, not decided here. The fileee
+  implementation details for the plan that implements this ADR, not decided here. **Note
+  (2026-08-13):** the interface signature left open here is now decided in ADR
+  [0021](0021-destination-deliver-result.md) — `Deliver(ctx, doc, meta, cfg) (DeliveryResult,
+  error)`, not the `... error`-only illustration above (Consequences, Positive); this note points
+  forward, the illustration is left as written since it was never itself a decision. The fileee
   **account/auth** model (which fileee account an upload targets, how that is referenced from a
   profile) is an explicit open sub-question, tracked in the roadmap triage doc, not resolved by
   this ADR.
@@ -74,6 +78,8 @@ Synology. ADR 0004 is accordingly marked `Superseded by 0016` (see that ADR's ow
 - `docs/roadmap/2026-08-13-scan-system-vision.md`, Epic A1 (open questions 1–4).
 - ADR [0004](0004-synology-source-of-truth.md) (Synology as source of truth — interaction above).
 - ADR [0010](0010-profiles-declarative-yaml.md) (strict startup validation convention).
+- ADR [0021](0021-destination-deliver-result.md) (decides the `Destination.Deliver` signature this
+  ADR left open, 2026-08-13).
 - `components/scan-bridge/internal/profiles/profiles.go` (`MetadataTemplate`, current
   Paperless-only shape).
 - Homelab context: `go-fileee` (Go client library for the internal fileee API),
