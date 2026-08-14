@@ -53,16 +53,44 @@ import (
 // file's tmpfs comment.
 const defaultMaxRequestBytes int64 = 512 << 20 // 512 MiB
 
-// allowedOCRLanguagesDefault mirrors the tessdata packs installed in
-// scan-processor's runtime image (../../Dockerfile:
-// tesseract-ocr-deu, tesseract-ocr-eng) and matches
-// exec_pipeline.go's defaultOCRLanguages. validateProcessRequest
-// rejects any ocr.languages entry outside this set *before* the
-// pipeline ever runs (issue #47): without it, an unsupported language
-// collapses into exactly one argv slot after tesseract's `-l` flag
-// (see pipeline.buildOCRPDFArgs) -- not exploitable, but a wasted
-// OCR round-trip ending in a 422 instead of a cheap, immediate 400.
-var allowedOCRLanguagesDefault = map[string]bool{"deu": true, "eng": true}
+// allowedOCRLanguageCodes lists the Tesseract language codes this
+// package accepts by default -- and MUST stay in lockstep with the
+// tessdata packs ../../Dockerfile installs into scan-processor's
+// runtime image (one tesseract-ocr-<code> apt package per entry
+// here). It is deliberately a single named slice (not inlined into
+// allowedOCRLanguagesDefault below) so the Dockerfile's own comment
+// can point back at this exact identifier instead of an anonymous
+// map literal -- the two lists drifting apart silently is the
+// failure mode TestHandleProcess_OCRLanguageAllowlist's "additional
+// installed languages" case exists to catch.
+//
+// deu/eng were the original pair (issue #47); fra/ita/spa/nld/por
+// were added later to cover the additional languages the project's
+// users scan in. Adding a new one here without also adding its
+// tesseract-ocr-<code> package to the Dockerfile makes every request
+// naming it fail at the pipeline (422 processing_failed, tesseract
+// exits nonzero for a language it has no traineddata for) instead of
+// the cheap, immediate 400 this allowlist exists to provide.
+var allowedOCRLanguageCodes = []string{"deu", "eng", "fra", "ita", "spa", "nld", "por"}
+
+// allowedOCRLanguagesDefault is allowedOCRLanguageCodes as a set, and
+// matches exec_pipeline.go's defaultOCRLanguages (deu+eng remains the
+// *default* -- i.e. what applies when a profile enables OCR without
+// naming languages -- even though every code above is *allowed*, see
+// that file's and profiles.go's own defaultOCRLanguages).
+// validateProcessRequest rejects any ocr.languages entry outside this
+// set *before* the pipeline ever runs (issue #47): without it, an
+// unsupported language collapses into exactly one argv slot after
+// tesseract's `-l` flag (see pipeline.buildOCRPDFArgs) -- not
+// exploitable, but a wasted OCR round-trip ending in a 422 instead of
+// a cheap, immediate 400.
+var allowedOCRLanguagesDefault = func() map[string]bool {
+	m := make(map[string]bool, len(allowedOCRLanguageCodes))
+	for _, code := range allowedOCRLanguageCodes {
+		m[code] = true
+	}
+	return m
+}()
 
 // Server bundles the collaborators the HTTP handlers need. Create it
 // with &Server{...} and call Router() once; Server must not be

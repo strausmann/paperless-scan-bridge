@@ -102,6 +102,45 @@ Flag takes precedence over the matching environment variable, which
 takes precedence over the compiled-in default — same precedence order
 `sane-runtime` and `scan-bridge` document.
 
+### OCR languages
+
+The runtime image installs these Tesseract language packs (this
+Dockerfile's `apt-get install` list, one `tesseract-ocr-<code>`
+package per code):
+
+| Code  | Language   |
+| ----- | ---------- |
+| `deu` | German     |
+| `eng` | English    |
+| `fra` | French     |
+| `ita` | Italian    |
+| `nld` | Dutch      |
+| `por` | Portuguese |
+| `spa` | Spanish    |
+
+`POST /process`'s `ocr.languages` (and, one layer up, a scan
+profile's own `ocr.languages`, see
+[`docs/en/getting-started/profile-schema.md`](../../docs/en/getting-started/profile-schema.md#ocr))
+is validated against exactly this set —
+`internal/procapi/api.go`'s `allowedOCRLanguageCodes` — before the
+pipeline ever runs; a code outside it is rejected with `400
+invalid_request` rather than reaching `tesseract(1)` at all. Adding a
+language means adding it in **both** places (that Go variable and this
+Dockerfile) — see either's doc comment.
+
+The user picks which of these apply **per scan profile**, not
+globally: a German-only mailbox names `[deu]`, a mixed one
+`[deu, fra]`, and so on (omitted entirely, `ocr.enabled: true` falls
+back to `[deu, eng]`, matching this project's long-standing HomeLab
+default). Naming every installed language on every profile is
+possible but not recommended — Tesseract's own guidance is that
+passing more language packs than a page actually contains slows
+recognition down and, because languages using similar scripts (e.g.
+`deu`/`nld`, `spa`/`ita`) share a lot of dictionary overlap,
+measurably increases misrecognitions from words being "corrected"
+into the wrong language's spelling. Pick the language(s) that
+profile's documents actually use.
+
 ## API surface
 
 | Endpoint   | Method | Contract |
