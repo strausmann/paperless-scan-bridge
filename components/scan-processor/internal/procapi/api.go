@@ -33,11 +33,25 @@ import (
 // decodeProcessRequest reads the whole multipart body via
 // io.ReadAll(part) before the per-request timeout context is even
 // constructed, so an unbounded body is both a memory-exhaustion and a
-// slow-client vector. 100 MiB comfortably covers several
-// full-resolution TIFF pages (the multipart body scan-bridge's
-// procclient sends -- see that package's encodeProcessRequest) with
-// headroom, while still bounding the worst case.
-const defaultMaxRequestBytes int64 = 100 << 20 // 100 MiB
+// slow-client vector.
+//
+// Sized against a REAL page, not a hypothetical small one: the
+// repo's own deploy/profiles/default.yaml scans at 300 DPI, Color,
+// A4 -- uncompressed TIFF at that resolution/depth is
+// ~2481x3507px * 3 bytes/px ≈ 25 MiB *per page*, and procclient (the
+// scan-bridge-side client, internal/procclient/http_client.go)
+// sends every page of a scan in ONE /process POST, never
+// paginated. 512 MiB covers a ~19-20 page duplex/color batch with
+// that profile -- the same order of magnitude CONTAINER_SUITE.md
+// sec. 8.1 uses for the (superseded, never-built) shared raw-page
+// tmpfs ("512 MB is comfortable [...] raise for high-volume
+// setups"), which this constant is now sized to match rather than
+// contradict. compose.yaml's scan-processor `/tmp` tmpfs mount
+// (exec_pipeline.go's scratch directory, which holds this many
+// bytes again per intermediate processing stage) is sized with
+// headroom above this constant for the same reason -- see that
+// file's tmpfs comment.
+const defaultMaxRequestBytes int64 = 512 << 20 // 512 MiB
 
 // allowedOCRLanguagesDefault mirrors the tessdata packs installed in
 // scan-processor's runtime image (../../Dockerfile:

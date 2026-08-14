@@ -40,6 +40,44 @@ func TestUnknownFlagReturnsError(t *testing.T) {
 	}
 }
 
+// TestRun_RejectsMalformedNumericEnvOverrides covers run() itself,
+// not just envInt64OrErr/envIntOrErr in isolation: a malformed
+// SCAN_PROCESSOR_MAX_REQUEST_BYTES or SCAN_PROCESSOR_READ_TIMEOUT_SECONDS
+// must make the daemon fail to start, not silently launch with a
+// default the operator never asked for. Mirrors
+// internal/config.TestLoadRejectsMalformedNumericEnvOverrides on the
+// scan-bridge sibling daemon. Not marked t.Parallel() -- manipulates
+// process-wide environment variables with plain os.Setenv/os.Unsetenv
+// (same t.Setenv-panics-after-Parallel reason as TestEnvOr above).
+func TestRun_RejectsMalformedNumericEnvOverrides(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{"max request bytes not a number", "SCAN_PROCESSOR_MAX_REQUEST_BYTES", "not-a-number"},
+		{"read timeout seconds not a number", "SCAN_PROCESSOR_READ_TIMEOUT_SECONDS", "soon"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.Setenv(tc.key, tc.val); err != nil {
+				t.Fatalf("Setenv: %v", err)
+			}
+			defer func() { _ = os.Unsetenv(tc.key) }()
+
+			var stdout, stderr bytes.Buffer
+			socketPath := filepath.Join(t.TempDir(), "s.sock")
+			err := run([]string{"--socket", socketPath}, &stdout, &stderr)
+			if err == nil {
+				t.Fatalf("run() with %s=%q returned nil error, want a config error", tc.key, tc.val)
+			}
+			if _, statErr := os.Stat(socketPath); statErr == nil {
+				t.Error("run() created the socket despite the malformed env var -- it must fail before ever listening")
+			}
+		})
+	}
+}
+
 func TestNewUnixListener_CreatesSocketAndRemovesStaleFile(t *testing.T) {
 	t.Parallel()
 
@@ -166,18 +204,42 @@ func TestEnvOr(t *testing.T) {
 // TestEnvInt64Or mirrors TestEnvOr for the int64-valued env var
 // helper (SCAN_PROCESSOR_MAX_REQUEST_BYTES). Not marked t.Parallel()
 // for the same os.Setenv/os.Unsetenv-vs-t.Setenv reason as TestEnvOr.
-func TestEnvInt64Or(t *testing.T) {
+// TestDefaultMaxRequestBytes pins this package's own copy of
+// defaultMaxRequestBytes -- see its doc comment for the derivation
+// (a real page at the repo's own deploy/profiles/default.yaml scan
+// profile) and internal/procapi's identically-named test, which pins
+// the same literal on that package's independently-declared copy.
+func TestDefaultMaxRequestBytes(t *testing.T) {
+	t.Parallel()
+
+	const want = 512 << 20 // 512 MiB
+	if defaultMaxRequestBytes != want {
+		t.Errorf("defaultMaxRequestBytes = %d, want %d (512 MiB)", defaultMaxRequestBytes, want)
+	}
+}
+
+// TestEnvInt64OrErr covers envInt64OrErr's contract: unset/empty
+// falls back (no error); a valid value overrides the fallback (no
+// error); a malformed value is a hard error (0, err != nil) --
+// unlike envOr's plain-string "empty falls back" case, a SET
+// numeric override that fails to parse must not be silently
+// swallowed (issue #47 review: this now matches
+// internal/config.applyEnv's contract on the scan-bridge sibling
+// daemon, which was previously inconsistent with this function's
+// old silent-fallback behaviour).
+func TestEnvInt64OrErr(t *testing.T) {
 	cases := []struct {
-		name     string
-		key      string
-		value    string
-		setEnv   bool
-		fallback int64
-		want     int64
+		name      string
+		key       string
+		value     string
+		setEnv    bool
+		fallback  int64
+		want      int64
+		wantError bool
 	}{
 		{
 			name:     "env set to a valid int64",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_ERR",
 			value:    "12345",
 			setEnv:   true,
 			fallback: defaultMaxRequestBytes,
@@ -185,26 +247,26 @@ func TestEnvInt64Or(t *testing.T) {
 		},
 		{
 			name:     "env unset falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_UNSET",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_ERR_UNSET",
 			setEnv:   false,
 			fallback: defaultMaxRequestBytes,
 			want:     defaultMaxRequestBytes,
 		},
 		{
 			name:     "env set to empty falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_EMPTY",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_ERR_EMPTY",
 			value:    "",
 			setEnv:   true,
 			fallback: defaultMaxRequestBytes,
 			want:     defaultMaxRequestBytes,
 		},
 		{
-			name:     "env set to a non-numeric value falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_INVALID",
-			value:    "not-a-number",
-			setEnv:   true,
-			fallback: defaultMaxRequestBytes,
-			want:     defaultMaxRequestBytes,
+			name:      "env set to a non-numeric value is a hard error",
+			key:       "SCAN_PROCESSOR_TEST_ENV_INT64_OR_ERR_INVALID",
+			value:     "not-a-number",
+			setEnv:    true,
+			fallback:  defaultMaxRequestBytes,
+			wantError: true,
 		},
 	}
 
@@ -216,27 +278,38 @@ func TestEnvInt64Or(t *testing.T) {
 				}
 				defer func() { _ = os.Unsetenv(tc.key) }()
 			}
-			if got := envInt64Or(tc.key, tc.fallback); got != tc.want {
-				t.Errorf("envInt64Or(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
+			got, err := envInt64OrErr(tc.key, tc.fallback)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("envInt64OrErr(%q, %d) = %d, <nil>, want a non-nil error", tc.key, tc.fallback, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("envInt64OrErr(%q, %d) unexpected error: %v", tc.key, tc.fallback, err)
+			}
+			if got != tc.want {
+				t.Errorf("envInt64OrErr(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestEnvIntOr mirrors TestEnvOr for the int-valued env var helper
-// (SCAN_PROCESSOR_READ_TIMEOUT_SECONDS).
-func TestEnvIntOr(t *testing.T) {
+// TestEnvIntOrErr mirrors TestEnvInt64OrErr for the int-valued env
+// var helper (SCAN_PROCESSOR_READ_TIMEOUT_SECONDS).
+func TestEnvIntOrErr(t *testing.T) {
 	cases := []struct {
-		name     string
-		key      string
-		value    string
-		setEnv   bool
-		fallback int
-		want     int
+		name      string
+		key       string
+		value     string
+		setEnv    bool
+		fallback  int
+		want      int
+		wantError bool
 	}{
 		{
 			name:     "env set to a valid int",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_ERR",
 			value:    "5",
 			setEnv:   true,
 			fallback: defaultReadTimeoutSeconds,
@@ -244,26 +317,26 @@ func TestEnvIntOr(t *testing.T) {
 		},
 		{
 			name:     "env unset falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_UNSET",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_ERR_UNSET",
 			setEnv:   false,
 			fallback: defaultReadTimeoutSeconds,
 			want:     defaultReadTimeoutSeconds,
 		},
 		{
 			name:     "env set to empty falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_EMPTY",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_ERR_EMPTY",
 			value:    "",
 			setEnv:   true,
 			fallback: defaultReadTimeoutSeconds,
 			want:     defaultReadTimeoutSeconds,
 		},
 		{
-			name:     "env set to a non-numeric value falls back",
-			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_INVALID",
-			value:    "soon",
-			setEnv:   true,
-			fallback: defaultReadTimeoutSeconds,
-			want:     defaultReadTimeoutSeconds,
+			name:      "env set to a non-numeric value is a hard error",
+			key:       "SCAN_PROCESSOR_TEST_ENV_INT_OR_ERR_INVALID",
+			value:     "soon",
+			setEnv:    true,
+			fallback:  defaultReadTimeoutSeconds,
+			wantError: true,
 		},
 	}
 
@@ -275,8 +348,18 @@ func TestEnvIntOr(t *testing.T) {
 				}
 				defer func() { _ = os.Unsetenv(tc.key) }()
 			}
-			if got := envIntOr(tc.key, tc.fallback); got != tc.want {
-				t.Errorf("envIntOr(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
+			got, err := envIntOrErr(tc.key, tc.fallback)
+			if tc.wantError {
+				if err == nil {
+					t.Fatalf("envIntOrErr(%q, %d) = %d, <nil>, want a non-nil error", tc.key, tc.fallback, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("envIntOrErr(%q, %d) unexpected error: %v", tc.key, tc.fallback, err)
+			}
+			if got != tc.want {
+				t.Errorf("envIntOrErr(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
 			}
 		})
 	}

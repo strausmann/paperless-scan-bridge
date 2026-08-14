@@ -572,6 +572,25 @@ func TestHandleHealth_Returns200(t *testing.T) {
 	}
 }
 
+// TestDefaultMaxRequestBytes pins defaultMaxRequestBytes's value.
+// cmd/scan-processor/main.go's own copy of this constant carries the
+// derivation rationale (a real page at the repo's own
+// deploy/profiles/default.yaml scan profile: 300 DPI, Color, A4 ≈
+// 25 MiB/page uncompressed TIFF, sent as one /process POST per whole
+// scan) and asserts the identical literal via its own
+// TestDefaultMaxRequestBytes -- this test and that one are how the
+// two packages' independently-declared constants are kept in sync
+// without a cross-package export (see this package's api.go and
+// main.go's doc comments).
+func TestDefaultMaxRequestBytes(t *testing.T) {
+	t.Parallel()
+
+	const want = 512 << 20 // 512 MiB
+	if defaultMaxRequestBytes != want {
+		t.Errorf("defaultMaxRequestBytes = %d, want %d (512 MiB)", defaultMaxRequestBytes, want)
+	}
+}
+
 // TestHandleProcess_RequestBodyTooLargeReturns413 covers
 // decodeProcessRequest's http.MaxBytesReader wrap (issue #47): a body
 // bigger than Server.MaxRequestBytes must be rejected with 413
