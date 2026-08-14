@@ -1330,7 +1330,46 @@ profiles:
 		}
 	})
 
-	t.Run("per_page with a single destination keeps the unscaled budget", func(t *testing.T) {
+	// The scaling condition is "> 1 destination" (scan.go's
+	// pipelineTimeout), not "any destination" -- this pins the
+	// boundary at exactly 1, which a profile with NO destinations:
+	// block at all (as an earlier version of this subtest had) does
+	// not exercise: len(nil) and len([]{one entry}) both fail an
+	// ">1" check, but only the latter proves the boundary is at 1,
+	// not at 0.
+	t.Run("per_page with exactly 1 destination keeps the unscaled budget", func(t *testing.T) {
+		t.Parallel()
+
+		profilesYAML := `
+profiles:
+  - name: receipts
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: ` + fmt.Sprint(timeoutSeconds) + `
+    assembly:
+      page_grouping: per_page
+    destinations:
+      - target: "dest-a"
+`
+		srv, gotDeadline := newDeadlineCapturingServer(t, profilesYAML)
+		before := time.Now()
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503, body=%s", rec.Code, rec.Body.String())
+		}
+
+		got := gotDeadline.Sub(before)
+		wantMin := (timeoutSeconds - 5) * time.Second
+		wantMax := (timeoutSeconds + 5) * time.Second
+		if got < wantMin || got > wantMax {
+			t.Errorf("dispatch context budget = %s, want ~%ds (no headroom -- exactly 1 destination, not > 1)", got, timeoutSeconds)
+		}
+	})
+
+	t.Run("per_page with 0 destinations keeps the unscaled budget", func(t *testing.T) {
 		t.Parallel()
 
 		profilesYAML := `
