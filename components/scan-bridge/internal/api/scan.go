@@ -66,6 +66,15 @@ type documentResult struct {
 	ContentType  string              `json:"content_type,omitempty"`
 	Warnings     []string            `json:"warnings,omitempty"`
 	Destinations []destinationResult `json:"destinations"`
+	// OCRConfidence and LowConfidence surface scan-processor's OCR
+	// confidence gate (PR brief "Konfidenz-/Qualitäts-Gate") to the
+	// caller of POST /scan — the minimal "the flag reaches the
+	// caller" contract the brief asks for. Both are omitted from the
+	// response entirely when OCR did not run (the common case for a
+	// profile that never enabled it), rather than emitting
+	// ocr_confidence:0/low_confidence:false noise on every scan.
+	OCRConfidence float64 `json:"ocr_confidence,omitempty"`
+	LowConfidence bool    `json:"low_confidence,omitempty"`
 }
 
 // scanResult is the 200 OK body for POST /scan.
@@ -195,8 +204,9 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		RequestID: scanID,
 		PagePaths: dispatchResp.Pages,
 		OCR: procclient.OCRConfig{
-			Enabled:   profile.OCR.Enabled,
-			Languages: profile.OCR.Languages,
+			Enabled:       profile.OCR.Enabled,
+			Languages:     profile.OCR.Languages,
+			MinConfidence: profile.OCR.MinConfidence,
 		},
 		Deskew:         profile.Deskew,
 		RemoveBlank:    profile.RemoveBlank,
@@ -216,12 +226,14 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	documents := make([]documentResult, 0, len(procResult.Documents))
 	for _, doc := range procResult.Documents {
 		documents = append(documents, documentResult{
-			Index:        doc.Index,
-			PageCount:    doc.PageCount,
-			Filename:     doc.Filename,
-			ContentType:  doc.ContentType,
-			Warnings:     doc.Warnings,
-			Destinations: deliverDocument(ctx, s.Logger, scanID, profile, doc, builds, body.TagIDs, callerStrategy),
+			Index:         doc.Index,
+			PageCount:     doc.PageCount,
+			Filename:      doc.Filename,
+			ContentType:   doc.ContentType,
+			Warnings:      doc.Warnings,
+			Destinations:  deliverDocument(ctx, s.Logger, scanID, profile, doc, builds, body.TagIDs, callerStrategy),
+			OCRConfidence: doc.OCRConfidence,
+			LowConfidence: doc.LowConfidence,
 		})
 	}
 

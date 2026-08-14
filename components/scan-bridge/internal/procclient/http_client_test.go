@@ -208,6 +208,84 @@ func TestProcessHappyPathWritesDocumentsAndReturnsPaths(t *testing.T) {
 	}
 }
 
+// TestProcessOCRMinConfidenceAndConfidenceFieldsRoundTrip covers
+// Feature A's confidence gate on the procclient side: OCR.MinConfidence
+// must reach the wire request's ocr.min_confidence field, and
+// scan-processor's ocr_confidence/low_confidence response fields must
+// reach ProcessResult.Documents[i].OCRConfidence/LowConfidence
+// unchanged.
+func TestProcessOCRMinConfidenceAndConfidenceFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	pagesDir := t.TempDir()
+	page1 := writeTestPage(t, pagesDir, "page-1.tiff", "fake-tiff-bytes-1")
+
+	handler := http.NewServeMux()
+	handler.HandleFunc("/process", func(w http.ResponseWriter, r *http.Request) {
+		_, params, _ := parseMultipartContentType(r.Header.Get("Content-Type"))
+		mr := multipart.NewReader(r.Body, params["boundary"])
+
+		ctrlPart, err := mr.NextPart()
+		if err != nil {
+			t.Fatalf("fake scan-processor: read control part: %v", err)
+		}
+		var got processRequestPayload
+		if err := json.NewDecoder(ctrlPart).Decode(&got); err != nil {
+			t.Errorf("fake scan-processor: decode control payload: %v", err)
+		}
+		_ = ctrlPart.Close()
+		if got.OCR.MinConfidence != 65.5 {
+			t.Errorf("fake scan-processor: ocr.min_confidence = %v, want 65.5", got.OCR.MinConfidence)
+		}
+		for {
+			part, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			_, _ = part.Read(make([]byte, 64))
+			_ = part.Close()
+		}
+
+		mw := multipart.NewWriter(w)
+		w.Header().Set("Content-Type", "multipart/mixed; boundary="+mw.Boundary())
+		w.WriteHeader(http.StatusOK)
+
+		metaPart, _ := mw.CreatePart(map[string][]string{"Content-Type": {"application/json"}})
+		meta := processMetadata{
+			RequestID: "job-confidence",
+			Documents: []documentMetadata{
+				{Index: 0, PageCount: 1, Filename: "doc.pdf", ContentType: "application/pdf", OCRConfidence: 42.5, LowConfidence: true},
+			},
+			DurationMs: 10,
+		}
+		_ = json.NewEncoder(metaPart).Encode(meta)
+		docPart, _ := mw.CreatePart(map[string][]string{"Content-Type": {"application/pdf"}})
+		_, _ = docPart.Write([]byte("doc-bytes"))
+		_ = mw.Close()
+	})
+
+	sockPath := startFakeScanProcessor(t, handler)
+	client := NewHTTPUnixClient(sockPath, t.TempDir(), 5*time.Second)
+	t.Cleanup(func() { _ = client.Close() })
+
+	req := testRequest("job-confidence", page1)
+	req.OCR.MinConfidence = 65.5
+	result, err := client.Process(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(result.Documents) != 1 {
+		t.Fatalf("len(Documents) = %d, want 1", len(result.Documents))
+	}
+	doc := result.Documents[0]
+	if doc.OCRConfidence != 42.5 {
+		t.Errorf("OCRConfidence = %v, want 42.5", doc.OCRConfidence)
+	}
+	if !doc.LowConfidence {
+		t.Error("LowConfidence = false, want true")
+	}
+}
+
 func TestProcessPerPageGroupingWritesMultipleDocuments(t *testing.T) {
 	t.Parallel()
 

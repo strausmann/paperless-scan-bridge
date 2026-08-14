@@ -58,6 +58,12 @@ import (
 type OCRConfig struct {
 	Enabled   bool
 	Languages []string
+	// MinConfidence overrides scan-processor's default OCR confidence
+	// gate threshold when non-zero — carried through verbatim, same
+	// as Languages. See scan-processor's
+	// internal/pipeline.OCRConfig.MinConfidence doc comment for the
+	// gate itself (PR brief "Konfidenz-/Qualitäts-Gate").
+	MinConfidence float64
 }
 
 // PageGrouping selects whether scan-processor assembles all of a job's
@@ -131,6 +137,14 @@ type Document struct {
 	// for this document (e.g. a page that failed deskew but was still
 	// included).
 	Warnings []string
+	// OCRConfidence is the mean per-word OCR confidence (0..100)
+	// scan-processor's confidence gate computed for this document.
+	// Zero when OCR did not run.
+	OCRConfidence float64
+	// LowConfidence is true when scan-processor's confidence gate
+	// flagged this document (OCRConfidence below the request's
+	// effective OCR.MinConfidence threshold). Advisory only.
+	LowConfidence bool
 }
 
 // ProcessResult carries the outcome of a completed Process call.

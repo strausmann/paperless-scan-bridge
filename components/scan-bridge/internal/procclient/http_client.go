@@ -44,8 +44,9 @@ type processRequestPayload struct {
 }
 
 type ocrPayload struct {
-	Enabled   bool     `json:"enabled"`
-	Languages []string `json:"languages"`
+	Enabled       bool     `json:"enabled"`
+	Languages     []string `json:"languages"`
+	MinConfidence float64  `json:"min_confidence,omitempty"`
 }
 
 // processMetadata is part 0 of the multipart/mixed 200 OK response —
@@ -59,11 +60,13 @@ type processMetadata struct {
 // documentMetadata describes one assembled document; parts 1..N of the
 // response carry the matching bytes in the same order as this slice.
 type documentMetadata struct {
-	Index       int      `json:"index"`
-	PageCount   int      `json:"page_count"`
-	Filename    string   `json:"filename"`
-	ContentType string   `json:"content_type"`
-	Warnings    []string `json:"warnings"`
+	Index         int      `json:"index"`
+	PageCount     int      `json:"page_count"`
+	Filename      string   `json:"filename"`
+	ContentType   string   `json:"content_type"`
+	Warnings      []string `json:"warnings"`
+	OCRConfidence float64  `json:"ocr_confidence"`
+	LowConfidence bool     `json:"low_confidence"`
 }
 
 // processErrorEnvelope is scan-processor's non-200 error body:
@@ -179,7 +182,7 @@ func encodeProcessRequest(req ProcessRequest) ([]byte, string, error) {
 
 	payload := processRequestPayload{
 		RequestID:      req.RequestID,
-		OCR:            ocrPayload{Enabled: req.OCR.Enabled, Languages: req.OCR.Languages},
+		OCR:            ocrPayload{Enabled: req.OCR.Enabled, Languages: req.OCR.Languages, MinConfidence: req.OCR.MinConfidence},
 		Deskew:         req.Deskew,
 		RemoveBlank:    req.RemoveBlank,
 		RotatePages:    req.RotatePages,
@@ -331,12 +334,14 @@ func (c *httpUnixClient) readProcessResponse(requestID string, resp *http.Respon
 		}
 
 		documents = append(documents, Document{
-			Index:       docMeta.Index,
-			Filename:    docMeta.Filename,
-			Path:        docPath,
-			ContentType: docMeta.ContentType,
-			PageCount:   docMeta.PageCount,
-			Warnings:    docMeta.Warnings,
+			Index:         docMeta.Index,
+			Filename:      docMeta.Filename,
+			Path:          docPath,
+			ContentType:   docMeta.ContentType,
+			PageCount:     docMeta.PageCount,
+			Warnings:      docMeta.Warnings,
+			OCRConfidence: docMeta.OCRConfidence,
+			LowConfidence: docMeta.LowConfidence,
 		})
 	}
 

@@ -95,7 +95,8 @@ single point of reference.
 | Field | Values |
 | --- | --- |
 | `ocr.enabled` | `true` / `false`. Default `false` — matching this project's long-standing "Paperless does this better on the bigger Docker host" default; this schema field makes it a per-profile override instead of a fixed global choice. |
-| `ocr.languages` | List of Tesseract language codes, e.g. `[deu, eng]`. If `enabled: true` and `languages` is omitted, it defaults to `[deu, eng]`. Ignored (but harmless) when `enabled: false`. Each entry must be non-empty. |
+| `ocr.languages` | List of Tesseract language codes, e.g. `[deu, eng]`, or exactly `[auto]` to request auto language detection (see "Auto language detection" below). If `enabled: true` and `languages` is omitted, it defaults to `[deu, eng]`. Ignored (but harmless) when `enabled: false`. Each entry must be non-empty; `auto` must be the only entry when used. |
+| `ocr.min_confidence` | `0..100`. The mean OCR confidence (Tesseract's own scale) below which a document is flagged `low_confidence` in the `POST /scan` response (see "OCR confidence gate" below). Omitted or `0` defaults to `80`. Ignored (but harmless) when `enabled: false`. |
 
 ### Available languages
 
@@ -132,6 +133,39 @@ over the original page image; there is no separate "assemble then OCR"
 step. For `jpeg`/`tiff`, OCR still runs (a page that defeats OCR
 entirely is still a processing failure) but the text layer is
 discarded, since neither format can carry one.
+
+### OCR confidence gate
+
+Every OCR pass also records Tesseract's own per-word confidence score
+(`0..100`); `scan-processor` averages it across a document's page(s)
+and, when the mean falls below `ocr.min_confidence` (default `80`),
+flags that document `low_confidence: true` in the `POST /scan`
+response (`documents[].ocr_confidence` and
+`documents[].low_confidence`) with a matching entry in `warnings`.
+**This never fails the scan** — a flagged document is still assembled
+and delivered normally; the flag is advisory, meant to route a
+document Tesseract itself was not confident about to manual review.
+See the [`scan-processor` README](../../../components/scan-processor/README.md#ocr-confidence-gate)
+for the mechanism.
+
+### Auto language detection
+
+Setting `ocr.languages: [auto]` runs a **pragmatic, two-pass**
+language-detection flow instead of naming a fixed language set: OCR
+once with the `deu+eng` default, guess the page's language from that
+pass's recognized text via a small stopword-based heuristic, and —
+only if the guess differs from `deu+eng` — OCR once more with the
+detected language, keeping whichever pass scored the higher
+confidence. It never asks Tesseract for every installed language at
+once (which was evaluated and found to reduce quality), and the
+confidence gate above catches the cases the heuristic still gets
+wrong. It is **not** a real language-identification model — short
+text, closely related languages (Spanish/Italian/Portuguese in
+particular), and heavily garbled OCR output can all be misidentified.
+For a profile whose documents are reliably in one non-default
+language, naming that language explicitly remains more accurate and
+cheaper. Full details, including the documented accuracy limits: the
+[`scan-processor` README](../../../components/scan-processor/README.md#auto-language-detection).
 
 ## `assembly`
 

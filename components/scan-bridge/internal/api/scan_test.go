@@ -455,6 +455,74 @@ profiles:
 	}
 }
 
+// TestScanOCRMinConfidenceAndConfidenceFieldsRoundTrip covers Feature
+// A's confidence gate at the outermost POST /scan boundary: a
+// profile's ocr.min_confidence must reach
+// procclient.ProcessRequest.OCR.MinConfidence, and whatever
+// OCRConfidence/LowConfidence the (fake) procclient's Document
+// carries back must reach the JSON response's
+// documents[].ocr_confidence/low_confidence fields — the "minimal:
+// das Flag muss beim Aufrufer ankommen" contract the PR brief asks
+// for.
+func TestScanOCRMinConfidenceAndConfidenceFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	profilesYAML := `
+profiles:
+  - name: receipts-strict
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+      languages: [deu, eng]
+      min_confidence: 90
+`
+	dispatchClient := &fakeDispatchClient{
+		dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+			return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+		},
+	}
+	processedDoc := writeProcessedDoc(t, 0, "receipt.pdf", "pdf-bytes")
+	processedDoc.OCRConfidence = 72.3
+	processedDoc.LowConfidence = true
+	var gotProcReq procclient.ProcessRequest
+	procClient := &fakeProcClient{
+		processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+			gotProcReq = req
+			return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{processedDoc}}, nil
+		},
+	}
+
+	srv := newScanTestServer(t, profilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+	rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts-strict"})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if gotProcReq.OCR.MinConfidence != 90 {
+		t.Errorf("process OCR.MinConfidence = %v, want 90", gotProcReq.OCR.MinConfidence)
+	}
+
+	var result scanResult
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Documents) != 1 {
+		t.Fatalf("len(Documents) = %d, want 1", len(result.Documents))
+	}
+	doc := result.Documents[0]
+	if doc.OCRConfidence != 72.3 {
+		t.Errorf("response ocr_confidence = %v, want 72.3", doc.OCRConfidence)
+	}
+	if !doc.LowConfidence {
+		t.Error("response low_confidence = false, want true")
+	}
+}
+
 // TestScanOCRLanguagesProfileSelectionPassedThroughUnchanged covers
 // the "user selects language(s) per scan profile" path (scan-processor
 // component's internal/procapi/api.go allowedOCRLanguageCodes now
