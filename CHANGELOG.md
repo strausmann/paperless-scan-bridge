@@ -54,7 +54,6 @@ between releases as a running list.
   language-detection flow, falling back to the `deu+eng` default and
   the confidence gate above when the guess is wrong or unsupported
   (scan-processor).
-
 - Repository scaffolding and GitHub configuration boilerplate: the
   Phase 1 directory tree under `components/`, `deploy/`,
   `homeassistant/`, `n8n/`, `backup/`, `monitoring/`, `security/`,
