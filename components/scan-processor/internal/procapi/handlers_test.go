@@ -665,8 +665,20 @@ func TestHandleProcess_OCRLanguageAllowlist(t *testing.T) {
 			wantPipeline: true,
 		},
 		{
+			// fra/ita/spa/nld/por were added to allowedOCRLanguagesDefault
+			// (and the runtime image's installed tessdata packs,
+			// ../../Dockerfile) alongside the original deu/eng pair --
+			// covers each one individually so a future edit that only
+			// updates one of the two lists (Dockerfile vs. allowlist)
+			// fails a specific case instead of the group as a whole.
+			name:         "additional installed languages pass through individually",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"fra", "ita", "spa", "nld", "por"}},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
 			name:         "unsupported language rejected before pipeline",
-			ocr:          ocrPayload{Enabled: true, Languages: []string{"fra"}},
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"rus"}},
 			wantCode:     http.StatusBadRequest,
 			wantPipeline: false,
 		},
@@ -678,7 +690,7 @@ func TestHandleProcess_OCRLanguageAllowlist(t *testing.T) {
 		},
 		{
 			name:         "ocr disabled: an unsupported language is inert and not checked",
-			ocr:          ocrPayload{Enabled: false, Languages: []string{"fra"}},
+			ocr:          ocrPayload{Enabled: false, Languages: []string{"rus"}},
 			wantCode:     http.StatusOK,
 			wantPipeline: true,
 		},

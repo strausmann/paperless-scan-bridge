@@ -455,6 +455,61 @@ profiles:
 	}
 }
 
+// TestScanOCRLanguagesProfileSelectionPassedThroughUnchanged covers
+// the "user selects language(s) per scan profile" path (scan-processor
+// component's internal/procapi/api.go allowedOCRLanguageCodes now
+// covers deu/eng/fra/ita/spa/nld/por): scan-bridge itself applies no
+// allowlist of its own to profile.OCR.Languages (that check lives
+// exclusively in scan-processor's validateProcessRequest, which sees
+// installed-package information this component does not have) — a
+// profile naming any non-default subset must reach
+// procclient.ProcessRequest.OCR.Languages exactly as configured, same
+// as TestScanOCRConfigPassedThroughToProcessor above pins for the
+// default [deu, eng] pair.
+func TestScanOCRLanguagesProfileSelectionPassedThroughUnchanged(t *testing.T) {
+	t.Parallel()
+
+	profilesYAML := `
+profiles:
+  - name: correspondance-fr
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+      languages: [fra, spa]
+`
+	dispatchClient := &fakeDispatchClient{
+		dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+			return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+		},
+	}
+	processedDoc := writeProcessedDoc(t, 0, "letter.pdf", "pdf-bytes")
+	var gotProcReq procclient.ProcessRequest
+	procClient := &fakeProcClient{
+		processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+			gotProcReq = req
+			return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{processedDoc}}, nil
+		},
+	}
+
+	srv := newScanTestServer(t, profilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+	rec := postScan(t, srv, "correct-token", map[string]string{"profile": "correspondance-fr"})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if !gotProcReq.OCR.Enabled {
+		t.Error("process OCR.Enabled = false, want true (profile set ocr.enabled)")
+	}
+	if got := gotProcReq.OCR.Languages; len(got) != 2 || got[0] != "fra" || got[1] != "spa" {
+		t.Errorf("process OCR.Languages = %v, want [fra spa] (profile's own language selection, unchanged)", got)
+	}
+}
+
 // TestScanAssemblyAndFormatPassedThroughToProcessor covers the
 // procPageGrouping/procOutputFormat conversions' non-default branches
 // (per_page / jpeg) — TestScanHappyPathNoDestinationsReturnsProcessedDocuments

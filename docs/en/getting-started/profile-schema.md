@@ -97,6 +97,35 @@ single point of reference.
 | `ocr.enabled` | `true` / `false`. Default `false` — matching this project's long-standing "Paperless does this better on the bigger Docker host" default; this schema field makes it a per-profile override instead of a fixed global choice. |
 | `ocr.languages` | List of Tesseract language codes, e.g. `[deu, eng]`. If `enabled: true` and `languages` is omitted, it defaults to `[deu, eng]`. Ignored (but harmless) when `enabled: false`. Each entry must be non-empty. |
 
+### Available languages
+
+`ocr.languages` is picked **per profile**, not globally — each profile
+names only the language(s) its own documents are actually in. The
+`scan-processor` component's runtime image installs, and its
+`/process` endpoint therefore accepts, these Tesseract language codes
+(the [`scan-processor` README](../../../components/scan-processor/README.md#ocr-languages)
+is the authoritative, single-source list, and documents how to add
+another one):
+
+| Code  | Language   |
+| ----- | ---------- |
+| `deu` | German     |
+| `eng` | English    |
+| `fra` | French     |
+| `ita` | Italian    |
+| `nld` | Dutch      |
+| `por` | Portuguese |
+| `spa` | Spanish    |
+
+A code outside this set is rejected by `scan-processor` with `400
+invalid_request` before OCR ever runs. Naming every installed language
+on one profile is possible but not recommended: Tesseract recognises
+more slowly with more language packs loaded, and languages sharing a
+script/dictionary overlap (e.g. `deu`/`nld`, `spa`/`ita`) can produce
+more misrecognitions from words being auto-corrected into the wrong
+language's spelling than naming just the language(s) that profile
+actually scans.
+
 When OCR is enabled and `format: pdf`, the output is a **searchable
 PDF** — Tesseract's own PDF output mode embeds an invisible text layer
 over the original page image; there is no separate "assemble then OCR"

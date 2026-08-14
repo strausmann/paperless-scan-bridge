@@ -6,9 +6,12 @@
 #
 # Two-stage build: stage 1 compiles the Go binary from this module
 # (self-contained go.mod, stdlib-only, no go.sum — same shape as
-# sane-runtime's Dockerfile); stage 2 installs tesseract-ocr (+
-# tesseract-ocr-deu, tesseract-ocr-eng), ImageMagick, and qpdf on
-# debian:12-slim and runs the binary over a Unix-domain socket.
+# sane-runtime's Dockerfile); stage 2 installs tesseract-ocr plus one
+# tesseract-ocr-<code> language pack per entry in
+# internal/procapi/api.go's allowedOCRLanguageCodes (deu, eng, fra,
+# ita, spa, nld, por — keep this list and that one in lockstep, see
+# that variable's doc comment), ImageMagick, and qpdf on
+# debian:12-slim, and runs the binary over a Unix-domain socket.
 #
 # Unlike sane-runtime (which needs root for USB device passthrough,
 # see that Dockerfile's documented exception), scan-processor touches
@@ -73,6 +76,16 @@ RUN apt-get update \
         tesseract-ocr \
         tesseract-ocr-deu \
         tesseract-ocr-eng \
+        # Additional language packs -- weitere Sprachen hier ergaenzen.
+        # Each one added here MUST also be added to
+        # internal/procapi/api.go's allowedOCRLanguageCodes, or
+        # requests naming it fail late (422 at the pipeline) instead
+        # of the cheap, immediate 400 that allowlist exists to give.
+        tesseract-ocr-fra \
+        tesseract-ocr-ita \
+        tesseract-ocr-spa \
+        tesseract-ocr-nld \
+        tesseract-ocr-por \
         imagemagick \
         qpdf \
     && rm -rf /var/lib/apt/lists/* \
