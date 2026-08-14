@@ -1347,6 +1347,22 @@ This keeps raw scan data in RAM, never touching the SD card. On a Pi
 with 8 GB RAM, 512 MB tmpfs is comfortable; raise it for high-volume
 setups.
 
+> **Sizing note carried forward (2026-08-14, issue #47):** this
+> section's `scan-scratch` example is superseded (see the status note
+> above) and was never built, but its "512 MB is comfortable"
+> figure is the deliberate reference point for the tmpfs `compose.yaml`
+> *does* actually mount today: scan-processor's `/tmp` scratch
+> directory (`internal/pipeline/exec_pipeline.go`'s
+> `os.MkdirTemp`), sized `1g` there — headroom above
+> `internal/procapi`'s `defaultMaxRequestBytes` (512 MiB, the
+> `POST /process` request-body cap `http.MaxBytesReader` enforces).
+> Both numbers derive from the same real page size: the repo's own
+> `deploy/profiles/default.yaml` scans at 300 DPI/Color/A4, which is
+> ≈25 MiB per page uncompressed TIFF, and `procclient` sends every
+> page of a scan in one request — see `internal/procapi/api.go`'s
+> `defaultMaxRequestBytes` doc comment for the full derivation. If
+> either number changes, keep both — and this note — in sync.
+
 ### 8.2 Bind mounts
 
 Two bind mounts cross from host into containers:

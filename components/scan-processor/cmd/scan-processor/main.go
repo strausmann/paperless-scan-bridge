@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -51,6 +52,32 @@ const defaultSocketPath = "/run/scan-processor/scan-processor.sock"
 // legitimately take longer than a single scanimage(1) invocation.
 const gracefulShutdownTimeout = 60 * time.Second
 
+// defaultMaxRequestBytes is the --max-request-bytes flag's default.
+// Mirrors internal/procapi's own defaultMaxRequestBytes (kept as a
+// separate constant rather than exported from that package: main.go
+// only needs the single int64 value to seed the flag's default, and a
+// cross-package export for that alone would be more coupling than the
+// value is worth). The two are documented to stay in sync by each
+// package's own test asserting its constant against the same literal
+// (TestDefaultMaxRequestBytes here, TestDefaultMaxRequestBytes in
+// internal/procapi) rather than by a single cross-package test --
+// see internal/procapi/api.go's defaultMaxRequestBytes doc comment
+// for how the 512 MiB figure itself was derived (a real page at the
+// repo's own default.yaml scan profile, not a hypothetical one).
+const defaultMaxRequestBytes int64 = 512 << 20 // 512 MiB
+
+// defaultReadTimeoutSeconds is the --read-timeout-seconds flag's
+// default: how long net/http.Server.ReadTimeout allows for reading an
+// entire inbound request (headers AND body), unlike
+// ReadHeaderTimeout, which only bounds the header phase and lets a
+// slow-client (or slow-loris-style) body hang the connection
+// indefinitely (issue #47). 30s is generous for a Unix-domain-socket
+// transfer of a handful of TIFF pages from the sibling scan-bridge
+// container -- the pipeline's own processing budget
+// (req.TimeoutSeconds, decoded from the control payload) is separate
+// and typically much larger.
+const defaultReadTimeoutSeconds = 30
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "scan-processor: "+err.Error())
@@ -73,6 +100,31 @@ func run(args []string, stdout, stderr io.Writer) error {
 		"override the tesseract(1) binary path; empty resolves via PATH")
 	qpdfBin := fs.String("qpdf-bin", os.Getenv("SCAN_PROCESSOR_QPDF_BIN"),
 		"override the qpdf(1) binary path; empty resolves via PATH")
+	// Resolved (and, for the two numeric ones, validated) BEFORE the
+	// flags are declared, since a flag.FlagSet needs its default
+	// value up front. A malformed SCAN_PROCESSOR_MAX_REQUEST_BYTES /
+	// SCAN_PROCESSOR_READ_TIMEOUT_SECONDS fails run() loudly here --
+	// matching scan-bridge's internal/config.applyEnv's contract for
+	// its own SCAN_BRIDGE_MAX_REQUEST_BYTES / SCAN_BRIDGE_READ_TIMEOUT_SECONDS
+	// (a typo'd deployment env var is a configuration bug, not
+	// something either daemon should silently paper over with a
+	// default the operator never asked for) -- rather than the
+	// silent-fallback behaviour an earlier version of this function
+	// had, which was inconsistent between the two sibling daemons of
+	// this same repo.
+	maxRequestBytesDefault, err := envInt64OrErr("SCAN_PROCESSOR_MAX_REQUEST_BYTES", defaultMaxRequestBytes)
+	if err != nil {
+		return err
+	}
+	readTimeoutSecondsDefault, err := envIntOrErr("SCAN_PROCESSOR_READ_TIMEOUT_SECONDS", defaultReadTimeoutSeconds)
+	if err != nil {
+		return err
+	}
+
+	maxRequestBytes := fs.Int64("max-request-bytes", maxRequestBytesDefault,
+		"maximum size in bytes of an inbound POST /process request body (http.MaxBytesReader)")
+	readTimeoutSeconds := fs.Int("read-timeout-seconds", readTimeoutSecondsDefault,
+		"maximum seconds net/http spends reading an inbound request (headers AND body) before aborting it")
 	showVersion := fs.Bool("version", false, "print version information and exit")
 
 	if err := fs.Parse(args); err != nil {
@@ -102,11 +154,20 @@ func run(args []string, stdout, stderr io.Writer) error {
 			QpdfBin:      *qpdfBin,
 			Logger:       logger,
 		},
-		Logger: logger,
+		Logger:          logger,
+		MaxRequestBytes: *maxRequestBytes,
 	}
 	httpServer := &http.Server{
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 5 * time.Second,
+		// ReadTimeout bounds the ENTIRE request read (headers AND
+		// body), unlike ReadHeaderTimeout above -- the fix for issue
+		// #47's "kein Read-Timeout an den multipart-Legs" (a slow or
+		// stalled client body can otherwise hang the connection
+		// indefinitely; see decodeProcessRequest's io.ReadAll(part)
+		// calls and its MaxBytesReader wrap for the size half of the
+		// same hardening).
+		ReadTimeout: time.Duration(*readTimeoutSeconds) * time.Second,
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -188,4 +249,40 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envInt64OrErr mirrors envOr for an int64-valued env var (e.g.
+// SCAN_PROCESSOR_MAX_REQUEST_BYTES): unset or empty returns fallback
+// unchanged. Unlike envOr (a plain string pass-through, where
+// "malformed" cannot occur), a SET-but-non-numeric value is an error,
+// not a silent fallback -- matching
+// internal/config.applyEnv's contract for scan-bridge's equivalent
+// SCAN_BRIDGE_MAX_REQUEST_BYTES override (that sibling daemon's own
+// numeric env vars fail Load() loudly on a typo; this one now does
+// too, rather than the two daemons of the same repo disagreeing on
+// what a malformed deployment env var means).
+func envInt64OrErr(key string, fallback int64) (int64, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s %q: %w", key, v, err)
+	}
+	return n, nil
+}
+
+// envIntOrErr is envInt64OrErr's int-valued counterpart (e.g.
+// SCAN_PROCESSOR_READ_TIMEOUT_SECONDS).
+func envIntOrErr(key string, fallback int) (int, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s %q: %w", key, v, err)
+	}
+	return n, nil
 }

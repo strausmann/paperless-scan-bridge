@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"strings"
 	"sync"
 	"testing"
 
@@ -568,6 +569,184 @@ func TestHandleHealth_Returns200(t *testing.T) {
 	}
 	if body.Status != "ok" {
 		t.Errorf("status = %q, want ok", body.Status)
+	}
+}
+
+// TestDefaultMaxRequestBytes pins defaultMaxRequestBytes's value.
+// cmd/scan-processor/main.go's own copy of this constant carries the
+// derivation rationale (a real page at the repo's own
+// deploy/profiles/default.yaml scan profile: 300 DPI, Color, A4 ≈
+// 25 MiB/page uncompressed TIFF, sent as one /process POST per whole
+// scan) and asserts the identical literal via its own
+// TestDefaultMaxRequestBytes -- this test and that one are how the
+// two packages' independently-declared constants are kept in sync
+// without a cross-package export (see this package's api.go and
+// main.go's doc comments).
+func TestDefaultMaxRequestBytes(t *testing.T) {
+	t.Parallel()
+
+	const want = 512 << 20 // 512 MiB
+	if defaultMaxRequestBytes != want {
+		t.Errorf("defaultMaxRequestBytes = %d, want %d (512 MiB)", defaultMaxRequestBytes, want)
+	}
+}
+
+// TestHandleProcess_RequestBodyTooLargeReturns413 covers
+// decodeProcessRequest's http.MaxBytesReader wrap (issue #47): a body
+// bigger than Server.MaxRequestBytes must be rejected with 413
+// before the pipeline is ever invoked.
+func TestHandleProcess_RequestBodyTooLargeReturns413(t *testing.T) {
+	t.Parallel()
+
+	fp := &fakePipeline{}
+	srv := newTestServer(t, fp)
+	srv.MaxRequestBytes = 32 // deliberately tiny -- smaller than a real control payload + one page
+
+	body, contentType := buildProcessBody(t, validPayload(), [][]byte{[]byte("a fairly long page of tiff-looking bytes that will not fit")})
+	rec := doProcessPost(t, srv, body, contentType)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body = %s", rec.Code, rec.Body.String())
+	}
+	var respBody errorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&respBody); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if respBody.Error != "request_too_large" {
+		t.Errorf("error = %q, want request_too_large", respBody.Error)
+	}
+	if fp.callCount() != 0 {
+		t.Errorf("Process called %d times, want 0 (rejected before pipeline)", fp.callCount())
+	}
+}
+
+// TestHandleProcess_RequestBodyWithinLimitStillWorks is
+// TestHandleProcess_RequestBodyTooLargeReturns413's happy-path
+// counterpart: a small Server.MaxRequestBytes must not reject a
+// legitimate, well-under-the-limit request.
+func TestHandleProcess_RequestBodyWithinLimitStillWorks(t *testing.T) {
+	t.Parallel()
+
+	fp := &fakePipeline{
+		result: pipeline.Result{Documents: []pipeline.Document{{Index: 0, Filename: "a.pdf", Content: []byte("x"), ContentType: "application/pdf", PageCount: 1}}},
+	}
+	srv := newTestServer(t, fp)
+	srv.MaxRequestBytes = 8192
+
+	body, contentType := buildProcessBody(t, validPayload(), [][]byte{[]byte("page")})
+	rec := doProcessPost(t, srv, body, contentType)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleProcess_OCRLanguageAllowlist covers validateProcessRequest's
+// ocr.languages check (issue #47): a language not among the runtime
+// image's installed tessdata packs is rejected with 400 before the
+// pipeline ever runs (turning a wasted OCR round-trip + 422 into a
+// cheap, immediate rejection); an allowed language passes through
+// unchanged; and a request with OCR disabled is never checked at all
+// (an unsupported entry there is inert -- exec_pipeline.go never
+// reads Languages unless OCR.Enabled).
+func TestHandleProcess_OCRLanguageAllowlist(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		ocr          ocrPayload
+		wantCode     int
+		wantPipeline bool
+	}{
+		{
+			name:         "allowed languages pass through",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu", "eng"}},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
+			name:         "unsupported language rejected before pipeline",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"fra"}},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "argv-injection-shaped language rejected the same as any other unknown one",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"-x"}},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "ocr disabled: an unsupported language is inert and not checked",
+			ocr:          ocrPayload{Enabled: false, Languages: []string{"fra"}},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fp := &fakePipeline{
+				result: pipeline.Result{Documents: []pipeline.Document{{Index: 0, Filename: "a.pdf", Content: []byte("x"), ContentType: "application/pdf", PageCount: 1}}},
+			}
+			srv := newTestServer(t, fp)
+
+			payload := validPayload()
+			payload.OCR = tc.ocr
+			body, contentType := buildProcessBody(t, payload, [][]byte{[]byte("page")})
+			rec := doProcessPost(t, srv, body, contentType)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body = %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			gotCalled := fp.callCount() == 1
+			if gotCalled != tc.wantPipeline {
+				t.Errorf("Process called %d times, want called=%v", fp.callCount(), tc.wantPipeline)
+			}
+			if tc.wantCode == http.StatusBadRequest {
+				var respBody errorResponse
+				if err := json.NewDecoder(rec.Body).Decode(&respBody); err != nil {
+					t.Fatalf("decode error body: %v", err)
+				}
+				if respBody.Error != "invalid_request" {
+					t.Errorf("error = %q, want invalid_request", respBody.Error)
+				}
+				if !strings.Contains(respBody.Hint, "tessdata") {
+					t.Errorf("hint = %q, want it to mention tessdata", respBody.Hint)
+				}
+			}
+		})
+	}
+}
+
+// TestHandleProcess_OCRLanguageAllowlistOverride covers
+// Server.AllowedOCRLanguages: a deployment that overrides the default
+// {deu, eng} set must have its own allowlist enforced instead.
+func TestHandleProcess_OCRLanguageAllowlistOverride(t *testing.T) {
+	t.Parallel()
+
+	fp := &fakePipeline{
+		result: pipeline.Result{Documents: []pipeline.Document{{Index: 0, Filename: "a.pdf", Content: []byte("x"), ContentType: "application/pdf", PageCount: 1}}},
+	}
+	srv := newTestServer(t, fp)
+	srv.AllowedOCRLanguages = map[string]bool{"fra": true}
+
+	payload := validPayload()
+	payload.OCR = ocrPayload{Enabled: true, Languages: []string{"deu"}} // no longer allowed under the override
+	body, contentType := buildProcessBody(t, payload, [][]byte{[]byte("page")})
+	rec := doProcessPost(t, srv, body, contentType)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (deu excluded from the overridden allowlist); body = %s", rec.Code, rec.Body.String())
+	}
+
+	payload.OCR.Languages = []string{"fra"}
+	body, contentType = buildProcessBody(t, payload, [][]byte{[]byte("page")})
+	rec = doProcessPost(t, srv, body, contentType)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (fra allowed under the override); body = %s", rec.Code, rec.Body.String())
 	}
 }
 

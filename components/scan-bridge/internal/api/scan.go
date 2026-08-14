@@ -7,7 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
@@ -110,10 +114,23 @@ type scanResult struct {
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
+	// http.MaxBytesReader bounds the whole body scanRequest's
+	// json.Decoder below reads (issue #47 hardening) — POST /scan
+	// carries no file bytes, so any body anywhere near the limit is
+	// already a malformed or hostile request.
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBytes())
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	var body scanRequest
 	if err := dec.Decode(&body); err != nil {
+		if isMaxBytesError(err) {
+			s.writeJSON(w, r, http.StatusRequestEntityTooLarge, errorResponse{
+				Error: "request_too_large",
+				Hint:  fmt.Sprintf("request body exceeds the %d byte limit", s.maxRequestBytes()),
+			})
+			return
+		}
 		s.writeJSON(w, r, http.StatusBadRequest, errorResponse{
 			Error: "invalid_body",
 			Hint:  err.Error(),
@@ -150,7 +167,17 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := time.Duration(profile.TimeoutSeconds) * time.Second
+	// Runs unconditionally once scanID exists, regardless of which
+	// stage below succeeds or fails — os.RemoveAll on a directory that
+	// was never created (e.g. Dispatch failed before writing anything)
+	// is a no-op, so deferring this immediately is safe and simpler
+	// than threading a "did we get far enough to write files" flag
+	// through every early return (issue #49 point 1: PII cleanup).
+	if !s.KeepScanOutput {
+		defer s.cleanupScanOutput(scanID)
+	}
+
+	timeout := pipelineTimeout(profile)
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
@@ -295,9 +322,17 @@ func mapDispatchError(err error) (int, errorResponse) {
 func mapProcessError(err error) (int, errorResponse) {
 	switch {
 	case errors.Is(err, procclient.ErrUnsupportedFormat):
-		return http.StatusBadGateway, errorResponse{
+		// scan-processor's 400 means WE built it an invalid request —
+		// an unsupported output_format/page_grouping is a scan-bridge
+		// profile-config problem (profiles.validateProfile SHOULD have
+		// rejected it at load time), not a scan-processor malfunction
+		// or transient upstream failure. 502 (Bad Gateway, this
+		// switch's other branches' generic fallback) implies the
+		// latter and misdirects an operator's troubleshooting (issue
+		// #49 point 2).
+		return http.StatusInternalServerError, errorResponse{
 			Error: "unsupported_output",
-			Hint:  "scan-processor rejected the profile's output_format or assembly.page_grouping.",
+			Hint:  "scan-processor rejected the profile's output_format or assembly.page_grouping — this profile is misconfigured.",
 		}
 	case errors.Is(err, procclient.ErrBusy):
 		return http.StatusConflict, errorResponse{
@@ -319,5 +354,82 @@ func mapProcessError(err error) (int, errorResponse) {
 			Error: "processing_dispatch_failed",
 			Hint:  "scan-processor dispatch failed; see daemon logs.",
 		}
+	}
+}
+
+// isMaxBytesError reports whether err originates from an
+// http.MaxBytesReader hitting its limit (issue #47). Checks the typed
+// *http.MaxBytesError (Go 1.19+) first; falls back to matching
+// MaxBytesError.Error()'s exact, stable text ("http: request body too
+// large") in case a decoder in the call chain re-wraps the error in
+// its own message rather than propagating it unwrapped — encoding/json
+// does not currently do this for a plain io error, but relying on
+// that as an implementation detail would make this check brittle
+// across a stdlib version bump.
+func isMaxBytesError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		return true
+	}
+	return strings.Contains(err.Error(), "http: request body too large")
+}
+
+// perPageMultiDestinationHeadroomFactor scales profile.TimeoutSeconds
+// for the one profile shape issue #49 point 3 identified as most
+// likely to exceed handleScan's single shared context.WithTimeout
+// budget: assembly.page_grouping=per_page (N assembled documents,
+// N proportional to surviving page count) combined with more than one
+// configured destination, each document's Deliver call to each
+// destination running serially inside that one context (design doc
+// sec. 7 Option A: "scan + OCR + one upload POST, roughly comparable
+// to today's scan-only timeout with headroom" — an assumption of
+// roughly one delivery that a per_page × multi-destination profile
+// can violate several times over).
+//
+// This is deliberately the less invasive of the two remedies the
+// issue offered: rather than a new, independently-sized
+// PipelineTimeoutSeconds profile field (a config/schema change plus a
+// migration story for every existing profiles.yaml), it keeps
+// today's single timeout_seconds contract and only widens the derived
+// deadline for the shape that actually needs it. A dedicated field
+// stays tracked in issue #49 point 3 for if/when a real profile still
+// exhausts this headroom in practice — combined (single-document)
+// profiles and per_page profiles with at most one destination are
+// unaffected and keep their existing, unscaled budget.
+const perPageMultiDestinationHeadroomFactor = 2.0
+
+// pipelineTimeout returns the deadline handleScan's single
+// context.WithTimeout call uses to bound dispatch + processing +
+// every destination's Deliver call (see perPageMultiDestinationHeadroomFactor's
+// doc comment for the rationale).
+func pipelineTimeout(profile profiles.Profile) time.Duration {
+	base := time.Duration(profile.TimeoutSeconds) * time.Second
+	if profile.Assembly.PageGrouping == profiles.PageGroupingPerPage &&
+		len(profile.DestinationConfigs()) > 1 {
+		return time.Duration(float64(base) * perPageMultiDestinationHeadroomFactor)
+	}
+	return base
+}
+
+// cleanupScanOutput removes OutputDir/<scanID> — see
+// Server.KeepScanOutput's doc comment (api.go) for why handleScan
+// does this after every request. Safe to call unconditionally right
+// after scanID is minted, before any file under that path necessarily
+// exists yet: os.RemoveAll on a missing path returns nil, so an early
+// handleScan failure (e.g. Dispatch never even ran) cleans up nothing
+// and reports no error.
+func (s *Server) cleanupScanOutput(scanID string) {
+	if s.OutputDir == "" || scanID == "" {
+		return
+	}
+	dir := filepath.Join(s.OutputDir, scanID)
+	if err := os.RemoveAll(dir); err != nil {
+		s.Logger.Warn("cleanup scan output failed",
+			slog.String("scan_id", scanID),
+			slog.String("dir", dir),
+			slog.Any("err", err))
 	}
 }

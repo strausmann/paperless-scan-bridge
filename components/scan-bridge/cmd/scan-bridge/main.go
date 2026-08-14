@@ -160,26 +160,20 @@ func run(args []string, stdout, stderr io.Writer) error {
 			Commit:    commit,
 			BuildDate: buildDate,
 		},
-		Logger:     logger,
-		Auth:       cfg.Auth,
-		Dispatch:   dispatchClient,
-		ProcClient: procClient,
-		Secrets:    secrets,
-		OutputDir:  cfg.Paths.OutputDir,
+		Logger:          logger,
+		Auth:            cfg.Auth,
+		Dispatch:        dispatchClient,
+		ProcClient:      procClient,
+		Secrets:         secrets,
+		OutputDir:       cfg.Paths.OutputDir,
+		KeepScanOutput:  cfg.Paths.KeepScanOutput,
+		MaxRequestBytes: cfg.Server.MaxRequestBytes,
 	}
 
-	publicSrv := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           apiServer.Router(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", metrics.Handler(metricsRegistry))
-	metricsSrv := &http.Server{
-		Addr:              cfg.Server.MetricsListen,
-		Handler:           metricsMux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+
+	publicSrv, metricsSrv := newHTTPServers(cfg, apiServer.Router(), metricsMux)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
@@ -209,6 +203,36 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return shutdownAll(logger, timeout, cfg.HardTimeout(),
 			publicSrv, metricsSrv)
 	}
+}
+
+// newHTTPServers builds the public REST and metrics *http.Server
+// values from cfg, without starting either listener. Split out of
+// run() so main_test.go can assert the ReadTimeout wiring (issue #47:
+// a Read-Timeout that bounds the ENTIRE request — headers AND body —
+// unlike ReadHeaderTimeout, which only bounds the header phase and
+// lets a slow-body client hang a connection indefinitely) without
+// needing a real network listener.
+//
+// Both servers share cfg.Server.ReadTimeoutSeconds: the metrics
+// listener has no user-facing body to speak of, but giving it the
+// same bound costs nothing and keeps this function's contract simple
+// (one config value, one timeout, both listeners) rather than adding
+// a second, metrics-only knob nobody has asked for.
+func newHTTPServers(cfg config.Config, publicHandler, metricsHandler http.Handler) (public, metricsSrv *http.Server) {
+	readTimeout := time.Duration(cfg.Server.ReadTimeoutSeconds) * time.Second
+	public = &http.Server{
+		Addr:              cfg.Server.Listen,
+		Handler:           publicHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       readTimeout,
+	}
+	metricsSrv = &http.Server{
+		Addr:              cfg.Server.MetricsListen,
+		Handler:           metricsHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       readTimeout,
+	}
+	return public, metricsSrv
 }
 
 func listenAndServe(out chan<- error, srv *http.Server, label string,

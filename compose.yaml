@@ -174,8 +174,21 @@ services:
     tmpfs:
       # internal/pipeline/exec_pipeline.go's os.MkdirTemp("", ...)
       # scratch directory needs a writable /tmp; read_only above
-      # would otherwise make it unwritable.
-      - /tmp
+      # would otherwise make it unwritable. Explicit size (previously
+      # unset, i.e. unbounded up to the host's tmpfs default -- itself
+      # a DoS vector once a request-body size limit exists on the
+      # other side of this same pipeline, issue #47): 1 GiB, sized
+      # with headroom above internal/procapi's
+      # defaultMaxRequestBytes (512 MiB, cmd/scan-processor/main.go's
+      # copy of the same constant) -- ExecPipeline.Process writes
+      # every input page PLUS at least one intermediate file per
+      # per-page stage it runs (deskew/rotate/OCR/format-convert,
+      # exec_pipeline.go) into this directory before assembly, so one
+      # request's real peak scratch usage is a multiple of the raw
+      # input size, not equal to it. Matches the sizing rationale
+      # CONTAINER_SUITE.md sec. 8.1 documents for the (superseded,
+      # never-built) shared raw-page tmpfs it sketches.
+      - /tmp:size=1g
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/run/scan-processor

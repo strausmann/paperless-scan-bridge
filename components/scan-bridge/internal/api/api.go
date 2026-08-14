@@ -61,11 +61,30 @@ type Server struct {
 	Secrets config.SecretResolver
 	// OutputDir is where the dispatch client writes completed scan
 	// pages, and where the ProcClient writes the assembled documents
-	// scan-processor returns (config.PathsConfig.OutputDir). Server
-	// does not use it directly today — it is threaded through so
-	// main.go has one place to wire dispatch.NewHTTPUnixClient's and
-	// procclient.NewHTTPUnixClient's outputDir argument from the same
-	// config value the rest of the daemon reports in Description() —
-	// but a future job-store/cleanup subsystem will.
+	// scan-processor returns (config.PathsConfig.OutputDir). handleScan
+	// (scan.go) removes OutputDir/<scan_id> after every request unless
+	// KeepScanOutput is set (issue #49 point 1) — both dispatch and
+	// procclient key their subdirectory off the same scan_id.
 	OutputDir string
+	// KeepScanOutput disables that post-request cleanup. false (the
+	// zero value, matching config.Default()'s paths.keep_scan_output)
+	// means "clean up" — the pipeline processes receipts/invoices
+	// (PII), so leaving them on disk indefinitely after every request
+	// is an unbounded local-accumulation risk.
+	KeepScanOutput bool
+	// MaxRequestBytes bounds the size of an inbound POST /scan request
+	// body via http.MaxBytesReader (handleScan, issue #47 hardening).
+	// Zero/negative falls back to config.DefaultMaxRequestBytes — a
+	// Server built directly (as most tests in this package do) rather
+	// than through config.Load must still enforce SOME bound.
+	MaxRequestBytes int64
+}
+
+// maxRequestBytes returns the effective POST /scan request-body limit
+// handleScan enforces via http.MaxBytesReader.
+func (s *Server) maxRequestBytes() int64 {
+	if s.MaxRequestBytes > 0 {
+		return s.MaxRequestBytes
+	}
+	return config.DefaultMaxRequestBytes
 }

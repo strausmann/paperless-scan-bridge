@@ -359,3 +359,87 @@ func TestDescriptionDoesNotLeakSecrets(t *testing.T) {
 		t.Errorf("Description did not include token_hash_set marker: %q", out)
 	}
 }
+
+// TestDefaultIncludesRequestHardeningFields pins the compiled-in
+// defaults for issue #47's body-size and read-timeout hardening.
+func TestDefaultIncludesRequestHardeningFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if cfg.Server.MaxRequestBytes != DefaultMaxRequestBytes {
+		t.Errorf("Default Server.MaxRequestBytes = %d, want %d", cfg.Server.MaxRequestBytes, DefaultMaxRequestBytes)
+	}
+	if cfg.Server.ReadTimeoutSeconds != DefaultReadTimeoutSeconds {
+		t.Errorf("Default Server.ReadTimeoutSeconds = %d, want %d", cfg.Server.ReadTimeoutSeconds, DefaultReadTimeoutSeconds)
+	}
+	if cfg.Paths.KeepScanOutput {
+		t.Error("Default Paths.KeepScanOutput = true, want false (clean up by default, issue #49 point 1)")
+	}
+}
+
+func TestLoadRequestHardeningEnvOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("", envFunc(map[string]string{
+		"SCAN_BRIDGE_MAX_REQUEST_BYTES":    "2048",
+		"SCAN_BRIDGE_READ_TIMEOUT_SECONDS": "15",
+		"SCAN_BRIDGE_KEEP_SCAN_OUTPUT":     "true",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Server.MaxRequestBytes != 2048 {
+		t.Errorf("Server.MaxRequestBytes = %d, want 2048", cfg.Server.MaxRequestBytes)
+	}
+	if cfg.Server.ReadTimeoutSeconds != 15 {
+		t.Errorf("Server.ReadTimeoutSeconds = %d, want 15", cfg.Server.ReadTimeoutSeconds)
+	}
+	if !cfg.Paths.KeepScanOutput {
+		t.Error("Paths.KeepScanOutput = false, want true")
+	}
+}
+
+// TestLoadRejectsMalformedNumericEnvOverrides covers applyEnv's error
+// path for each of the three new env vars: a typo'd value must fail
+// Load loudly rather than silently falling back to the default.
+func TestLoadRejectsMalformedNumericEnvOverrides(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"max request bytes not a number", map[string]string{"SCAN_BRIDGE_MAX_REQUEST_BYTES": "not-a-number"}},
+		{"read timeout seconds not a number", map[string]string{"SCAN_BRIDGE_READ_TIMEOUT_SECONDS": "soon"}},
+		{"keep scan output not a bool", map[string]string{"SCAN_BRIDGE_KEEP_SCAN_OUTPUT": "maybe"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := Load("", envFunc(tc.env)); err == nil {
+				t.Fatal("expected Load to fail on a malformed env override")
+			}
+		})
+	}
+}
+
+func TestValidateRejectsNonPositiveMaxRequestBytes(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Server.MaxRequestBytes = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation to fail on server.max_request_bytes = 0")
+	}
+}
+
+func TestValidateRejectsNonPositiveReadTimeoutSeconds(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Server.ReadTimeoutSeconds = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation to fail on server.read_timeout_seconds <= 0")
+	}
+}
