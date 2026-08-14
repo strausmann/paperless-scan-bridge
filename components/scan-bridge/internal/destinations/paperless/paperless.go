@@ -5,14 +5,18 @@
 // Paperless-ngx instance's POST /api/documents/post_document/ endpoint.
 //
 // Paperless's own ingestion is asynchronous: a successful POST returns
-// {"task_id": "<uuid>"} and queues a Celery consumption task — it does
-// not return a document ID and does not mean the document has finished
-// indexing. Deliver's nil error means exactly "Paperless accepted the
-// upload for consumption", matching the Destination interface's own
-// documented contract for asynchronous destinations. Nothing in this
-// module polls GET /api/tasks/ for completion (design sec. 7, Option A
-// for v1) — that is an explicit, deferred follow-up (design sec. 7
-// Option C), not an oversight.
+// a bare JSON string task_id, e.g. "5af5cbd5-a8a8-49d9-af42-0f815d0caa0c"
+// (verified live against Paperless-ngx v3.0.5 and against upstream
+// source, see decodeTaskID's doc comment — NOT the {"task_id": "<uuid>"}
+// object form this file originally, wrongly, assumed), and queues a
+// Celery consumption task — it does not return a document ID and does
+// not mean the document has finished indexing. Deliver's nil error
+// means exactly "Paperless accepted the upload for consumption",
+// matching the Destination interface's own documented contract for
+// asynchronous destinations. Nothing in this module polls
+// GET /api/tasks/ for completion (design sec. 7, Option A for v1) —
+// that is an explicit, deferred follow-up (design sec. 7 Option C),
+// not an oversight.
 package paperless
 
 import (
@@ -301,11 +305,45 @@ func writeDocumentPart(mw *multipart.Writer, doc destinations.Document) error {
 	return nil
 }
 
-// postDocumentResponse is the shape of Paperless's 200/201 response to
-// post_document/ — {"task_id": "<uuid>"}, never a document ID (design
-// sec. 2's correction of the earlier Task 10 sketch's wrong assumption).
+// postDocumentResponse is the OBJECT-form shape some Paperless-ngx
+// version, fork, or reverse-proxy configuration might send in response
+// to post_document/ — {"task_id": "<uuid>"}. decodeTaskID accepts this
+// as a fallback, but it is NOT what the real, current upstream API
+// sends (see decodeTaskID's doc comment) — never assume this is the
+// primary shape again.
 type postDocumentResponse struct {
 	TaskID string `json:"task_id"`
+}
+
+// decodeTaskID decodes Paperless's post_document/ 200/201 response body
+// into a task_id.
+//
+// The REAL, verified response shape is a BARE JSON string, e.g.
+// "5af5cbd5-a8a8-49d9-af42-0f815d0caa0c" — NOT {"task_id": "<uuid>"} as
+// this package's doc comments and the design spec originally (wrongly)
+// assumed. Verified two ways against Paperless-ngx v3.0.5:
+//  1. A live upload against a real instance returned the bare string.
+//  2. Upstream source (github.com/paperless-ngx/paperless-ngx
+//     src/documents/views.py, PostDocumentView.post) ends with
+//     `return Response(async_task.id)` — DRF serializes a bare UUID
+//     as a bare JSON string, never wrapped in an object.
+//
+// decodeTaskID therefore tries the bare-string form first. If that
+// fails to decode, it falls back to the {"task_id": "<uuid>"} object
+// form (postDocumentResponse) for robustness against an older/forked
+// Paperless-ngx version or a proxy that re-wraps the body — but the
+// bare string is the form every real deployment this module has been
+// tested against actually sends.
+func decodeTaskID(body []byte) (string, error) {
+	var bare string
+	if err := json.Unmarshal(body, &bare); err == nil {
+		return bare, nil
+	}
+	var wrapped postDocumentResponse
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return "", err
+	}
+	return wrapped.TaskID, nil
 }
 
 // handleUploadResponse classifies resp into the accepted task_id
@@ -320,14 +358,14 @@ func handleUploadResponse(resp *http.Response) (string, error) {
 		if readErr != nil {
 			return "", fmt.Errorf("paperless: read response body: %w", readErr)
 		}
-		var parsed postDocumentResponse
-		if err := json.Unmarshal(body, &parsed); err != nil {
+		taskID, err := decodeTaskID(body)
+		if err != nil {
 			return "", fmt.Errorf("paperless: decode response body %q: %w: %w", trimBody(body), ErrInvalidResponse, err)
 		}
-		if parsed.TaskID == "" {
+		if taskID == "" {
 			return "", fmt.Errorf("paperless: response missing task_id: %w", ErrInvalidResponse)
 		}
-		return parsed.TaskID, nil
+		return taskID, nil
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
 		return "", fmt.Errorf("paperless: upload rejected (%d): %s: %w", resp.StatusCode, trimBody(body), ErrRejected)
 	case resp.StatusCode >= 500:
