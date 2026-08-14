@@ -1,6 +1,11 @@
 // Conventional Commits enforcement. Scope catalog: .github/SCOPES.md
 module.exports = {
   extends: ['@commitlint/config-conventional'],
+  // Dependabot always writes its subject as "Bump <dep> from <old> to <new>"
+  // (capitalized, sentence-case) — that trips subject-case below, which we
+  // otherwise want to keep strict for everyone else. Exempt only that exact
+  // shape instead of loosening subject-case globally (#23, #24).
+  ignores: [(message) => /^\w+(\([\w.-]+\))?!?:\s*Bump\b.*\bfrom\b.*\bto\b/.test(message.split('\n')[0])],
   rules: {
     'type-enum': [
       2,
