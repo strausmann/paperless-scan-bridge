@@ -46,6 +46,17 @@ between releases as a running list.
 
 ### Added
 
+- Add the project homepage as a Zensical custom home template (Issue
+  #60): landing page and documentation now live on one site, the same
+  way zensical.org itself does it. Only `docs/en/index.md` opts in via
+  `template: home.html` — every other page keeps the default docs
+  template. Hardware-chain hero diagram (scanner → Pi → NAS →
+  Paperless-ngx), self-hosted `InterVariable` + `JetBrains Mono` (no
+  Google Fonts request), light-primary with dark following the site's
+  existing palette toggle. Real content only, including the same
+  Phase-1 status stated everywhere else in the repository. Durable
+  design record in `DESIGN.md`. German homepage (`zensical.de.toml`)
+  not included — follow-up.
 - Add an OCR confidence gate: `ocr.min_confidence` (0..100, default
   80) flags a document `low_confidence: true` in the `POST /scan`
   response when its mean OCR confidence falls below the threshold —
