@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
@@ -955,11 +957,16 @@ func TestScanProcessErrorsMapToStatus(t *testing.T) {
 		wantError  string
 	}{
 		{
+			// scan-processor's 400 means scan-bridge built it an
+			// invalid request (a profile misconfiguration), not that
+			// scan-processor itself misbehaved — mapProcessError maps
+			// this to 500, not the generic-fallback 502 (issue #49
+			// point 2).
 			name: "unsupported format",
 			processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
 				return procclient.ProcessResult{}, procclient.ErrUnsupportedFormat
 			},
-			wantStatus: http.StatusBadGateway,
+			wantStatus: http.StatusInternalServerError,
 			wantError:  "unsupported_output",
 		},
 		{
@@ -1022,6 +1029,336 @@ func TestScanProcessErrorsMapToStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScanRequestBodyTooLargeReturns413 covers handleScan's
+// http.MaxBytesReader wrap (issue #47): a body bigger than
+// Server.MaxRequestBytes must be rejected with 413, before it is ever
+// handed to Dispatch.
+func TestScanRequestBodyTooLargeReturns413(t *testing.T) {
+	t.Parallel()
+
+	dispatchClient := &fakeDispatchClient{
+		dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+			t.Fatal("Dispatch must not be called for an oversized request body")
+			return dispatch.Response{}, nil
+		},
+	}
+	srv := newScanTestServer(t, scanTestProfilesYAML, tokenAuth(t, "correct-token"), dispatchClient, &fakeProcClient{})
+	srv.MaxRequestBytes = 16 // deliberately tiny
+
+	// Syntactically valid (if it were ever fully decoded) and
+	// well-formed as far as the decoder can tell from the bytes it
+	// DOES see -- unlike outright garbage, this cannot be rejected as
+	// a JSON syntax error before MaxBytesReader's limit kicks in, so
+	// the test actually exercises the size limit rather than
+	// incidentally hitting the unrelated "invalid_body" branch first.
+	oversized := []byte(`{"profile":"` + strings.Repeat("a", 100) + `"}`)
+	rec := postScan(t, srv, "correct-token", oversized)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413, body=%s", rec.Code, rec.Body.String())
+	}
+	var body errorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error != "request_too_large" {
+		t.Errorf("error = %q, want request_too_large", body.Error)
+	}
+}
+
+// TestScanRequestBodyWithinLimitStillWorks is
+// TestScanRequestBodyTooLargeReturns413's happy-path counterpart: a
+// small Server.MaxRequestBytes must not reject a legitimate,
+// well-under-the-limit request.
+func TestScanRequestBodyWithinLimitStillWorks(t *testing.T) {
+	t.Parallel()
+
+	dispatchClient := &fakeDispatchClient{
+		dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+			return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+		},
+	}
+	processedDoc := writeProcessedDoc(t, 0, "receipt.pdf", "pdf-bytes")
+	procClient := &fakeProcClient{
+		processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+			return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{processedDoc}}, nil
+		},
+	}
+	srv := newScanTestServer(t, scanTestProfilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+	srv.MaxRequestBytes = 4096
+
+	rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestScanCleansUpOutputDirAfterHandling covers handleScan's
+// OutputDir/<scan_id> cleanup (issue #49 point 1: the raw scanned
+// pages and assembled documents there are PII). writeAssembledDoc
+// below writes the fake processed document under
+// outputDir/<scanID>/... exactly like the real procclient.httpUnixClient
+// would (internal/procclient/http_client.go's readProcessResponse), so
+// this exercises the real directory shape handleScan cleans up.
+func TestScanCleansUpOutputDirAfterHandling(t *testing.T) {
+	t.Parallel()
+
+	writeAssembledDoc := func(t *testing.T, outputDir, scanID string) procclient.Document {
+		t.Helper()
+		dir := filepath.Join(outputDir, scanID)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatalf("mkdir job dir: %v", err)
+		}
+		path := filepath.Join(dir, "receipt.pdf")
+		if err := os.WriteFile(path, []byte("pdf-bytes"), 0o600); err != nil {
+			t.Fatalf("write assembled doc: %v", err)
+		}
+		return procclient.Document{Index: 0, Filename: "receipt.pdf", Path: path, ContentType: "application/pdf", PageCount: 1}
+	}
+
+	t.Run("removed by default after a successful scan", func(t *testing.T) {
+		t.Parallel()
+		outputDir := t.TempDir()
+
+		dispatchClient := &fakeDispatchClient{
+			dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+				return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+			},
+		}
+		procClient := &fakeProcClient{
+			processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+				doc := writeAssembledDoc(t, outputDir, req.RequestID)
+				return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{doc}}, nil
+			},
+		}
+		srv := newScanTestServer(t, scanTestProfilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+		srv.OutputDir = outputDir
+
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var body scanResult
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		dir := filepath.Join(outputDir, body.ScanID)
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("OutputDir/%s still exists after handleScan returned (err=%v), want removed", body.ScanID, err)
+		}
+	})
+
+	t.Run("preserved when KeepScanOutput is set", func(t *testing.T) {
+		t.Parallel()
+		outputDir := t.TempDir()
+
+		dispatchClient := &fakeDispatchClient{
+			dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+				return dispatch.Response{JobID: req.JobID, Pages: []string{"/scans/p1.tiff"}}, nil
+			},
+		}
+		procClient := &fakeProcClient{
+			processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+				doc := writeAssembledDoc(t, outputDir, req.RequestID)
+				return procclient.ProcessResult{RequestID: req.RequestID, Documents: []procclient.Document{doc}}, nil
+			},
+		}
+		srv := newScanTestServer(t, scanTestProfilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+		srv.OutputDir = outputDir
+		srv.KeepScanOutput = true
+
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var body scanResult
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+
+		dir := filepath.Join(outputDir, body.ScanID)
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("OutputDir/%s was removed despite KeepScanOutput=true: %v", body.ScanID, err)
+		}
+	})
+
+	// Cleanup must also run on the error paths -- the point of issue
+	// #49's PII concern is exactly the case where the pipeline did NOT
+	// finish successfully but Dispatch already wrote raw pages to
+	// OutputDir/<scan_id>/ before scan-processor failed.
+	t.Run("removed even when scan-processor fails", func(t *testing.T) {
+		t.Parallel()
+		outputDir := t.TempDir()
+
+		var dispatchedJobID string
+		dispatchClient := &fakeDispatchClient{
+			dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+				dispatchedJobID = req.JobID
+				// Mirror dispatch.httpUnixClient.Dispatch: it writes
+				// raw pages under outputDir/<jobID>/ before handleScan
+				// ever calls ProcClient.Process.
+				dir := filepath.Join(outputDir, req.JobID)
+				if err := os.MkdirAll(dir, 0o750); err != nil {
+					t.Fatalf("mkdir job dir: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "page-1.tiff"), []byte("tiff-bytes"), 0o600); err != nil {
+					t.Fatalf("write raw page: %v", err)
+				}
+				return dispatch.Response{JobID: req.JobID, Pages: []string{filepath.Join(dir, "page-1.tiff")}}, nil
+			},
+		}
+		procClient := &fakeProcClient{
+			processFn: func(ctx context.Context, req procclient.ProcessRequest) (procclient.ProcessResult, error) {
+				return procclient.ProcessResult{}, procclient.ErrOCRFailed
+			},
+		}
+		srv := newScanTestServer(t, scanTestProfilesYAML, tokenAuth(t, "correct-token"), dispatchClient, procClient)
+		srv.OutputDir = outputDir
+
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422, body=%s", rec.Code, rec.Body.String())
+		}
+		if dispatchedJobID == "" {
+			t.Fatal("dispatchFn was never called")
+		}
+
+		dir := filepath.Join(outputDir, dispatchedJobID)
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("OutputDir/%s still exists after a failed scan (err=%v), want removed", dispatchedJobID, err)
+		}
+	})
+}
+
+// TestScanPipelineTimeoutHeadroom covers pipelineTimeout: a profile
+// with assembly.page_grouping=per_page and more than one destination
+// gets a scaled-up context deadline (issue #49 point 3); every other
+// shape keeps the unscaled profile.TimeoutSeconds budget.
+func TestScanPipelineTimeoutHeadroom(t *testing.T) {
+	t.Parallel()
+
+	const timeoutSeconds = 60
+
+	newDeadlineCapturingServer := func(t *testing.T, profilesYAML string) (*Server, *time.Time) {
+		t.Helper()
+		var gotDeadline time.Time
+		dispatchClient := &fakeDispatchClient{
+			dispatchFn: func(ctx context.Context, req dispatch.Request) (dispatch.Response, error) {
+				d, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("dispatch context has no deadline")
+				}
+				gotDeadline = d
+				return dispatch.Response{}, dispatch.ErrNoScannerDetected
+			},
+		}
+		srv := newScanTestServer(t, profilesYAML, tokenAuth(t, "correct-token"), dispatchClient, &fakeProcClient{})
+		return srv, &gotDeadline
+	}
+
+	t.Run("per_page with 2 destinations gets headroom", func(t *testing.T) {
+		t.Parallel()
+
+		// The destination targets below are never actually built --
+		// dispatchFn fails before handleScan reaches
+		// buildDestinations -- so they need no registered constructor;
+		// pipelineTimeout only inspects
+		// profile.DestinationConfigs()'s length, read straight off the
+		// parsed YAML.
+		profilesYAML := `
+profiles:
+  - name: receipts
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: ` + fmt.Sprint(timeoutSeconds) + `
+    assembly:
+      page_grouping: per_page
+    destinations:
+      - target: "dest-a"
+      - target: "dest-b"
+`
+		srv, gotDeadline := newDeadlineCapturingServer(t, profilesYAML)
+		before := time.Now()
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503, body=%s", rec.Code, rec.Body.String())
+		}
+
+		got := gotDeadline.Sub(before)
+		wantMin := (timeoutSeconds*perPageMultiDestinationHeadroomFactor - 5) * float64(time.Second)
+		wantMax := (timeoutSeconds*perPageMultiDestinationHeadroomFactor + 5) * float64(time.Second)
+		if float64(got) < wantMin || float64(got) > wantMax {
+			t.Errorf("dispatch context budget = %s, want ~%gs (headroom factor %g applied to %ds)",
+				got, timeoutSeconds*perPageMultiDestinationHeadroomFactor, perPageMultiDestinationHeadroomFactor, timeoutSeconds)
+		}
+	})
+
+	t.Run("combined page_grouping keeps the unscaled budget even with 2 destinations", func(t *testing.T) {
+		t.Parallel()
+
+		profilesYAML := `
+profiles:
+  - name: receipts
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: ` + fmt.Sprint(timeoutSeconds) + `
+    destinations:
+      - target: "dest-a"
+      - target: "dest-b"
+`
+		srv, gotDeadline := newDeadlineCapturingServer(t, profilesYAML)
+		before := time.Now()
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503, body=%s", rec.Code, rec.Body.String())
+		}
+
+		got := gotDeadline.Sub(before)
+		wantMin := (timeoutSeconds - 5) * time.Second
+		wantMax := (timeoutSeconds + 5) * time.Second
+		if got < wantMin || got > wantMax {
+			t.Errorf("dispatch context budget = %s, want ~%ds (no headroom -- combined page_grouping)", got, timeoutSeconds)
+		}
+	})
+
+	t.Run("per_page with a single destination keeps the unscaled budget", func(t *testing.T) {
+		t.Parallel()
+
+		profilesYAML := `
+profiles:
+  - name: receipts
+    source: "ADF"
+    resolution: 200
+    mode: "Gray"
+    format: "pdf"
+    page_size: "auto"
+    timeout_seconds: ` + fmt.Sprint(timeoutSeconds) + `
+    assembly:
+      page_grouping: per_page
+`
+		srv, gotDeadline := newDeadlineCapturingServer(t, profilesYAML)
+		before := time.Now()
+		rec := postScan(t, srv, "correct-token", map[string]string{"profile": "receipts"})
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503, body=%s", rec.Code, rec.Body.String())
+		}
+
+		got := gotDeadline.Sub(before)
+		wantMin := (timeoutSeconds - 5) * time.Second
+		wantMax := (timeoutSeconds + 5) * time.Second
+		if got < wantMin || got > wantMax {
+			t.Errorf("dispatch context budget = %s, want ~%ds (no headroom -- 0 destinations)", got, timeoutSeconds)
+		}
+	})
 }
 
 func TestScanAuthMiddlewareIPAllowlistMode(t *testing.T) {

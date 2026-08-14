@@ -44,6 +44,20 @@ type Config struct {
 type ServerConfig struct {
 	Listen        string `toml:"listen"`
 	MetricsListen string `toml:"metrics_listen"`
+	// MaxRequestBytes bounds the size of an inbound POST /scan request
+	// body via http.MaxBytesReader (internal/api's handleScan, issue
+	// #47 hardening). scanRequest carries no file bytes -- unlike
+	// scan-processor's POST /process, this is JSON only (a profile
+	// name plus a caller-supplied tag_ids list) -- so the default is
+	// sized generously above any legitimate payload rather than around
+	// file uploads.
+	MaxRequestBytes int64 `toml:"max_request_bytes"`
+	// ReadTimeoutSeconds bounds http.Server.ReadTimeout: the total
+	// time net/http spends reading an inbound request, headers AND
+	// body. Deliberately distinct from ReadHeaderTimeout (main.go,
+	// hardcoded 5s), which only bounds the header phase and lets a
+	// slow-body client hang a connection indefinitely (issue #47).
+	ReadTimeoutSeconds int `toml:"read_timeout_seconds"`
 }
 
 // AuthConfig describes how inbound requests are authenticated.
@@ -80,6 +94,13 @@ type PathsConfig struct {
 	// sec. 4.2/9 Task 5/7) -- mirrors SaneSocket's role for the
 	// sane-runtime leg of the pipeline.
 	ScanProcessorSocket string `toml:"scan_processor_socket"`
+	// KeepScanOutput disables handleScan's post-request cleanup of
+	// OutputDir/<scan_id> (issue #49 point 1). false (the default)
+	// means the raw scanned pages and assembled documents there --
+	// receipts/invoices, i.e. PII -- are removed after every /scan
+	// request, successful or not, rather than accumulating on disk
+	// unbounded. true opts out, for local debugging.
+	KeepScanOutput bool `toml:"keep_scan_output"`
 }
 
 // LoggingConfig configures the slog handler.
@@ -96,14 +117,26 @@ type ShutdownConfig struct {
 	HardTimeoutSeconds    int `toml:"hard_timeout_seconds"`
 }
 
+// DefaultMaxRequestBytes is ServerConfig.MaxRequestBytes's compiled-in
+// default (issue #47). 1 MiB is generous for scanRequest's small JSON
+// shape while still bounding an attacker's ability to make the daemon
+// buffer an unbounded body via handleScan's json.Decoder.
+const DefaultMaxRequestBytes int64 = 1 << 20 // 1 MiB
+
+// DefaultReadTimeoutSeconds is ServerConfig.ReadTimeoutSeconds's
+// compiled-in default (issue #47).
+const DefaultReadTimeoutSeconds = 30
+
 // Default returns a Config populated with the compiled-in defaults.
 // These are designed to be production-safe out of the box for the
 // reference Pi deployment.
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
-			Listen:        ":8080",
-			MetricsListen: ":9090",
+			Listen:             ":8080",
+			MetricsListen:      ":9090",
+			MaxRequestBytes:    DefaultMaxRequestBytes,
+			ReadTimeoutSeconds: DefaultReadTimeoutSeconds,
 		},
 		Auth: AuthConfig{
 			Mode: AuthModeToken,
@@ -160,7 +193,9 @@ func Load(path string, osLookupEnv func(string) (string, bool)) (Config, error) 
 		}
 	}
 
-	applyEnv(&cfg, osLookupEnv)
+	if err := applyEnv(&cfg, osLookupEnv); err != nil {
+		return Config{}, fmt.Errorf("apply environment: %w", err)
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -169,12 +204,34 @@ func Load(path string, osLookupEnv func(string) (string, bool)) (Config, error) 
 	return cfg, nil
 }
 
-func applyEnv(cfg *Config, look func(string) (string, bool)) {
+// applyEnv overlays SCAN_BRIDGE_*-prefixed environment variables onto
+// cfg (see the package doc comment's precedence order). It returns an
+// error rather than silently ignoring a malformed numeric override
+// (SCAN_BRIDGE_MAX_REQUEST_BYTES / SCAN_BRIDGE_READ_TIMEOUT_SECONDS /
+// SCAN_BRIDGE_KEEP_SCAN_OUTPUT below) — a typo'd deployment env var is
+// a configuration bug that should fail loudly at startup (Load
+// already does this for a bad --config path and a bad TOML file),
+// not silently fall back to a default the operator never asked for.
+func applyEnv(cfg *Config, look func(string) (string, bool)) error {
 	if v, ok := look("SCAN_BRIDGE_LISTEN"); ok {
 		cfg.Server.Listen = v
 	}
 	if v, ok := look("SCAN_BRIDGE_METRICS_LISTEN"); ok {
 		cfg.Server.MetricsListen = v
+	}
+	if v, ok := look("SCAN_BRIDGE_MAX_REQUEST_BYTES"); ok {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("SCAN_BRIDGE_MAX_REQUEST_BYTES %q: %w", v, err)
+		}
+		cfg.Server.MaxRequestBytes = n
+	}
+	if v, ok := look("SCAN_BRIDGE_READ_TIMEOUT_SECONDS"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("SCAN_BRIDGE_READ_TIMEOUT_SECONDS %q: %w", v, err)
+		}
+		cfg.Server.ReadTimeoutSeconds = n
 	}
 	if v, ok := look("SCAN_BRIDGE_AUTH_MODE"); ok {
 		cfg.Auth.Mode = AuthMode(v)
@@ -201,12 +258,20 @@ func applyEnv(cfg *Config, look func(string) (string, bool)) {
 	if v, ok := look("SCAN_BRIDGE_SCAN_PROCESSOR_SOCKET"); ok {
 		cfg.Paths.ScanProcessorSocket = v
 	}
+	if v, ok := look("SCAN_BRIDGE_KEEP_SCAN_OUTPUT"); ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("SCAN_BRIDGE_KEEP_SCAN_OUTPUT %q: %w", v, err)
+		}
+		cfg.Paths.KeepScanOutput = b
+	}
 	if v, ok := look("SCAN_BRIDGE_LOG_LEVEL"); ok {
 		cfg.Logging.Level = v
 	}
 	if v, ok := look("SCAN_BRIDGE_LOG_FORMAT"); ok {
 		cfg.Logging.Format = v
 	}
+	return nil
 }
 
 // Validate checks invariants that the loader cannot enforce
@@ -273,6 +338,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Server.MetricsListen == "" {
 		return errors.New("server.metrics_listen must be non-empty")
+	}
+	if c.Server.MaxRequestBytes <= 0 {
+		return errors.New("server.max_request_bytes must be positive")
+	}
+	if c.Server.ReadTimeoutSeconds <= 0 {
+		return errors.New("server.read_timeout_seconds must be positive")
 	}
 
 	if c.Paths.OutputDir == "" {
