@@ -141,6 +141,85 @@ measurably increases misrecognitions from words being "corrected"
 into the wrong language's spelling. Pick the language(s) that
 profile's documents actually use.
 
+### OCR confidence gate
+
+Every OCR pass also produces a Tesseract `tsv` configfile output
+alongside the searchable PDF (one tesseract invocation, two output
+files — `internal/pipeline/exec_argv.go`'s `buildOCRArgs`), which
+carries a 0..100 confidence score per recognized word
+(`internal/pipeline/exec_argv.go`'s `parseOCRTSV`). The mean of those
+per-word scores (averaged across every surviving page of a document
+for `page_grouping: combined`) becomes that document's
+`ocr_confidence`; when it falls below the effective threshold, the
+document is flagged `low_confidence: true` with a matching entry in
+`warnings` — see "API surface" below for the exact response fields.
+
+**The gate never fails a request.** It is advisory only: a
+low-confidence document is still returned, assembled, and delivered
+exactly like a high-confidence one — the flag exists so
+`scan-bridge`/Paperless (or a caller reading the response directly)
+can route it to manual review instead of trusting a page that
+Tesseract itself was not confident about.
+
+The threshold is `ocr.min_confidence` (a profile field, `0..100`,
+default `80` — matching this component's own
+`internal/pipeline.defaultMinOCRConfidence`) — omitted or `0` applies
+the default, same "zero means apply the documented default" contract
+`ocr.languages` already has.
+
+### Auto language detection
+
+Setting a profile's `ocr.languages` to exactly `[auto]` (no other
+entries — `internal/pipeline/exec_argv.go`'s `isAutoLanguageRequest`)
+requests a **two-pass** auto-detect flow
+(`internal/pipeline/exec_pipeline.go`'s `ocrPageAuto`) instead of a
+fixed language set, per page:
+
+1. OCR the page with the project's default (`deu+eng`).
+2. Score that pass's recognized text against a small, hand-picked
+   stopword list per installed language
+   (`internal/pipeline/exec_argv.go`'s `detectLanguage`) to guess the
+   page's actual language.
+3. If the guess is empty, or already covered by `deu+eng`, stop —
+   nothing more to gain from a second pass.
+4. Otherwise, re-OCR once with just the detected language and keep
+   whichever of the two passes scored the higher mean confidence (the
+   confidence gate's own signal doubles as the pass-selection
+   criterion here).
+
+This deliberately never asks Tesseract for more than two languages in
+one invocation — passing every installed language pack to `-l`
+simultaneously was evaluated and found to measurably *reduce*
+recognition quality (the same dictionary-overlap effect the "OCR
+languages" section above warns about, just amplified across more
+languages at once), so `auto` costs at most one extra tesseract pass,
+never a worse result than a single fixed-language pass would give.
+
+**This is a pragmatic heuristic, not a real language-identification
+model.** No such library is a dependency of this module (`go.mod`
+carries none — only the Go standard library). Its accuracy limits are
+real and worth knowing before relying on it in production:
+
+- **Short OCR text** (a page with only a handful of recognized words)
+  gives the stopword scorer little to work with and often yields no
+  guess at all, in which case the `deu+eng` pass 1 result is kept
+  unchanged.
+- **Closely related languages** that share common short words —
+  Spanish/Italian/Portuguese in particular — can be misidentified
+  against each other.
+- **Heavily garbled OCR output** (a poor scan, wrong orientation, a
+  mostly-graphical page) produces text the heuristic cannot score
+  meaningfully, same effect as short text.
+
+The confidence gate above is the safety net for all three: a wrong
+`auto` guess still goes through the same `ocr_confidence`/
+`low_confidence` flagging as a manually configured language list, so
+a misdetection surfaces as a flagged document for review rather than
+silently-bad, unflagged OCR. For a profile whose documents are
+reliably in one non-default language, naming that language explicitly
+(e.g. `[fra]`) remains more accurate and cheaper (one pass, not up to
+two) than `auto`.
+
 ## API surface
 
 | Endpoint   | Method | Contract |
@@ -160,7 +239,11 @@ Request body — `multipart/mixed`, part 0 `application/json`:
 ```json
 {
   "request_id": "...",
-  "ocr": { "enabled": true, "languages": ["deu", "eng"] },
+  "ocr": {
+    "enabled": true,
+    "languages": ["deu", "eng"],
+    "min_confidence": 80
+  },
   "deskew": true,
   "remove_blank": true,
   "rotate_pages": false,
@@ -170,14 +253,23 @@ Request body — `multipart/mixed`, part 0 `application/json`:
 }
 ```
 
+`ocr.min_confidence` is optional (`0..100`, omitted or `0` applies the
+default of `80`) — see "OCR confidence gate" above. `ocr.languages`
+may instead be exactly `["auto"]` to request the two-pass auto-detect
+flow described in "Auto language detection" above, instead of a fixed
+language set.
+
 parts 1..N are the job's TIFF pages, `Content-Type: image/tiff`, in
 order.
 
 Success (`200`) is `multipart/mixed; boundary=...`:
 
 - Part 0 — `application/json`, the process metadata (`request_id`,
-  `documents: [{index, page_count, filename, content_type,
-  warnings}]`, `duration_ms`).
+  `documents: [{index, page_count, filename, content_type, warnings,
+  ocr_confidence, low_confidence}]`, `duration_ms`). `ocr_confidence`
+  (`0..100`) and `low_confidence` are the confidence gate's result for
+  that document — both are the zero value (`0`/`false`) when
+  `ocr.enabled` was `false`.
 - Parts 1..N — the assembled document(s)' bytes, in the same order as
   the metadata's `documents` array — one part when `page_grouping` is
   `combined`, one per surviving source page when `per_page`.
@@ -209,12 +301,18 @@ flags (design doc sec. 4.3):
    brightness ≥ 0.98 classifies a page blank), if `remove_blank`.
 4. Rotation correction (`tesseract --psm 0` orientation detection +
    `convert -rotate`), if `rotate_pages`.
-5. OCR (`tesseract ... -l <languages> pdf`, default `deu+eng`), if
-   `ocr.enabled`. For `output_format=pdf` this produces the final
-   searchable per-page PDF directly (Tesseract's own PDF output mode)
-   — no separate "assemble then OCR" step. For `jpeg`/`tiff`, OCR
-   still runs (a page that defeats OCR entirely is still a failure),
-   but its text layer is discarded since neither format can carry
+5. OCR (`tesseract ... -l <languages> pdf tsv`, default `deu+eng`), if
+   `ocr.enabled`. The always-requested `tsv` output feeds the
+   confidence gate (mean per-word confidence vs. `ocr.min_confidence`,
+   default `80` — see "OCR confidence gate" above); `ocr.languages:
+   ["auto"]` runs the two-pass auto-detect flow instead of a fixed
+   language set (see "Auto language detection" above). For
+   `output_format=pdf` this produces the final searchable per-page PDF
+   directly (Tesseract's own PDF output mode) — no separate "assemble
+   then OCR" step. For `jpeg`/`tiff`, OCR still runs (a page that
+   defeats OCR entirely is still a failure, and the confidence gate
+   still applies), but its text layer is discarded since neither
+   format can carry
    one.
 6. Format conversion (`convert`) for pages not already produced by the
    OCR step.

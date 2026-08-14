@@ -762,6 +762,198 @@ func TestHandleProcess_OCRLanguageAllowlistOverride(t *testing.T) {
 	}
 }
 
+// TestHandleProcess_OCRMinConfidenceValidation covers
+// validateProcessRequest's ocr.min_confidence bounds check (PR brief
+// Feature A): out-of-range values are rejected with 400 before the
+// pipeline ever runs, an in-range value (including the zero value,
+// meaning "use the pipeline default") passes through, and OCR
+// disabled makes an out-of-range value inert, mirroring the
+// languages-allowlist test's same "disabled means unchecked" case.
+func TestHandleProcess_OCRMinConfidenceValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		ocr          ocrPayload
+		wantCode     int
+		wantPipeline bool
+	}{
+		{
+			name:         "zero (unset) passes through",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu"}, MinConfidence: 0},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
+			name:         "in-range value passes through",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu"}, MinConfidence: 65.5},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
+			name:         "boundary 100 passes through",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu"}, MinConfidence: 100},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
+			name:         "negative rejected before pipeline",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu"}, MinConfidence: -1},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "above 100 rejected before pipeline",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu"}, MinConfidence: 101},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "ocr disabled: out-of-range value is inert and not checked",
+			ocr:          ocrPayload{Enabled: false, MinConfidence: 999},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fp := &fakePipeline{
+				result: pipeline.Result{Documents: []pipeline.Document{{Index: 0, Filename: "a.pdf", Content: []byte("x"), ContentType: "application/pdf", PageCount: 1}}},
+			}
+			srv := newTestServer(t, fp)
+
+			payload := validPayload()
+			payload.OCR = tc.ocr
+			body, contentType := buildProcessBody(t, payload, [][]byte{[]byte("page")})
+			rec := doProcessPost(t, srv, body, contentType)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body = %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			if gotCalled := fp.callCount() == 1; gotCalled != tc.wantPipeline {
+				t.Errorf("Process called %d times, want called=%v", fp.callCount(), tc.wantPipeline)
+			}
+			if tc.wantPipeline && fp.lastReq.OCR.MinConfidence != tc.ocr.MinConfidence {
+				t.Errorf("decoded MinConfidence = %v, want %v", fp.lastReq.OCR.MinConfidence, tc.ocr.MinConfidence)
+			}
+		})
+	}
+}
+
+// TestHandleProcess_OCRAutoLanguageValidation covers
+// validateProcessRequest's "auto" special-case: it must be the
+// request's only languages entry, and — like every ocr.languages
+// check — is entirely inert when OCR is disabled.
+func TestHandleProcess_OCRAutoLanguageValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		ocr          ocrPayload
+		wantCode     int
+		wantPipeline bool
+	}{
+		{
+			name:         "auto alone passes through",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"auto"}},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+		{
+			name:         "auto mixed with a real language rejected",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"auto", "deu"}},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "auto mixed with itself rejected the same way",
+			ocr:          ocrPayload{Enabled: true, Languages: []string{"deu", "auto"}},
+			wantCode:     http.StatusBadRequest,
+			wantPipeline: false,
+		},
+		{
+			name:         "ocr disabled: auto mixed with a real language is inert",
+			ocr:          ocrPayload{Enabled: false, Languages: []string{"auto", "deu"}},
+			wantCode:     http.StatusOK,
+			wantPipeline: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fp := &fakePipeline{
+				result: pipeline.Result{Documents: []pipeline.Document{{Index: 0, Filename: "a.pdf", Content: []byte("x"), ContentType: "application/pdf", PageCount: 1}}},
+			}
+			srv := newTestServer(t, fp)
+
+			payload := validPayload()
+			payload.OCR = tc.ocr
+			body, contentType := buildProcessBody(t, payload, [][]byte{[]byte("page")})
+			rec := doProcessPost(t, srv, body, contentType)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body = %s", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			if gotCalled := fp.callCount() == 1; gotCalled != tc.wantPipeline {
+				t.Errorf("Process called %d times, want called=%v", fp.callCount(), tc.wantPipeline)
+			}
+		})
+	}
+}
+
+// TestHandleProcess_ConfidenceFieldsRoundTripToResponse covers the
+// wire encoding for Feature A's confidence gate: whatever
+// pipeline.Document.OCRConfidence/LowConfidence the (fake) pipeline
+// returns must reach the JSON response's ocr_confidence/low_confidence
+// fields unchanged.
+func TestHandleProcess_ConfidenceFieldsRoundTripToResponse(t *testing.T) {
+	t.Parallel()
+
+	fp := &fakePipeline{
+		result: pipeline.Result{
+			Documents: []pipeline.Document{
+				{
+					Index:         0,
+					Filename:      "req-1.pdf",
+					Content:       []byte("assembled-pdf-bytes"),
+					ContentType:   "application/pdf",
+					PageCount:     1,
+					OCRConfidence: 42.5,
+					LowConfidence: true,
+					Warnings:      []string{"low OCR confidence (42.5, threshold 80.0)"},
+				},
+			},
+		},
+	}
+	srv := newTestServer(t, fp)
+
+	payload := validPayload()
+	body, contentType := buildProcessBody(t, payload, [][]byte{[]byte("tiff-page")})
+	rec := doProcessPost(t, srv, body, contentType)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	parsed := parseMultipartResponse(t, rec)
+	if len(parsed.meta.Documents) != 1 {
+		t.Fatalf("response Documents count = %d, want 1", len(parsed.meta.Documents))
+	}
+	docMeta := parsed.meta.Documents[0]
+	if docMeta.OCRConfidence != 42.5 {
+		t.Errorf("OCRConfidence = %v, want 42.5", docMeta.OCRConfidence)
+	}
+	if !docMeta.LowConfidence {
+		t.Error("LowConfidence = false, want true")
+	}
+}
+
 func TestHandleProcess_NegativeTimeoutReturns400(t *testing.T) {
 	t.Parallel()
 

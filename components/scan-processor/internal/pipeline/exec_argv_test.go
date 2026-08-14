@@ -138,37 +138,254 @@ func TestBuildRotateArgs(t *testing.T) {
 	}
 }
 
-func TestBuildOCRPDFArgs(t *testing.T) {
+func TestBuildOCRArgs(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name      string
 		languages []string
+		wantPDF   bool
 		want      []string
 	}{
 		{
-			name:      "deu+eng default",
+			name:      "deu+eng default, pdf+tsv",
 			languages: []string{"deu", "eng"},
-			want:      []string{"in.tiff", "out", "-l", "deu+eng", "pdf"},
+			wantPDF:   true,
+			want:      []string{"in.tiff", "out", "-l", "deu+eng", "pdf", "tsv"},
 		},
 		{
-			name:      "single language",
+			name:      "single language, pdf+tsv",
 			languages: []string{"eng"},
-			want:      []string{"in.tiff", "out", "-l", "eng", "pdf"},
+			wantPDF:   true,
+			want:      []string{"in.tiff", "out", "-l", "eng", "pdf", "tsv"},
 		},
 		{
 			name:      "no languages: tesseract falls back to its own default",
 			languages: nil,
-			want:      []string{"in.tiff", "out", "pdf"},
+			wantPDF:   true,
+			want:      []string{"in.tiff", "out", "pdf", "tsv"},
+		},
+		{
+			name:      "tsv only, no pdf (jpeg/tiff OCR-check callers)",
+			languages: []string{"deu", "eng"},
+			wantPDF:   false,
+			want:      []string{"in.tiff", "out", "-l", "deu+eng", "tsv"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := buildOCRPDFArgs("in.tiff", "out", tc.languages)
+			got := buildOCRArgs("in.tiff", "out", tc.languages, tc.wantPDF)
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("buildOCRPDFArgs = %v, want %v", got, tc.want)
+				t.Errorf("buildOCRArgs = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseOCRTSV(t *testing.T) {
+	t.Parallel()
+
+	header := "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext"
+
+	cases := []struct {
+		name          string
+		tsv           string
+		wantMean      float64
+		wantWordCount int
+		wantWords     []string
+	}{
+		{
+			name: "two words, mean of their confidences",
+			tsv: header + "\n" +
+				"5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\thello\n" +
+				"5\t1\t1\t1\t1\t2\t10\t0\t10\t10\t70\tworld\n",
+			wantMean:      80,
+			wantWordCount: 2,
+			wantWords:     []string{"hello", "world"},
+		},
+		{
+			name: "non-word levels (page/block/par/line) excluded via conf=-1",
+			tsv: header + "\n" +
+				"1\t1\t0\t0\t0\t0\t0\t0\t100\t100\t-1\t\n" +
+				"5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t100\tonly\n",
+			wantMean:      100,
+			wantWordCount: 1,
+			wantWords:     []string{"only"},
+		},
+		{
+			name:          "header only: no words",
+			tsv:           header + "\n",
+			wantMean:      0,
+			wantWordCount: 0,
+			wantWords:     nil,
+		},
+		{
+			name:          "empty input",
+			tsv:           "",
+			wantMean:      0,
+			wantWordCount: 0,
+			wantWords:     nil,
+		},
+		{
+			name: "malformed conf column skipped, not fatal",
+			tsv: header + "\n" +
+				"5\t1\t1\t1\t1\t1\t0\t0\t10\t10\tnot-a-number\tbad\n" +
+				"5\t1\t1\t1\t1\t2\t0\t0\t10\t10\t50\tgood\n",
+			wantMean:      50,
+			wantWordCount: 1,
+			wantWords:     []string{"good"},
+		},
+		{
+			name: "short row (below tsvMinColumns) skipped",
+			tsv: header + "\n" +
+				"5\t1\t1\n" +
+				"5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t60\tword\n",
+			wantMean:      60,
+			wantWordCount: 1,
+			wantWords:     []string{"word"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotMean, gotWordCount, gotWords := parseOCRTSV(tc.tsv)
+			if gotMean != tc.wantMean {
+				t.Errorf("mean = %v, want %v", gotMean, tc.wantMean)
+			}
+			if gotWordCount != tc.wantWordCount {
+				t.Errorf("wordCount = %v, want %v", gotWordCount, tc.wantWordCount)
+			}
+			if !reflect.DeepEqual(gotWords, tc.wantWords) {
+				t.Errorf("words = %v, want %v", gotWords, tc.wantWords)
+			}
+		})
+	}
+}
+
+func TestIsLowConfidence(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		mean, threshold float64
+		want            bool
+	}{
+		{90, 80, false},
+		{80, 80, false}, // exactly at threshold is not "below"
+		{79.9, 80, true},
+		{0, 80, true},
+		{100, 0, false},
+	}
+	for _, tc := range cases {
+		if got := isLowConfidence(tc.mean, tc.threshold); got != tc.want {
+			t.Errorf("isLowConfidence(%v, %v) = %v, want %v", tc.mean, tc.threshold, got, tc.want)
+		}
+	}
+}
+
+func TestMeanFloat64(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		vals []float64
+		want float64
+	}{
+		{"empty", nil, 0},
+		{"single", []float64{42}, 42},
+		{"multiple", []float64{90, 70, 80}, 80},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := meanFloat64(tc.vals); got != tc.want {
+				t.Errorf("meanFloat64(%v) = %v, want %v", tc.vals, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsAutoLanguageRequest(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		languages []string
+		want      bool
+	}{
+		{"exactly auto", []string{"auto"}, true},
+		{"auto mixed with another entry", []string{"auto", "deu"}, false},
+		{"regular languages", []string{"deu", "eng"}, false},
+		{"empty", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := isAutoLanguageRequest(tc.languages); got != tc.want {
+				t.Errorf("isAutoLanguageRequest(%v) = %v, want %v", tc.languages, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestContainsLanguage(t *testing.T) {
+	t.Parallel()
+
+	if !containsLanguage([]string{"deu", "eng"}, "eng") {
+		t.Error("containsLanguage([deu eng], eng) = false, want true")
+	}
+	if containsLanguage([]string{"deu", "eng"}, "fra") {
+		t.Error("containsLanguage([deu eng], fra) = true, want false")
+	}
+	if containsLanguage(nil, "eng") {
+		t.Error("containsLanguage(nil, eng) = true, want false")
+	}
+}
+
+func TestDetectLanguage(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "clearly english",
+			text: "the quick brown fox and this is a test with the dog",
+			want: "eng",
+		},
+		{
+			name: "clearly french",
+			text: "bonjour le monde et la vie pour vous dans ce",
+			want: "fra",
+		},
+		{
+			name: "clearly german",
+			text: "der und ist nicht mit den von ein eine für im auf sich",
+			want: "deu",
+		},
+		{
+			name: "no recognizable stopwords: no guess",
+			text: "xkq zzqx qxkz plonk fizzbuzz",
+			want: "",
+		},
+		{
+			name: "empty text: no guess",
+			text: "",
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := detectLanguage(tc.text, autoDetectCandidateLanguages); got != tc.want {
+				t.Errorf("detectLanguage(%q) = %q, want %q", tc.text, got, tc.want)
 			}
 		})
 	}

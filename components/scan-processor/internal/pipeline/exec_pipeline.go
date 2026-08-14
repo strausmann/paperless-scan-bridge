@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,8 +22,18 @@ const blankMeanThresholdDefault = 0.98
 
 // defaultOCRLanguages is used when OCRConfig.Enabled is true but
 // Languages is empty, matching the design doc's stated default (sec.
-// 4.3 stage 5: "deu+eng by default").
+// 4.3 stage 5: "deu+eng by default"). It also doubles as
+// ocrPageAuto's first-pass language set (exec_argv.go).
 var defaultOCRLanguages = []string{"deu", "eng"}
+
+// defaultMinOCRConfidence is applied when OCRConfig.MinConfidence is
+// zero (a profile that never set ocr.min_confidence). 80 (tesseract's
+// own 0..100 mean-word-confidence scale) is a practical threshold
+// that tolerates the confidence dips a merely noisy real-world scan
+// produces without flagging it, while still catching genuinely bad
+// OCR runs (garbled/rotated text, wrong language, mostly-graphic
+// pages) — see the PR brief's "Server-Default ~80".
+const defaultMinOCRConfidence = 80.0
 
 // ExecPipeline is the production Pipeline: it shells out to
 // convert(1) (ImageMagick), tesseract(1), and qpdf(1) to implement
@@ -181,14 +192,20 @@ func (p *ExecPipeline) Process(ctx context.Context, req Request) (Result, error)
 		return Result{}, fmt.Errorf("pipeline: every page was removed as blank, nothing to assemble: %w", ErrOCRFailed)
 	}
 
+	autoDetect := req.OCR.Enabled && isAutoLanguageRequest(req.OCR.Languages)
 	languages := req.OCR.Languages
-	if req.OCR.Enabled && len(languages) == 0 {
+	if req.OCR.Enabled && !autoDetect && len(languages) == 0 {
 		languages = defaultOCRLanguages
+	}
+	minConfidence := req.OCR.MinConfidence
+	if minConfidence <= 0 {
+		minConfidence = defaultMinOCRConfidence
 	}
 
 	ext := fileExtensionForFormat(req.OutputFormat)
 	assembledPages := make([]string, 0, len(survivors))
 	assembledOriginalIndexes := make([]int, 0, len(survivors))
+	var confidences []float64 // parallel to assembledPages, only appended to when req.OCR.Enabled
 	for _, st := range survivors {
 		if err := ctx.Err(); err != nil {
 			return Result{}, classifyContextError(err)
@@ -196,21 +213,26 @@ func (p *ExecPipeline) Process(ctx context.Context, req Request) (Result, error)
 
 		var pagePath string
 		if req.OCR.Enabled && req.OutputFormat == OutputFormatPDF {
-			outBase := filepath.Join(scratch, fmt.Sprintf("page-%d-ocr", st.originalIndex))
-			if _, err := p.runTesseract(ctx, tesseractBin, buildOCRPDFArgs(st.path, outBase, languages)); err != nil {
-				return Result{}, fmt.Errorf("pipeline: OCR page %d: %w: %w", st.originalIndex, err, ErrOCRFailed)
+			outBase, confidence, err := p.ocrPage(ctx, tesseractBin, st.path, scratch, st.originalIndex, true, autoDetect, languages, &warnings)
+			if err != nil {
+				return Result{}, err
 			}
 			pagePath = outBase + ".pdf"
+			confidences = append(confidences, confidence)
 		} else {
 			if req.OCR.Enabled {
 				// OCR is meaningful for the searchable-PDF case only
 				// (design doc sec. 4.3 stage 6); for jpeg/tiff output
 				// we still run OCR so a page tesseract cannot read at
 				// all is surfaced as a failure, but discard the text
-				// layer, since neither format carries one.
-				if _, err := p.runTesseract(ctx, tesseractBin, buildOCRPDFArgs(st.path, filepath.Join(scratch, fmt.Sprintf("page-%d-ocr-check", st.originalIndex)), languages)); err != nil {
-					return Result{}, fmt.Errorf("pipeline: OCR page %d: %w: %w", st.originalIndex, err, ErrOCRFailed)
+				// layer, since neither format carries one — the
+				// confidence gate still reads this pass's tsv output,
+				// though, since ocrPage always requests it.
+				_, confidence, err := p.ocrPage(ctx, tesseractBin, st.path, scratch, st.originalIndex, false, autoDetect, languages, &warnings)
+				if err != nil {
+					return Result{}, err
 				}
+				confidences = append(confidences, confidence)
 			}
 			out := filepath.Join(scratch, fmt.Sprintf("page-%d-out.%s", st.originalIndex, ext))
 			if err := p.runConvert(ctx, convertBin, buildConvertFormatArgs(st.path, out)); err != nil {
@@ -232,6 +254,9 @@ func (p *ExecPipeline) Process(ctx context.Context, req Request) (Result, error)
 		pagePaths:       assembledPages,
 		originalIndexes: assembledOriginalIndexes,
 		warnings:        warnings,
+		ocrEnabled:      req.OCR.Enabled,
+		confidences:     confidences,
+		minConfidence:   minConfidence,
 	})
 	if err != nil {
 		return Result{}, err
@@ -281,6 +306,121 @@ func (p *ExecPipeline) detectOrientation(ctx context.Context, tesseractBin, path
 		return 0, err
 	}
 	return parseOSDRotation(stdout)
+}
+
+// ocrPage runs OCR for one page and returns the output base (its
+// .pdf/.tsv files live under scratch, named outputBase+".pdf"/".tsv")
+// and the mean confidence the confidence gate (assemble) reads.
+// Dispatches to the two-pass auto-detect flow (ocrPageAuto) when
+// autoDetect is true; otherwise runs a single tesseract pass against
+// the request's configured languages. wantPDF controls whether a
+// searchable PDF is produced alongside the always-requested tsv
+// confidence data (buildOCRArgs).
+func (p *ExecPipeline) ocrPage(ctx context.Context, tesseractBin, inPath, scratch string, originalIndex int, wantPDF, autoDetect bool, languages []string, warnings *[]string) (outputBase string, confidence float64, err error) {
+	if autoDetect {
+		return p.ocrPageAuto(ctx, tesseractBin, inPath, scratch, originalIndex, wantPDF, warnings)
+	}
+	suffix := "ocr"
+	if !wantPDF {
+		suffix = "ocr-check"
+	}
+	outBase := filepath.Join(scratch, fmt.Sprintf("page-%d-%s", originalIndex, suffix))
+	if _, err := p.runTesseract(ctx, tesseractBin, buildOCRArgs(inPath, outBase, languages, wantPDF)); err != nil {
+		return "", 0, fmt.Errorf("pipeline: OCR page %d: %w: %w", originalIndex, err, ErrOCRFailed)
+	}
+	return outBase, p.readOCRConfidence(outBase, originalIndex, warnings), nil
+}
+
+// ocrPageAuto implements the "ocr.languages: [auto]" two-pass flow for
+// one page (PR brief: "pragmatische Auto-Language-Detection"):
+//
+//  1. OCR the page with defaultOCRLanguages (deu+eng) — the project's
+//     long-standing HomeLab default, and a safe first guess.
+//  2. Run detectLanguage (exec_argv.go) over that pass's recognized
+//     text against autoDetectCandidateLanguages to guess the page's
+//     actual language.
+//  3. If the guess is empty (no recognizable stopwords) or already
+//     covered by defaultOCRLanguages, stop here — a second pass would
+//     add no information (this is also what keeps "auto" from ever
+//     costing more than deu+eng for the common case where that
+//     default was already right).
+//  4. Otherwise, re-OCR once more with just the detected language and
+//     keep whichever of the two passes scored the higher mean
+//     confidence (parseOCRTSV) — the confidence gate's own signal
+//     doubles as this flow's pass-selection criterion, so a wrong
+//     detectLanguage guess costs at most one wasted tesseract call,
+//     never a worse result than pass 1 alone would have given.
+//
+// This deliberately never OCRs with more than two language
+// candidates in a single tesseract invocation — the project's own OCR
+// evaluation found that passing every installed language to `-l`
+// simultaneously measurably reduces recognition quality (shared
+// dictionary overlap between similar-script languages "correcting"
+// words into the wrong language's spelling — the same effect
+// documented in the scan-processor README's "OCR languages" section
+// for why a profile should not simply name every installed language).
+// A tesseract failure on pass 2 (e.g. a candidate language whose
+// tessdata went missing from the image despite being listed in
+// autoDetectCandidateLanguages) is not fatal: pass 1's already-usable
+// result is kept and a warning recorded, matching the confidence
+// gate's own "never fail, only flag/warn" contract.
+func (p *ExecPipeline) ocrPageAuto(ctx context.Context, tesseractBin, inPath, scratch string, originalIndex int, wantPDF bool, warnings *[]string) (outputBase string, confidence float64, err error) {
+	pass1Base := filepath.Join(scratch, fmt.Sprintf("page-%d-ocr-auto1", originalIndex))
+	if _, err := p.runTesseract(ctx, tesseractBin, buildOCRArgs(inPath, pass1Base, defaultOCRLanguages, wantPDF)); err != nil {
+		return "", 0, fmt.Errorf("pipeline: OCR page %d (auto-language pass 1): %w: %w", originalIndex, err, ErrOCRFailed)
+	}
+	tsv1, readErr := os.ReadFile(pass1Base + ".tsv")
+	if readErr != nil {
+		*warnings = append(*warnings, fmt.Sprintf("page %d: could not read OCR confidence data (auto-language pass 1): %v", originalIndex, readErr))
+		return pass1Base, 0, nil
+	}
+	conf1, _, words1 := parseOCRTSV(string(tsv1))
+
+	detected := detectLanguage(strings.Join(words1, " "), autoDetectCandidateLanguages)
+	if detected == "" || containsLanguage(defaultOCRLanguages, detected) {
+		return pass1Base, conf1, nil
+	}
+
+	pass2Base := filepath.Join(scratch, fmt.Sprintf("page-%d-ocr-auto2", originalIndex))
+	if _, err := p.runTesseract(ctx, tesseractBin, buildOCRArgs(inPath, pass2Base, []string{detected}, wantPDF)); err != nil {
+		*warnings = append(*warnings, fmt.Sprintf("page %d: auto-language re-OCR with detected language %q failed, keeping deu+eng result: %v", originalIndex, detected, err))
+		return pass1Base, conf1, nil
+	}
+	tsv2, readErr := os.ReadFile(pass2Base + ".tsv")
+	if readErr != nil {
+		*warnings = append(*warnings, fmt.Sprintf("page %d: could not read OCR confidence data (auto-language pass 2, detected %q): %v", originalIndex, detected, readErr))
+		return pass1Base, conf1, nil
+	}
+	conf2, _, _ := parseOCRTSV(string(tsv2))
+
+	if conf2 > conf1 {
+		return pass2Base, conf2, nil
+	}
+	return pass1Base, conf1, nil
+}
+
+// readOCRConfidence reads outputBase+".tsv" (written by buildOCRArgs's
+// always-included "tsv" configfile) and returns its mean per-word OCR
+// confidence for the confidence gate. A read failure is logged via a
+// warning and treated as 0 confidence rather than failing the page —
+// the PDF/converted output tesseract already produced is still
+// usable; losing only the advisory confidence signal applies the
+// gate's own "never fail, only flag" contract to its own plumbing,
+// not just its threshold check. A tsv with no recognized words at all
+// (wordCount 0 — a blank or entirely unreadable page) also gets its
+// own warning, since a mean of exactly 0 in that case reflects "no
+// data", not "0% confident text was found".
+func (p *ExecPipeline) readOCRConfidence(outputBase string, originalIndex int, warnings *[]string) float64 {
+	data, err := os.ReadFile(outputBase + ".tsv")
+	if err != nil {
+		*warnings = append(*warnings, fmt.Sprintf("page %d: could not read OCR confidence data: %v", originalIndex, err))
+		return 0
+	}
+	mean, wordCount, _ := parseOCRTSV(string(data))
+	if wordCount == 0 {
+		*warnings = append(*warnings, fmt.Sprintf("page %d: OCR found no recognizable words", originalIndex))
+	}
+	return mean
 }
 
 func (p *ExecPipeline) runConvert(ctx context.Context, convertBin string, args []string) error {
@@ -342,6 +482,17 @@ type assembleParams struct {
 	// pages have shifted per_page's output numbering.
 	originalIndexes []int
 	warnings        []string
+
+	// ocrEnabled, confidences, and minConfidence feed the confidence
+	// gate (applyConfidenceGate below) — PR brief "Konfidenz-/
+	// Qualitäts-Gate". confidences[i] is the mean OCR confidence
+	// (parseOCRTSV, exec_argv.go) for the page that produced
+	// pagePaths[i]; it is only populated (and only meaningful) when
+	// ocrEnabled is true, mirroring how Process only appends to its
+	// own confidences slice under the same condition.
+	ocrEnabled    bool
+	confidences   []float64
+	minConfidence float64
 }
 
 // assemble implements design doc sec. 4.3 stage 7: merge params.pagePaths
@@ -357,14 +508,16 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 			if err != nil {
 				return nil, fmt.Errorf("pipeline: read assembled page %d: %w", i, err)
 			}
-			docs = append(docs, Document{
+			doc := Document{
 				Index:       i,
 				Filename:    fmt.Sprintf("%s-page-%d.%s", params.requestID, i+1, ext),
 				Content:     content,
 				ContentType: contentType,
 				PageCount:   1,
 				Warnings:    warningsFor(params.originalIndexes[i], params.warnings),
-			})
+			}
+			applyConfidenceGate(&doc, params, i, i+1)
+			docs = append(docs, doc)
 		}
 		return docs, nil
 	}
@@ -375,14 +528,16 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 		if err != nil {
 			return nil, fmt.Errorf("pipeline: read assembled page: %w", err)
 		}
-		return []Document{{
+		doc := Document{
 			Index:       0,
 			Filename:    fmt.Sprintf("%s.%s", params.requestID, ext),
 			Content:     content,
 			ContentType: contentType,
 			PageCount:   1,
 			Warnings:    params.warnings,
-		}}, nil
+		}
+		applyConfidenceGate(&doc, params, 0, len(params.confidences))
+		return []Document{doc}, nil
 	}
 
 	switch params.format {
@@ -395,14 +550,16 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 		if err != nil {
 			return nil, fmt.Errorf("pipeline: read combined PDF: %w", err)
 		}
-		return []Document{{
+		doc := Document{
 			Index:       0,
 			Filename:    fmt.Sprintf("%s.%s", params.requestID, ext),
 			Content:     content,
 			ContentType: contentType,
 			PageCount:   len(params.pagePaths),
 			Warnings:    params.warnings,
-		}}, nil
+		}
+		applyConfidenceGate(&doc, params, 0, len(params.confidences))
+		return []Document{doc}, nil
 
 	case OutputFormatTIFF:
 		out := filepath.Join(params.scratch, "combined.tiff")
@@ -413,14 +570,16 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 		if err != nil {
 			return nil, fmt.Errorf("pipeline: read combined TIFF: %w", err)
 		}
-		return []Document{{
+		doc := Document{
 			Index:       0,
 			Filename:    fmt.Sprintf("%s.%s", params.requestID, ext),
 			Content:     content,
 			ContentType: contentType,
 			PageCount:   len(params.pagePaths),
 			Warnings:    params.warnings,
-		}}, nil
+		}
+		applyConfidenceGate(&doc, params, 0, len(params.confidences))
+		return []Document{doc}, nil
 
 	default:
 		// JPEG cannot hold more than one page per file — a
@@ -430,6 +589,28 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 		return nil, fmt.Errorf(
 			"pipeline: page_grouping=combined with output_format=jpeg and %d pages: JPEG does not support multiple pages per file: %w",
 			len(params.pagePaths), ErrUnsupportedFormat)
+	}
+}
+
+// applyConfidenceGate sets doc.OCRConfidence/doc.LowConfidence (and,
+// when flagged, appends a matching warning to doc.Warnings) from
+// params.confidences[from:to] — a per_page document reads its own
+// single entry (from==to-1), a combined document aggregates every
+// surviving page's confidence via meanFloat64 (from==0,
+// to==len(params.confidences)). A no-op when OCR did not run
+// (params.ocrEnabled false) or there is no confidence data for the
+// requested range (a defensive bounds check, not expected to trigger
+// in practice since Process always appends exactly one confidences
+// entry per assembled page when OCR is enabled).
+func applyConfidenceGate(doc *Document, params assembleParams, from, to int) {
+	if !params.ocrEnabled || from < 0 || to > len(params.confidences) || from >= to {
+		return
+	}
+	doc.OCRConfidence = meanFloat64(params.confidences[from:to])
+	doc.LowConfidence = isLowConfidence(doc.OCRConfidence, params.minConfidence)
+	if doc.LowConfidence {
+		doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+			"low OCR confidence (%.1f, threshold %.1f)", doc.OCRConfidence, params.minConfidence))
 	}
 }
 

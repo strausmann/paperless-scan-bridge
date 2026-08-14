@@ -99,6 +99,44 @@ type processRequestPayload struct {
 type ocrPayload struct {
 	Enabled   bool     `json:"enabled"`
 	Languages []string `json:"languages"`
+	// MinConfidence overrides the pipeline's default OCR confidence
+	// gate threshold (pipeline.defaultMinOCRConfidence) when
+	// non-zero. See validateProcessRequest for its bounds check and
+	// pipeline.OCRConfig.MinConfidence's doc comment for the gate
+	// itself.
+	MinConfidence float64 `json:"min_confidence,omitempty"`
+}
+
+// autoLanguageToken mirrors internal/pipeline's own copy of the same
+// constant (exec_argv.go) — the special ocr.languages value that
+// requests the two-pass auto-detect flow. Duplicated independently
+// here rather than imported/exported from pipeline, matching this
+// package's established convention of keeping its own wire-shape
+// copies of OCRConfig/PageGrouping/OutputFormat (see api.go's doc
+// comment) even though procapi already imports pipeline for other
+// reasons — the wire-facing validation logic and the pipeline's own
+// internal dispatch logic are kept independently editable.
+const autoLanguageToken = "auto"
+
+// isAutoLanguageRequest reports whether languages requests the
+// two-pass auto-detect flow: exactly one entry, equal to
+// autoLanguageToken.
+func isAutoLanguageRequest(languages []string) bool {
+	return len(languages) == 1 && languages[0] == autoLanguageToken
+}
+
+// containsAutoToken reports whether languages contains autoLanguageToken
+// anywhere, regardless of position or other entries — used by
+// validateProcessRequest to reject "auto" mixed with real language
+// codes (isAutoLanguageRequest alone cannot distinguish "auto mixed
+// in" from "no auto at all", both false).
+func containsAutoToken(languages []string) bool {
+	for _, lang := range languages {
+		if lang == autoLanguageToken {
+			return true
+		}
+	}
+	return false
 }
 
 // processMetadata is part 0 of the multipart/mixed 200 OK response —
@@ -115,6 +153,12 @@ type documentMetadata struct {
 	Filename    string   `json:"filename"`
 	ContentType string   `json:"content_type"`
 	Warnings    []string `json:"warnings"`
+	// OCRConfidence and LowConfidence carry the confidence gate's
+	// result (pipeline.Document's fields of the same name) — see
+	// that struct's doc comment. Both are the zero value when OCR did
+	// not run.
+	OCRConfidence float64 `json:"ocr_confidence"`
+	LowConfidence bool    `json:"low_confidence"`
 }
 
 // defaultProcessTimeout applies when the caller omits
@@ -156,17 +200,26 @@ func (s *Server) validateProcessRequest(req processRequestPayload) error {
 	if req.TimeoutSeconds < 0 {
 		return fmt.Errorf("timeout_seconds must not be negative")
 	}
-	// Only meaningful when OCR actually runs: an ocr.languages entry
-	// on a request with ocr.enabled=false is inert (exec_pipeline.go
-	// never reads Languages unless OCR.Enabled), so rejecting it here
-	// would reject requests that carry harmless leftover config
-	// rather than anything that could reach tesseract(1).
+	// Only meaningful when OCR actually runs: an ocr.languages/
+	// ocr.min_confidence entry on a request with ocr.enabled=false is
+	// inert (exec_pipeline.go never reads either unless OCR.Enabled),
+	// so rejecting it here would reject requests that carry harmless
+	// leftover config rather than anything that could reach
+	// tesseract(1).
 	if req.OCR.Enabled {
-		allowed := s.allowedOCRLanguages()
-		for _, lang := range req.OCR.Languages {
-			if !allowed[lang] {
-				return fmt.Errorf("ocr.languages: %q is not an installed tessdata language pack (want one of: %s)",
-					lang, strings.Join(sortedKeys(allowed), ", "))
+		if req.OCR.MinConfidence < 0 || req.OCR.MinConfidence > 100 {
+			return fmt.Errorf("ocr.min_confidence %v: must be between 0 and 100", req.OCR.MinConfidence)
+		}
+		if containsAutoToken(req.OCR.Languages) && !isAutoLanguageRequest(req.OCR.Languages) {
+			return fmt.Errorf("ocr.languages: %q must be the only entry when used", autoLanguageToken)
+		}
+		if !isAutoLanguageRequest(req.OCR.Languages) {
+			allowed := s.allowedOCRLanguages()
+			for _, lang := range req.OCR.Languages {
+				if !allowed[lang] {
+					return fmt.Errorf("ocr.languages: %q is not an installed tessdata language pack (want one of: %s, or %q for auto-detection)",
+						lang, strings.Join(sortedKeys(allowed), ", "), autoLanguageToken)
+				}
 			}
 		}
 	}
@@ -225,7 +278,7 @@ func (s *Server) handleProcess(w http.ResponseWriter, r *http.Request) {
 	pipelineReq := pipeline.Request{
 		RequestID:      req.RequestID,
 		Pages:          pages,
-		OCR:            pipeline.OCRConfig{Enabled: req.OCR.Enabled, Languages: req.OCR.Languages},
+		OCR:            pipeline.OCRConfig{Enabled: req.OCR.Enabled, Languages: req.OCR.Languages, MinConfidence: req.OCR.MinConfidence},
 		Deskew:         req.Deskew,
 		RemoveBlank:    req.RemoveBlank,
 		RotatePages:    req.RotatePages,
@@ -344,11 +397,13 @@ func (s *Server) writeProcessResponse(w http.ResponseWriter, r *http.Request, re
 	}
 	for _, doc := range result.Documents {
 		meta.Documents = append(meta.Documents, documentMetadata{
-			Index:       doc.Index,
-			PageCount:   doc.PageCount,
-			Filename:    doc.Filename,
-			ContentType: doc.ContentType,
-			Warnings:    doc.Warnings,
+			Index:         doc.Index,
+			PageCount:     doc.PageCount,
+			Filename:      doc.Filename,
+			ContentType:   doc.ContentType,
+			Warnings:      doc.Warnings,
+			OCRConfidence: doc.OCRConfidence,
+			LowConfidence: doc.LowConfidence,
 		})
 	}
 
