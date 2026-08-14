@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"sort"
 	"strings"
 	"time"
 
@@ -48,6 +49,25 @@ type errorResponse struct {
 
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, code, hint string) {
 	s.writeJSON(w, r, status, errorResponse{Error: code, Hint: hint})
+}
+
+// isMaxBytesError reports whether err originates from an
+// http.MaxBytesReader hitting its limit (issue #47). Both a direct
+// *http.MaxBytesError (Go 1.19+, checked first) and a decoder that
+// re-wraps the reader's error in its own text (mime/multipart's
+// NextPart/Read paths do not consistently propagate the typed error
+// unwrapped) are treated as the same condition — the message
+// "http: request body too large" is MaxBytesError.Error()'s exact,
+// stable text.
+func isMaxBytesError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		return true
+	}
+	return strings.Contains(err.Error(), "http: request body too large")
 }
 
 // healthResponse is the /health payload.
@@ -118,8 +138,10 @@ var allowedOutputFormats = map[string]bool{
 // validateProcessRequest checks the fields scan-processor can reject
 // cheaply, before ever invoking the pipeline — mirrors
 // scanapi.validateScanRequest's role and its "cheap rejection before
-// touching the backend" rationale.
-func validateProcessRequest(req processRequestPayload) error {
+// touching the backend" rationale. It is a method (not a free
+// function) so the ocr.languages check below can consult the
+// Server's configured allowlist (issue #47).
+func (s *Server) validateProcessRequest(req processRequestPayload) error {
 	if req.RequestID == "" {
 		return fmt.Errorf("request_id is required")
 	}
@@ -134,7 +156,32 @@ func validateProcessRequest(req processRequestPayload) error {
 	if req.TimeoutSeconds < 0 {
 		return fmt.Errorf("timeout_seconds must not be negative")
 	}
+	// Only meaningful when OCR actually runs: an ocr.languages entry
+	// on a request with ocr.enabled=false is inert (exec_pipeline.go
+	// never reads Languages unless OCR.Enabled), so rejecting it here
+	// would reject requests that carry harmless leftover config
+	// rather than anything that could reach tesseract(1).
+	if req.OCR.Enabled {
+		allowed := s.allowedOCRLanguages()
+		for _, lang := range req.OCR.Languages {
+			if !allowed[lang] {
+				return fmt.Errorf("ocr.languages: %q is not an installed tessdata language pack (want one of: %s)",
+					lang, strings.Join(sortedKeys(allowed), ", "))
+			}
+		}
+	}
 	return nil
+}
+
+// sortedKeys returns m's keys in sorted order, for a deterministic
+// error message in validateProcessRequest.
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // handleProcess implements POST /process: decode the multipart/mixed
@@ -142,12 +189,17 @@ func validateProcessRequest(req processRequestPayload) error {
 // single-flight pipeline slot, and encode the result (or error) per
 // the frozen wire contract.
 func (s *Server) handleProcess(w http.ResponseWriter, r *http.Request) {
-	req, pages, err := decodeProcessRequest(r)
+	req, pages, err := s.decodeProcessRequest(w, r)
 	if err != nil {
+		if isMaxBytesError(err) {
+			s.writeError(w, r, http.StatusRequestEntityTooLarge, "request_too_large",
+				fmt.Sprintf("request body exceeds the %d byte limit", s.maxRequestBytes()))
+			return
+		}
 		s.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if err := validateProcessRequest(req); err != nil {
+	if err := s.validateProcessRequest(req); err != nil {
 		s.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -221,7 +273,14 @@ func (s *Server) writeProcessError(w http.ResponseWriter, r *http.Request, err e
 // scan-bridge for this leg — design doc sec. 4.2 Option A — so pages
 // only ever exist as request-body bytes, never as files scan-bridge
 // already wrote).
-func decodeProcessRequest(r *http.Request) (processRequestPayload, []pipeline.Page, error) {
+//
+// r.Body is wrapped in http.MaxBytesReader before any part is read
+// (issue #47) so the io.ReadAll(part) calls below cannot be made to
+// buffer an unbounded amount of memory — once the cumulative read
+// across the control payload and every page part exceeds
+// s.maxRequestBytes(), the next Read returns a *http.MaxBytesError,
+// which handleProcess maps to 413 via isMaxBytesError.
+func (s *Server) decodeProcessRequest(w http.ResponseWriter, r *http.Request) (processRequestPayload, []pipeline.Page, error) {
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		return processRequestPayload{}, nil, fmt.Errorf("parse content-type: %w", err)
@@ -234,6 +293,7 @@ func decodeProcessRequest(r *http.Request) (processRequestPayload, []pipeline.Pa
 		return processRequestPayload{}, nil, errors.New("multipart request missing boundary parameter")
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBytes())
 	mr := multipart.NewReader(r.Body, boundary)
 
 	ctrlPart, err := mr.NextPart()

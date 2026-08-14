@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -162,6 +163,125 @@ func TestEnvOr(t *testing.T) {
 	}
 }
 
+// TestEnvInt64Or mirrors TestEnvOr for the int64-valued env var
+// helper (SCAN_PROCESSOR_MAX_REQUEST_BYTES). Not marked t.Parallel()
+// for the same os.Setenv/os.Unsetenv-vs-t.Setenv reason as TestEnvOr.
+func TestEnvInt64Or(t *testing.T) {
+	cases := []struct {
+		name     string
+		key      string
+		value    string
+		setEnv   bool
+		fallback int64
+		want     int64
+	}{
+		{
+			name:     "env set to a valid int64",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR",
+			value:    "12345",
+			setEnv:   true,
+			fallback: defaultMaxRequestBytes,
+			want:     12345,
+		},
+		{
+			name:     "env unset falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_UNSET",
+			setEnv:   false,
+			fallback: defaultMaxRequestBytes,
+			want:     defaultMaxRequestBytes,
+		},
+		{
+			name:     "env set to empty falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_EMPTY",
+			value:    "",
+			setEnv:   true,
+			fallback: defaultMaxRequestBytes,
+			want:     defaultMaxRequestBytes,
+		},
+		{
+			name:     "env set to a non-numeric value falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT64_OR_INVALID",
+			value:    "not-a-number",
+			setEnv:   true,
+			fallback: defaultMaxRequestBytes,
+			want:     defaultMaxRequestBytes,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setEnv {
+				if err := os.Setenv(tc.key, tc.value); err != nil {
+					t.Fatalf("Setenv: %v", err)
+				}
+				defer func() { _ = os.Unsetenv(tc.key) }()
+			}
+			if got := envInt64Or(tc.key, tc.fallback); got != tc.want {
+				t.Errorf("envInt64Or(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEnvIntOr mirrors TestEnvOr for the int-valued env var helper
+// (SCAN_PROCESSOR_READ_TIMEOUT_SECONDS).
+func TestEnvIntOr(t *testing.T) {
+	cases := []struct {
+		name     string
+		key      string
+		value    string
+		setEnv   bool
+		fallback int
+		want     int
+	}{
+		{
+			name:     "env set to a valid int",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR",
+			value:    "5",
+			setEnv:   true,
+			fallback: defaultReadTimeoutSeconds,
+			want:     5,
+		},
+		{
+			name:     "env unset falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_UNSET",
+			setEnv:   false,
+			fallback: defaultReadTimeoutSeconds,
+			want:     defaultReadTimeoutSeconds,
+		},
+		{
+			name:     "env set to empty falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_EMPTY",
+			value:    "",
+			setEnv:   true,
+			fallback: defaultReadTimeoutSeconds,
+			want:     defaultReadTimeoutSeconds,
+		},
+		{
+			name:     "env set to a non-numeric value falls back",
+			key:      "SCAN_PROCESSOR_TEST_ENV_INT_OR_INVALID",
+			value:    "soon",
+			setEnv:   true,
+			fallback: defaultReadTimeoutSeconds,
+			want:     defaultReadTimeoutSeconds,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setEnv {
+				if err := os.Setenv(tc.key, tc.value); err != nil {
+					t.Fatalf("Setenv: %v", err)
+				}
+				defer func() { _ = os.Unsetenv(tc.key) }()
+			}
+			if got := envIntOr(tc.key, tc.fallback); got != tc.want {
+				t.Errorf("envIntOr(%q, %d) = %d, want %d", tc.key, tc.fallback, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRun_ServesHealthAndShutsDownOnSIGTERM is the end-to-end test
 // for run(): it starts the real Unix-socket listener, confirms GET
 // /health answers over that socket, sends this process a real
@@ -222,5 +342,97 @@ func TestRun_ServesHealthAndShutsDownOnSIGTERM(t *testing.T) {
 
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Fatalf("socket file still present after shutdown: err = %v", err)
+	}
+}
+
+// TestRun_SlowRequestBodyTimesOutInsteadOfHanging covers issue #47's
+// Read-Timeout hardening end to end: it starts the real daemon with a
+// deliberately tiny --read-timeout-seconds, opens a raw connection to
+// its Unix socket, sends a POST /process request line and headers
+// declaring a large Content-Length, and then — mirroring a stalled or
+// slow-loris-style client — never sends the body. The assertion is
+// that reading the connection produces SOMETHING (EOF, connection
+// reset, or an error response) well within a bound generously larger
+// than --read-timeout-seconds, proving the server's ReadTimeout
+// closed the stalled connection rather than the handler (and this
+// test) hanging on it forever.
+//
+// Not marked t.Parallel(): same process-wide-signal reason as
+// TestRun_ServesHealthAndShutsDownOnSIGTERM, which this test also
+// uses to shut the daemon down afterwards.
+func TestRun_SlowRequestBodyTimesOutInsteadOfHanging(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "s.sock")
+
+	const readTimeoutSeconds = 1
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- run([]string{
+			"--socket", socketPath,
+			"--read-timeout-seconds", fmt.Sprint(readTimeoutSeconds),
+		}, io.Discard, io.Discard)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(socketPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("socket file never appeared")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial socket: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Full request line + headers, declaring a body far larger than
+	// what we are about to actually send -- then nothing. A real
+	// client would keep writing; this one stops here.
+	reqHead := "POST /process HTTP/1.1\r\n" +
+		"Host: scan-processor.invalid\r\n" +
+		"Content-Type: multipart/mixed; boundary=xyz\r\n" +
+		"Content-Length: 1000000\r\n" +
+		"\r\n"
+	if _, err := conn.Write([]byte(reqHead)); err != nil {
+		t.Fatalf("write request head: %v", err)
+	}
+
+	// Our OWN deadline is deliberately generous relative to the
+	// server's 1s --read-timeout-seconds -- if IT fires first, that
+	// means the server's ReadTimeout did not (the connection hung),
+	// which is the one and only failure this test is trying to catch.
+	ownDeadline := time.Duration(readTimeoutSeconds) * time.Second * 5
+	if err := conn.SetReadDeadline(time.Now().Add(ownDeadline)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	buf := make([]byte, 4096)
+	n, readErr := conn.Read(buf)
+	if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+		t.Fatalf("read timed out after our OWN %s deadline — the server's --read-timeout-seconds=%d did not fire (connection hung)",
+			ownDeadline, readTimeoutSeconds)
+	}
+	// Anything else counts as proof the server acted well within our
+	// much larger deadline: net/http.Server's ReadTimeout can either
+	// close the connection outright (readErr == io.EOF / connection
+	// reset, n == 0) or write an explicit response first (e.g. "408
+	// Request Timeout") before closing (readErr == nil, n > 0) -- both
+	// are "did not hang"; only our own deadline firing above would
+	// mean the mechanism failed.
+	t.Logf("connection outcome within %s: n=%d readErr=%v", ownDeadline, n, readErr)
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM to self: %v", err)
+	}
+	select {
+	case err := <-runErrCh:
+		if err != nil {
+			t.Fatalf("run() returned error after SIGTERM: %v", err)
+		}
+	case <-time.After(gracefulShutdownTimeout + 5*time.Second):
+		t.Fatal("run() did not return after SIGTERM within the graceful shutdown budget")
 	}
 }
