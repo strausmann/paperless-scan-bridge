@@ -374,7 +374,10 @@ func (p *ExecPipeline) ocrPageAuto(ctx context.Context, tesseractBin, inPath, sc
 		*warnings = append(*warnings, fmt.Sprintf("page %d: could not read OCR confidence data (auto-language pass 1): %v", originalIndex, readErr))
 		return pass1Base, 0, nil
 	}
-	conf1, _, words1 := parseOCRTSV(string(tsv1))
+	conf1, wordCount1, words1 := parseOCRTSV(string(tsv1))
+	if wordCount1 == 0 {
+		warnNoWordsFound(originalIndex, warnings)
+	}
 
 	detected := detectLanguage(strings.Join(words1, " "), autoDetectCandidateLanguages)
 	if detected == "" || containsLanguage(defaultOCRLanguages, detected) {
@@ -383,6 +386,21 @@ func (p *ExecPipeline) ocrPageAuto(ctx context.Context, tesseractBin, inPath, sc
 
 	pass2Base := filepath.Join(scratch, fmt.Sprintf("page-%d-ocr-auto2", originalIndex))
 	if _, err := p.runTesseract(ctx, tesseractBin, buildOCRArgs(inPath, pass2Base, []string{detected}, wantPDF)); err != nil {
+		// A context expiry/cancellation surfacing here (as an ordinary
+		// tesseract error, since runCommand's classifyContextError
+		// already folded it into err) must NOT be swallowed as a
+		// soft pass-2 failure -- unlike a genuine tesseract error
+		// (bad tessdata, corrupt image), this is the invariant every
+		// other exec call in Process() enforces via its own ctx.Err()
+		// check at the top of each per-page loop iteration
+		// (design doc / wire contract: ErrTimeout -> HTTP 504). This
+		// call is the one exec site with no further loop iteration
+		// behind it to catch a mid-flight expiry, so it must check
+		// explicitly rather than inheriting the "soft failure, fall
+		// back to pass 1" handling below.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", 0, classifyContextError(ctxErr)
+		}
 		*warnings = append(*warnings, fmt.Sprintf("page %d: auto-language re-OCR with detected language %q failed, keeping deu+eng result: %v", originalIndex, detected, err))
 		return pass1Base, conf1, nil
 	}
@@ -391,12 +409,23 @@ func (p *ExecPipeline) ocrPageAuto(ctx context.Context, tesseractBin, inPath, sc
 		*warnings = append(*warnings, fmt.Sprintf("page %d: could not read OCR confidence data (auto-language pass 2, detected %q): %v", originalIndex, detected, readErr))
 		return pass1Base, conf1, nil
 	}
-	conf2, _, _ := parseOCRTSV(string(tsv2))
+	conf2, wordCount2, _ := parseOCRTSV(string(tsv2))
+	if wordCount2 == 0 {
+		warnNoWordsFound(originalIndex, warnings)
+	}
 
 	if conf2 > conf1 {
 		return pass2Base, conf2, nil
 	}
 	return pass1Base, conf1, nil
+}
+
+// warnNoWordsFound appends the confidence gate's "no recognizable
+// words" warning for originalIndex -- shared by readOCRConfidence
+// (the non-auto OCR path) and ocrPageAuto (both of its tsv reads), so
+// the exact wording cannot drift between call sites.
+func warnNoWordsFound(originalIndex int, warnings *[]string) {
+	*warnings = append(*warnings, fmt.Sprintf("page %d: OCR found no recognizable words", originalIndex))
 }
 
 // readOCRConfidence reads outputBase+".tsv" (written by buildOCRArgs's
@@ -418,7 +447,7 @@ func (p *ExecPipeline) readOCRConfidence(outputBase string, originalIndex int, w
 	}
 	mean, wordCount, _ := parseOCRTSV(string(data))
 	if wordCount == 0 {
-		*warnings = append(*warnings, fmt.Sprintf("page %d: OCR found no recognizable words", originalIndex))
+		warnNoWordsFound(originalIndex, warnings)
 	}
 	return mean
 }
