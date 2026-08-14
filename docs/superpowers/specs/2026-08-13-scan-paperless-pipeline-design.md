@@ -75,16 +75,27 @@ Context7, because the Task 10 sketch in the 2026-04-30 plan and the local `paper
 `references/api-endpoints.md` **disagree with each other and, in part, with upstream** on two
 points that matter for this design:
 
-- **`POST /api/documents/post_document/` is asynchronous.** It returns `200 OK` with body
-  `{"task_id": "<uuid>"}` — **not** `{"id": <doc-id>}`. The document does not exist in Paperless's
-  database yet; consumption runs as a Celery task. To learn the outcome (and the eventual
-  Paperless document ID), the caller polls `GET /api/tasks/?task_id=<uuid>` until the task reaches
-  `SUCCESS` (body then carries `related_document`) or `FAILURE`. **The Task 10 plan sketch's
-  `PaperlessDocument`/`PostDocument` code assumed a synchronous `{"id": N}` response — that
-  assumption is wrong and must not be carried into the real implementation.** The 2026-04-30
-  design spec's "Paperless upload semantics" section already documented the correct async
-  behaviour and a polling cadence (exponential back-off, `500ms → 5s`, capped at 5 minutes); that
-  reasoning is reused below.
+- **`POST /api/documents/post_document/` is asynchronous.** It returns `200 OK` — **not**
+  `{"id": <doc-id>}`. The document does not exist in Paperless's database yet; consumption runs as
+  a Celery task. To learn the outcome (and the eventual Paperless document ID), the caller polls
+  `GET /api/tasks/?task_id=<uuid>` until the task reaches `SUCCESS` (body then carries
+  `related_document`) or `FAILURE`. **The Task 10 plan sketch's `PaperlessDocument`/`PostDocument`
+  code assumed a synchronous `{"id": N}` response — that assumption is wrong and must not be
+  carried into the real implementation.** The 2026-04-30 design spec's "Paperless upload
+  semantics" section already documented the correct async behaviour and a polling cadence
+  (exponential back-off, `500ms → 5s`, capped at 5 minutes); that reasoning is reused below.
+  **Correction (2026-08-14, implementation Task 4, `components/scan-bridge/internal/destinations/
+  paperless/paperless.go`):** the response body is a **bare JSON string** task_id, e.g.
+  `"5af5cbd5-a8a8-49d9-af42-0f815d0caa0c"` — **not** the `{"task_id": "<uuid>"}` object this
+  section originally (wrongly) documented from the upstream `docs/api.md` prose. Belegt zweifach:
+  (1) a live upload against a real Paperless-ngx v3.0.5 instance returned the bare string; (2) the
+  upstream handler itself, `github.com/paperless-ngx/paperless-ngx`
+  `src/documents/views.py::PostDocumentView.post`, ends with `return Response(async_task.id)` —
+  DRF serializes a bare UUID as a bare JSON string, never wrapped in an object. The
+  `docs/api.md` prose this section originally cited described the field name inside the async
+  task's *eventual* result, not the literal shape of `post_document/`'s own HTTP response body.
+  The implementation (`decodeTaskID`) decodes the bare-string form first and falls back to the
+  object form for robustness, but every real deployment tested against sends the bare string.
 - **`tags` is a repeated integer field**, one form part per tag ID (`tags=3`, `tags=7`, ...) — not
   a comma-separated string of names, as the local `paperless-ngx` skill's reference currently
   documents, and not a single string per tag as the Task 10 sketch wrote. `correspondent`,
@@ -321,9 +332,11 @@ type TypeMapping struct {
   optional), `tags` (int, repeated — **one form field per tag ID**, not comma-joined, not names),
   `archive_serial_number` (optional), `custom_fields` (optional). Effective tag IDs come from
   `tag.Merge(cfg.DefaultTagIDs, cfg.DefaultTagStrategy, ...)` — the existing merge algebra, unchanged.
-- **Response handling:** decode `{"task_id": "<uuid>"}`. **Do not** assume a synchronous document
-  ID (§2's correction to the Task 10 sketch). What `Deliver` does with the task ID is the sync/async
-  question addressed in §7.
+- **Response handling:** decode the response body as a **bare JSON string** task_id (§2's
+  2026-08-14 correction — **not** `{"task_id": "<uuid>"}`; the implementation additionally
+  accepts the object form as a fallback for robustness, but the bare string is the real,
+  verified shape). **Do not** assume a synchronous document ID (§2's correction to the Task 10
+  sketch). What `Deliver` does with the task ID is the sync/async question addressed in §7.
 - **Doc-type mapping (ADR 0017):** `Deliver` looks up `doc.DocType` in `cfg.DocumentTypeMap`; a
   miss falls back to `cfg.CorrespondentID`/`cfg.DocumentTypeID`/`cfg.DefaultTagIDs` only (no error —
   an unmapped type is a valid "use the profile defaults" case, not a failure).

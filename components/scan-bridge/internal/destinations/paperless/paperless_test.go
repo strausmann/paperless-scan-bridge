@@ -170,6 +170,57 @@ func decodeUpload(t *testing.T, r *http.Request) parsedUpload {
 	return got
 }
 
+// TestDeliverDecodesBareStringTaskIDResponse locks in the response shape
+// Paperless-ngx actually sends: a BARE JSON string, e.g.
+// "5af5cbd5-a8a8-49d9-af42-0f815d0caa0c" — not the
+// {"task_id": "<uuid>"} object this package's doc comments and the
+// design spec originally (wrongly) assumed. Verified two ways: (1) a
+// live upload against a real Paperless-ngx v3.0.5 instance; (2) the
+// upstream handler itself, github.com/paperless-ngx/paperless-ngx
+// src/documents/views.py PostDocumentView.post, ends with
+// `return Response(async_task.id)` — DRF serializes a bare UUID string
+// as a bare JSON string, not wrapped in an object. Before the fix this
+// test fails with "json: cannot unmarshal string into Go value of type
+// paperless.postDocumentResponse", reproducing the real-world upload
+// failure this fix addresses.
+func TestDeliverDecodesBareStringTaskIDResponse(t *testing.T) {
+	t.Parallel()
+
+	const wantTaskID = "5af5cbd5-a8a8-49d9-af42-0f815d0caa0c"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = decodeUpload(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// The real API response: a bare JSON string, no {"task_id": ...} wrapper.
+		_ = json.NewEncoder(w).Encode(wantTaskID)
+	}))
+	t.Cleanup(srv.Close)
+
+	dest, err := NewDestination(profileCfg(map[string]any{"base_url": srv.URL}), stubSecrets(map[string]string{
+		"PAPERLESS_API_TOKEN": "tok",
+	}))
+	if err != nil {
+		t.Fatalf("NewDestination() error = %v", err)
+	}
+
+	doc := destinations.Document{Filename: "x.pdf", Content: strings.NewReader("x"), ContentType: "application/pdf"}
+	result, err := dest.Deliver(context.Background(), doc, destinations.Metadata{}, profileCfg(map[string]any{"base_url": srv.URL}))
+	if err != nil {
+		t.Fatalf("Deliver() error = %v, want nil (bare-string task_id response must decode)", err)
+	}
+	if result.Status != "submitted" {
+		t.Errorf("Deliver() result.Status = %q, want %q", result.Status, "submitted")
+	}
+	if result.Reference != wantTaskID {
+		t.Errorf("Deliver() result.Reference = %q, want %q", result.Reference, wantTaskID)
+	}
+}
+
+// TestDeliverHappyPathObjectFormResponseStillDecodes covers the
+// fallback path: decodeTaskID also accepts the {"task_id": "<uuid>"}
+// object form, in case some Paperless-ngx version or reverse-proxy
+// configuration wraps it differently than the version this fix was
+// verified against (v3.0.5).
 func TestDeliverHappyPathSubmitsMultipartUpload(t *testing.T) {
 	t.Parallel()
 
@@ -273,7 +324,7 @@ func TestDeliverOmitsAbsentOptionalFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = decodeUpload(t, r)
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"task_id": "task-1"})
+		_ = json.NewEncoder(w).Encode("task-1") // real API shape: bare JSON string
 	}))
 	t.Cleanup(srv.Close)
 
@@ -369,9 +420,16 @@ func TestDeliverErrorPathsFromPaperless(t *testing.T) {
 			wantSubstr: "503",
 		},
 		{
-			name:       "200_with_empty_task_id_is_invalid_response",
+			name:       "200_with_empty_task_id_object_form_is_invalid_response",
 			status:     http.StatusOK,
 			body:       `{"task_id":""}`,
+			wantErr:    ErrInvalidResponse,
+			wantSubstr: "task_id",
+		},
+		{
+			name:       "200_with_empty_bare_string_is_invalid_response",
+			status:     http.StatusOK,
+			body:       `""`,
 			wantErr:    ErrInvalidResponse,
 			wantSubstr: "task_id",
 		},
@@ -448,7 +506,7 @@ func TestDeliverContextDeadlineExceededIsTimeout(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"task_id": "irrelevant"})
+		_ = json.NewEncoder(w).Encode("irrelevant") // real API shape: bare JSON string
 	}))
 	t.Cleanup(srv.Close)
 
