@@ -172,6 +172,92 @@ profiles:
 	}
 }
 
+func TestParseOCREnabledDefaultsMinConfidence(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: ocr-no-min-confidence
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+`
+	set, err := Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("ocr-no-min-confidence")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+	if p.OCR.MinConfidence != defaultMinOCRConfidence {
+		t.Errorf("OCR.MinConfidence = %v, want default %v", p.OCR.MinConfidence, defaultMinOCRConfidence)
+	}
+}
+
+func TestParseOCRMinConfidenceExplicitValueNotOverwritten(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: ocr-explicit-min-confidence
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+      min_confidence: 55
+`
+	set, err := Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("ocr-explicit-min-confidence")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+	if p.OCR.MinConfidence != 55 {
+		t.Errorf("OCR.MinConfidence = %v, want 55 (explicit value preserved)", p.OCR.MinConfidence)
+	}
+}
+
+func TestParseOCRAutoLanguageAccepted(t *testing.T) {
+	t.Parallel()
+
+	body := `
+profiles:
+  - name: ocr-auto
+    source: "ADF"
+    resolution: 300
+    mode: "Color"
+    format: "pdf"
+    page_size: "A4"
+    timeout_seconds: 60
+    ocr:
+      enabled: true
+      languages: ["auto"]
+`
+	set, err := Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	p, ok := set.Get("ocr-auto")
+	if !ok {
+		t.Fatal("profile not found by name")
+	}
+	if want := []string{"auto"}; !equalStrings(p.OCR.Languages, want) {
+		t.Errorf("OCR.Languages = %v, want %v (default must not overwrite an explicit [auto])", p.OCR.Languages, want)
+	}
+}
+
 func TestParseRejectsUnknownOCRField(t *testing.T) {
 	t.Parallel()
 
@@ -454,6 +540,21 @@ func TestValidateBoundaries(t *testing.T) {
 			name:         "ocr enabled with empty language entry",
 			mut:          func(p *Profile) { p.OCR = OCRConfig{Enabled: true, Languages: []string{"deu", ""}} },
 			errSubstring: "ocr",
+		},
+		{
+			name:         "ocr auto mixed with a real language",
+			mut:          func(p *Profile) { p.OCR = OCRConfig{Enabled: true, Languages: []string{"auto", "deu"}} },
+			errSubstring: "ocr.languages",
+		},
+		{
+			name:         "ocr min_confidence negative",
+			mut:          func(p *Profile) { p.OCR = OCRConfig{Enabled: true, Languages: []string{"deu"}, MinConfidence: -1} },
+			errSubstring: "min_confidence",
+		},
+		{
+			name:         "ocr min_confidence above 100",
+			mut:          func(p *Profile) { p.OCR = OCRConfig{Enabled: true, Languages: []string{"deu"}, MinConfidence: 101} },
+			errSubstring: "min_confidence",
 		},
 		{
 			name: "destination with empty target",

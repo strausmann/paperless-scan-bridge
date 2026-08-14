@@ -81,6 +81,26 @@ const (
 // (deu+eng).
 var defaultOCRLanguages = []string{"deu", "eng"}
 
+// autoOCRLanguage is the special OCRConfig.Languages value that
+// requests scan-processor's two-pass auto-language-detection flow
+// instead of a fixed language set (PR brief "pragmatische
+// Auto-Language-Detection"). Declared independently from
+// scan-processor's own copies of the same token
+// (internal/pipeline/exec_argv.go, internal/procapi/handlers.go) —
+// this package validates the profile-authoring shape at load time,
+// scan-processor validates the wire request independently; see either
+// package's doc comment for why the duplication is deliberate.
+const autoOCRLanguage = "auto"
+
+// defaultMinOCRConfidence is applied by Parse when a profile enables
+// OCR but omits ocr.min_confidence, mirroring defaultOCRLanguages'
+// same "zero/omitted means apply the documented default" contract.
+// Matches scan-processor's own default
+// (internal/pipeline.defaultMinOCRConfidence) — kept in sync by
+// convention, not by import, for the same dependency-direction reason
+// Languages' default is duplicated rather than shared.
+const defaultMinOCRConfidence = 80.0
+
 // Profile is a single named scan profile.
 type Profile struct {
 	Name           string    `yaml:"name"`
@@ -141,6 +161,13 @@ type MetadataTemplate struct {
 type OCRConfig struct {
 	Enabled   bool     `yaml:"enabled"`
 	Languages []string `yaml:"languages"`
+	// MinConfidence overrides scan-processor's confidence-gate
+	// threshold (defaultMinOCRConfidence when omitted/zero) — PR
+	// brief "Konfidenz-/Qualitäts-Gate". Carried through to
+	// scan-processor verbatim (internal/api/scan.go's handleScan),
+	// which never interprets it itself — the gate lives entirely in
+	// scan-processor's internal/pipeline.
+	MinConfidence float64 `yaml:"min_confidence"`
 }
 
 // AssemblyConfig controls the multi-page result shape scan-processor
@@ -290,6 +317,9 @@ func applyProfileDefaults(p *Profile) {
 	if p.OCR.Enabled && len(p.OCR.Languages) == 0 {
 		p.OCR.Languages = append([]string(nil), defaultOCRLanguages...)
 	}
+	if p.OCR.Enabled && p.OCR.MinConfidence == 0 {
+		p.OCR.MinConfidence = defaultMinOCRConfidence
+	}
 }
 
 func validateProfile(p Profile) error {
@@ -345,10 +375,20 @@ func validateProfile(p Profile) error {
 	}
 
 	if p.OCR.Enabled {
+		hasAuto := false
 		for _, lang := range p.OCR.Languages {
 			if strings.TrimSpace(lang) == "" {
 				return errors.New("ocr.languages: must not contain empty entries")
 			}
+			if lang == autoOCRLanguage {
+				hasAuto = true
+			}
+		}
+		if hasAuto && len(p.OCR.Languages) != 1 {
+			return fmt.Errorf("ocr.languages: %q must be the only entry when used", autoOCRLanguage)
+		}
+		if p.OCR.MinConfidence < 0 || p.OCR.MinConfidence > 100 {
+			return fmt.Errorf("ocr.min_confidence %v: must be between 0 and 100", p.OCR.MinConfidence)
 		}
 	}
 

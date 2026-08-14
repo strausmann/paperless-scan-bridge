@@ -44,6 +44,17 @@ import (
 type OCRConfig struct {
 	Enabled   bool
 	Languages []string
+	// MinConfidence is the mean per-word OCR confidence (tesseract's
+	// own 0..100 scale, from its `tsv` configfile output) below which
+	// ExecPipeline's confidence gate flags a document via
+	// Document.LowConfidence. Zero (the common case: a profile that
+	// never set ocr.min_confidence) means "use the pipeline's own
+	// default" (defaultMinOCRConfidence, exec_pipeline.go) — mirrors
+	// Languages' same "zero means apply the documented default"
+	// contract. The gate is advisory only: it never turns a request
+	// into ErrOCRFailed, it only sets LowConfidence and appends a
+	// warning (PR brief: "Kein Fail — nur flaggen").
+	MinConfidence float64
 }
 
 // PageGrouping selects whether the pipeline assembles all of a
@@ -130,6 +141,22 @@ type Document struct {
 	// producing this document (e.g. a page that failed deskew but
 	// was still included).
 	Warnings []string
+	// OCRConfidence is the mean per-word OCR confidence (0..100)
+	// across this document's page(s), populated by the confidence
+	// gate when Request.OCR.Enabled was true. Zero when OCR did not
+	// run — callers must check Request.OCR.Enabled (or, downstream,
+	// whether the profile that produced this request had OCR
+	// enabled) to distinguish "OCR ran and scored 0" from "OCR never
+	// ran" if that distinction matters; the gate treats both the same
+	// way (LowConfidence stays false when OCR did not run, since
+	// there is nothing to flag).
+	OCRConfidence float64
+	// LowConfidence is true when OCR ran and OCRConfidence fell below
+	// the request's effective OCR.MinConfidence threshold. Advisory
+	// only — a flagged document is still returned normally, with a
+	// matching entry appended to Warnings, so a caller reviewing
+	// Warnings for any reason already sees why the flag was raised.
+	LowConfidence bool
 }
 
 // Result carries the outcome of a completed Process call.

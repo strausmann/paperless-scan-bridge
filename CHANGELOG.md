@@ -46,6 +46,14 @@ between releases as a running list.
 
 ### Added
 
+- Add an OCR confidence gate: `ocr.min_confidence` (0..100, default
+  80) flags a document `low_confidence: true` in the `POST /scan`
+  response when its mean OCR confidence falls below the threshold —
+  advisory only, never fails the scan (scan-processor, scan-bridge).
+- Add `ocr.languages: [auto]` for a pragmatic, two-pass OCR
+  language-detection flow, falling back to the `deu+eng` default and
+  the confidence gate above when the guess is wrong or unsupported
+  (scan-processor).
 - Repository scaffolding and GitHub configuration boilerplate: the
   Phase 1 directory tree under `components/`, `deploy/`,
   `homeassistant/`, `n8n/`, `backup/`, `monitoring/`, `security/`,
