@@ -1,0 +1,107 @@
+{#
+  Custom homepage template — assigned via `template: home.html` in
+  docs/en/index.md front matter. Every other page keeps the default
+  `main.html` untouched.
+
+  Extends main.html (which is itself an unmodified `{% extends "base.html" %}`
+  per Zensical's own convention — see the customization guide: "override
+  main.html instead of base.html"), then:
+
+  - `styles`: adds the self-hosted landing fonts + home.css, on top of the
+    normal theme stylesheet (kept via `{{ super() }}`).
+  - `hero`: fills the (empty-by-default) hero block with the hardware-chain
+    diagram, headline, and CTAs — this is the same block zensical.org's own
+    homepage uses for its hero.
+  - `scripts`: adds home.js (progressive enhancement only; the page is fully
+    functional and legible with it absent).
+
+  The theme toggle, search, header, footer, and the rest of the site chrome
+  are all inherited unchanged. Sidebars are hidden via `hide: [navigation,
+  toc]` in index.md's front matter (the theme's own documented mechanism,
+  not a template override).
+#}
+{% extends "main.html" %}
+
+{% block styles %}
+  {{ super() }}
+  <link rel="stylesheet" href="{{ 'assets/home/home.css' | url }}" />
+{% endblock %}
+
+{% block hero %}
+  <section class="mdx-hero">
+    <div class="mdx-hero__glow" aria-hidden="true"></div>
+    <div class="md-grid mdx-hero__inner">
+      <div class="mdx-hero__copy">
+        {#
+          Not an <h1>: the theme auto-injects a real <h1 id="__skip"> in
+          partials/content.html when the markdown has no H1 (it also
+          doubles as the skip-navigation target). That stays as the
+          page's one semantic heading, screen-reader-only via CSS; this
+          is the large VISUAL headline everyone sees.
+        #}
+        <p class="mdx-hero__title">A scanner, a Pi, and a NAS you already trust.</p>
+        <p class="mdx-hero__lede">
+          Four physical pieces, wired together once. Place a document,
+          press a button, find it searchable in Paperless&#8209;ngx about
+          thirty seconds later.
+        </p>
+        <div class="mdx-hero__actions">
+          <a href="#why-this-exists" class="md-button md-button--primary">Why this exists</a>
+          {#
+            NOT "getting-started/index.md" | url: verified against the
+            actual build output that the raw `url` filter does not apply
+            the .md -> directory-URL rewrite the Markdown link resolver
+            does elsewhere on this page, and silently produces a link to
+            a source file that does not exist in the built site
+            (site/getting-started/index.md, never generated — only
+            index.html is). The directory-style path is what every
+            correctly-resolved link on this page actually points to.
+          #}
+          <a href="{{ 'getting-started/' | url }}" class="md-button">Getting started</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="mdx-hero__diagram-stage">
+      <div class="md-grid mdx-hero__chain">
+        <svg viewBox="0 0 960 220" fill="none" xmlns="http://www.w3.org/2000/svg"
+             role="img" aria-label="Scanner connects to a Raspberry Pi over USB; the Pi writes to a Synology NAS over NFS; Paperless-ngx reads from the NAS.">
+          <path d="M150 110 H 340 M420 110 H 610 M690 110 H 810" class="mdx-chain__rail" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
+          <g transform="translate(40,60)">
+            <rect x="0" y="30" width="110" height="60" rx="8" class="mdx-chain__stroke" stroke-width="1.6"/>
+            <rect x="14" y="6" width="82" height="30" rx="4" class="mdx-chain__stroke" stroke-width="1.6"/>
+            <circle cx="96" cy="70" r="4" class="mdx-chain__dot-amber"/>
+            <text x="55" y="118" text-anchor="middle" class="mdx-chain__label">USB scanner (ADF)</text>
+          </g>
+          <g transform="translate(300,55)">
+            <rect x="0" y="0" width="90" height="90" rx="10" class="mdx-chain__stroke-primary" stroke-width="1.8"/>
+            <circle cx="20" cy="20" r="4" class="mdx-chain__stroke-primary" stroke-width="1.4" fill="none"/>
+            <path d="M40 18 h34 M40 30 h34 M40 42 h20" class="mdx-chain__stroke-primary" stroke-width="1.4" stroke-linecap="round"/>
+            <text x="45" y="118" text-anchor="middle" class="mdx-chain__label">Raspberry Pi (Docker)</text>
+          </g>
+          <g transform="translate(570,50)">
+            <rect x="0" y="0" width="80" height="100" rx="8" class="mdx-chain__stroke" stroke-width="1.6"/>
+            <rect x="12" y="14" width="56" height="16" rx="2" class="mdx-chain__stroke-faint" stroke-width="1.2"/>
+            <rect x="12" y="38" width="56" height="16" rx="2" class="mdx-chain__stroke-faint" stroke-width="1.2"/>
+            <circle cx="20" cy="22" r="2" class="mdx-chain__dot-green"/>
+            <circle cx="20" cy="46" r="2" class="mdx-chain__dot-green"/>
+            <text x="40" y="128" text-anchor="middle" class="mdx-chain__label">Synology NAS</text>
+          </g>
+          <g transform="translate(780,58)">
+            <rect x="0" y="0" width="86" height="86" rx="10" class="mdx-chain__stroke-amber" stroke-width="1.8"/>
+            <path d="M18 22 h50 M18 38 h50 M18 54 h34" class="mdx-chain__stroke-amber" stroke-width="1.4" stroke-linecap="round"/>
+            <text x="43" y="118" text-anchor="middle" class="mdx-chain__label">Paperless-ngx</text>
+          </g>
+        </svg>
+        <div class="mdx-hero__caption">
+          <span>USB</span><span>Docker Compose</span><span>NFS</span><span>consume folder</span>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ 'assets/home/home.js' | url }}" defer></script>
+{% endblock %}

@@ -1,62 +1,105 @@
-# paperless-scan-bridge
+---
+template: home.html
+title: "paperless-scan-bridge — a hands-free scanner pipeline for Paperless-ngx"
+hide:
+  - navigation
+  - toc
+---
 
-Place a document. Press a button. Find it searchable in Paperless-ngx
-thirty seconds later.
+## Why this exists
 
-`paperless-scan-bridge` is a container-first stack that connects a USB
-document scanner attached to a Raspberry Pi to a Paperless-ngx instance
-running anywhere on your network. Documents land on a Synology NAS, so
-your existing backup, snapshot, and off-site replication strategy
-applies to everything the system produces.
+Paperless-ngx has no native scanner integration. There are dozens of
+fragmentary tutorials for parts of this stack — SANE on a Pi,
+Paperless-ngx with NFS, scanner buttons via scanbd, Zigbee automation in
+Home Assistant. There is no single repository that walks you from a
+fresh Pi image to a fully production-grade scan pipeline with backup,
+monitoring, and security hardening.
+
+This repository fills that gap. It is also a living record of turning a
+**Kodak ScanMate i1120** — a sixteen-year-old desk scanner without modern
+Linux drivers — into a hands-free part of a homelab. If it can be made
+to work, most SANE-supported ADF scanners can too.
+
+## Three containers. No host installs.
+
+The Pi's job is Docker, an NFS mount, and udev rules — nothing else.
+Every real piece of work happens inside one of these three images, which
+hand off to your existing Paperless-ngx instance.
+
+<div class="mdx-grid" markdown="1">
+- **`scan-bridge`** *(Go)* — REST API, profile dispatch, Prometheus
+  metrics. Receives the trigger — hardware button, Zigbee, or webhook —
+  and starts the job.
+- **`sane-runtime`** *(Bash + Go)* — SANE drivers and udev integration for
+  stable USB device paths. Drives the physical scanner.
+- **`scan-processor`** *(Go)* — deskews, filters blank pages, assembles
+  the PDF, writes it atomically to the consume directory over NFS.
+- **`paperless-ngx`** *(upstream)* — picks the PDF up from its consume
+  folder, OCRs it, tags it by profile. Runs wherever you already run it.
+</div>
+
+## Three ways to say "scan this"
+
+The trigger path is fully decoupled from physical proximity. The same
+mechanism that serves someone standing at the scanner serves someone two
+floors away on their phone.
+
+<div class="mdx-grid" markdown="1">
+- **Hardware button** — scanbd polls the scanner's own buttons and calls
+  a hook script. No extra infrastructure required.
+- **Zigbee remote** — a STYRBAR button mapped through Home Assistant, one
+  button event per scanning profile.
+- **HTTP webhook** — a plain `POST /scan` from any system on the
+  network: a phone shortcut, a script, another service.
+</div>
+
+## Nothing on the host but Docker
+
+The bootstrap script edits `/etc/fstab` and udev rules as root — download
+and read it before you run it.
+
+```bash
+# on the Pi
+curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
+less install.sh
+sudo bash install.sh
+
+# configure and start
+cp deploy/compose/.env.example deploy/compose/.env
+docker compose -f deploy/compose/scan-bridge.yml up -d
+```
+
+No SANE, no scanbd, no language runtime installed on the host. Documents
+land on your own Synology NAS, so your existing backup and snapshot
+policy already covers them. MIT licensed, no cloud dependency, no
+telemetry.
+
+## Where it actually stands
 
 !!! warning "Project status: early Phase 1 — nothing scans yet"
 
     This is a home-lab project under active development. Phase 0
-    (repository, documentation, this site) is done. Phase 1 has started:
-    the `scan-bridge` daemon serves `/health`, `/version`, `/profiles` and
-    `/profiles/{name}` today, while `/ready`, `/scan` and the `/jobs`
-    endpoints return `501 Not Implemented`. The `sane-runtime` and
-    `scan-processor` containers, the compose stacks and the bootstrap
-    script are not written yet, so there is no working scan path. The
-    [roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
-    tracks what exists and what does not.
+    (repository, documentation, this site) is done except the launch
+    blog post. Phase 1 has started: the `scan-bridge` daemon serves
+    `/health`, `/version`, `/profiles` and `/profiles/{name}` today,
+    while `/ready`, `/scan` and the `/jobs` endpoints return
+    `501 Not Implemented`. The `sane-runtime` and `scan-processor`
+    containers, the compose stacks, and the bootstrap script are not
+    written yet, so there is no working scan path.
 
-## Why this exists
+<div class="mdx-status" markdown="1">
+| Phase | Scope | Status |
+| ----- | ----- | ------ |
+| **0** | Repository, MIT license, docs site, hardware table | complete* |
+| **1** | `scan-bridge` HTTP surface merged; `sane-runtime` and `scan-processor` not yet built | in progress |
+| **2** | Hardware buttons, Zigbee blueprints, n8n workflow exports | not started |
+| **3** | restic backup, Prometheus/Grafana, security hardening | not started |
+| **4** | Ecosystem maturity — community-driven | not started |
+</div>
 
-There are dozens of fragmentary tutorials for parts of this stack — SANE
-on a Pi, Paperless-ngx with NFS, scanner buttons via scanbd, Zigbee
-automation in Home Assistant. There is no single repository that walks
-you from a fresh Pi image to a fully production-grade scan pipeline with
-backup, monitoring, and security hardening.
-
-This repository fills that gap. It is also a living record of turning a
-Kodak ScanMate i1120 — a sixteen-year-old desk scanner without modern
-Linux drivers — into a hands-free part of a homelab.
-
-## What the stack provides
-
-- A `scan-bridge` daemon (Go) exposing a REST API for scan jobs, profile
-  management, and Prometheus metrics
-- A `sane-runtime` container with SANE drivers and udev integration for
-  stable USB device paths
-- A `scan-processor` container that takes raw scans, deskews them,
-  filters blank pages, builds PDFs, and writes them atomically to the
-  consumption directory
-- Docker Compose stacks for Paperless-ngx with the storage topology of
-  your choice
-- Home Assistant blueprints and n8n workflow exports for Zigbee-triggered
-  scanning
-- restic-based backup with PostgreSQL dumps, retention policies, and a
-  tested restore runbook
-- Prometheus exporters, Grafana dashboards, and synthetic health checks
-
-## The one non-negotiable rule
-
-**Container-first, host-thin.** The only acceptable modifications to the
-Pi are: install Docker and the compose plugin, mount the Synology NFS
-share via `/etc/fstab`, and install udev rules under
-`/etc/udev/rules.d/`. No SANE on the host. No scanbd on the host. No
-Python or Go toolchains on the host.
+The full [roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
+tracks what exists and what does not — this is not a marketing summary
+of it, it's the same status stated everywhere else in the repository.
 
 ## Where to go next
 
