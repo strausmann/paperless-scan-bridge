@@ -310,7 +310,18 @@ body:has(.mdx-hero) .md-typeset a { color: var(--mdx-primary); }
    the intended >=4.5:1. */
 body[data-md-color-scheme="slate"]:has(.mdx-hero) .md-typeset a { color: #8fa8ff; }
 
-body:has(.mdx-hero) .md-typeset code {
+/* :not(pre) code — NOT ".md-typeset code" on its own. Verified by
+   inspecting the live computed style: a plain ".md-typeset code"
+   selector also matches every <code> inside a <pre> block (syntax-
+   highlighted code panels use <pre><code>...), and the dark-mode
+   variant below has higher specificity (extra [data-md-color-scheme]
+   attribute) than the later ".md-typeset pre code { background:
+   transparent }" reset — so without the :not(pre) exclusion here, the
+   inline-code indigo tint silently wins and paints the whole quickstart
+   code block, which is exactly what happened before this was caught by
+   screenshot review (getComputedStyle confirmed rgba(82,108,254,.16)
+   painted over the code panel in dark mode). */
+body:has(.mdx-hero) .md-typeset :not(pre) > code {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   background: rgba(82, 108, 254, 0.1);
   color: #3546c4;
@@ -318,7 +329,7 @@ body:has(.mdx-hero) .md-typeset code {
   padding: 0.1em 0.4em;
   font-size: 0.85em;
 }
-body[data-md-color-scheme="slate"]:has(.mdx-hero) .md-typeset code {
+body[data-md-color-scheme="slate"]:has(.mdx-hero) .md-typeset :not(pre) > code {
   background: rgba(82, 108, 254, 0.16);
   color: #8fa8ff;
 }
