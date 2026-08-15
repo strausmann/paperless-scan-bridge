@@ -1,0 +1,524 @@
+/*
+ * Homepage-only stylesheet — loaded exclusively by overrides/home.html,
+ * never on doc pages. Self-hosted fonts (no Google CDN, matches
+ * `font = false` in zensical.toml and the CI guard in
+ * .github/scripts/check_no_external_assets.py).
+ *
+ * Light is the primary/default design (no [data-md-color-scheme] guard
+ * needed for it); dark ("slate", the site's real toggle target — see
+ * zensical.toml's [[project.theme.palette]] blocks) is layered in under
+ * [data-md-color-scheme="slate"]. This follows the SAME toggle the rest
+ * of the site already has in the header — no separate homepage-only
+ * theme switch.
+ *
+ * Anchor: zensical.org's own DNA (indigo #4051B5/#526CFE, the coral→gold
+ * CTA gradient, tight display tracking) — see the direction contract at
+ * the end of this file for the full rationale.
+ */
+
+/* ---------- self-hosted fonts ---------- */
+
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+/* Feeds the theme's own --md-text-font/--md-code-font hooks (used by the
+   compiled stylesheet wherever `font != false` would normally have set
+   them from Google Fonts) — this page supplies real values without ever
+   contacting Google. */
+:root {
+  --md-text-font: "InterVariable";
+  --md-code-font: "JetBrains Mono";
+}
+
+/* ---------- design tokens (light = default/primary) ---------- */
+
+:root {
+  --mdx-bg: #ffffff;
+  --mdx-bg-elevated: #f6f6f8;
+  --mdx-bg-subtle: #ececef;
+  --mdx-fg: #0b0c0f;
+  --mdx-fg-muted: rgba(0, 0, 0, 0.7);
+  --mdx-fg-faint: rgba(0, 0, 0, 0.46);
+  --mdx-hairline: rgba(0, 0, 0, 0.12);
+  --mdx-ink-rgb: 0, 0, 0;
+  --mdx-primary: #4051b5;
+  --mdx-accent: #526cfe;
+  --mdx-grad: linear-gradient(35deg, #ff8a8c 0%, #ffc120 100%);
+  /* Used for the Phase-1 admonition title (16px bold — NOT "large text"
+     under WCAG, which needs >=18.66px even when bold, so the strict
+     4.5:1 applies). Verified via the actual composited admonition
+     background (~rgb(247,240,222), the 12%-opacity tint over the page's
+     elevated surface): 5.41:1. */
+  --mdx-headline-accent: #8a5600;
+  --mdx-ok-green: #1b7f49; /* WCAG-verified on white */
+  --mdx-glow-rgb: 255, 150, 60;
+}
+
+[data-md-color-scheme="slate"] {
+  --mdx-bg: #0b0c0f;
+  --mdx-bg-elevated: #15171b;
+  --mdx-bg-subtle: #1d2026;
+  --mdx-fg: #ffffff;
+  --mdx-fg-muted: rgba(255, 255, 255, 0.74);
+  --mdx-fg-faint: rgba(255, 255, 255, 0.46);
+  --mdx-hairline: rgba(255, 255, 255, 0.11);
+  --mdx-ink-rgb: 255, 255, 255;
+  --mdx-headline-accent: #ffc120;
+  --mdx-ok-green: #8fe6b0;
+  --mdx-glow-rgb: 255, 150, 60;
+}
+
+/* ---------- hero ---------- */
+
+.mdx-hero {
+  background: var(--mdx-bg);
+  color: var(--mdx-fg-muted);
+  font-family: "InterVariable", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Vertical rhythm is authored mobile-first (this is the base, applying
+     to every viewport) and made MORE generous at the min-width:641px
+     breakpoint below — not the other way round. The original build had
+     it backwards: desktop got the generous numbers and a max-width:640px
+     query actively SHRANK them for mobile, which is exactly the "mobile
+     is just scaled-down desktop" mistake that made the phone layout the
+     most cramped view instead of getting its own considered spacing. */
+  padding: 48px 0 8px;
+  text-align: center;
+}
+
+.mdx-hero__inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.mdx-hero__title {
+  font-family: inherit;
+  font-size: clamp(32px, 5vw, 50px);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--mdx-fg);
+  margin: 0 auto 20px;
+  max-width: 19ch;
+}
+
+.mdx-hero__lede {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--mdx-fg-muted);
+  max-width: 48ch;
+  margin: 0 auto 32px;
+}
+
+.mdx-hero__actions {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+/* Reuse the theme's own .md-button/.md-button--primary CLASS NAMES (the
+   same ones zensical.org's own hero uses) for semantic consistency, but
+   supply the full box model ourselves: the theme's real button chrome
+   (background, radius, padding) is scoped to ".md-typeset .md-button"
+   in the compiled stylesheet (verified against the actual build output,
+   site/assets/stylesheets/modern/main.*.css) and our hero buttons live
+   outside .md-typeset, so only "display:inline" would otherwise apply. */
+.mdx-hero .md-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 13px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--mdx-hairline);
+  text-decoration: none;
+  color: var(--mdx-fg);
+  background: transparent;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.mdx-hero .md-button:hover {
+  background: var(--mdx-bg-subtle);
+  transform: translateY(-1px);
+}
+.mdx-hero .md-button--primary {
+  background: var(--mdx-grad);
+  border-color: transparent;
+  color: #1a0e05;
+  box-shadow: 0 6px 14px -4px rgba(20, 14, 8, 0.35);
+}
+.mdx-hero .md-button--primary:hover {
+  color: #1a0e05;
+  filter: brightness(1.03);
+}
+
+/* The theme auto-injects <h1 id="__skip"> when the markdown has no H1
+   (partials/content.html) — it doubles as the skip-navigation target,
+   so it stays in the DOM and keeps its own text (the page's SEO title),
+   but is visually hidden: our hero's own large heading is the visible
+   one, and having exactly one semantic <h1> (screen-reader-only here)
+   is correct rather than two competing headings. Standard clip-based
+   visually-hidden technique, not display:none (which would break the
+   skip-link's focus target). */
+body:has(.mdx-hero) .md-typeset > h1#__skip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- hardware-chain diagram ---------- */
+
+.mdx-hero__diagram-stage {
+  position: relative;
+  padding: 40px 0 36px;
+}
+
+.mdx-hero__glow {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  translate: -50% -50%;
+  width: min(720px, 90%);
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(var(--mdx-glow-rgb), 0.16), transparent 72%);
+  filter: blur(10px);
+  pointer-events: none;
+}
+
+.mdx-hero__chain {
+  position: relative;
+  z-index: 1;
+}
+
+.mdx-hero__chain svg {
+  width: 100%;
+  height: auto;
+  max-width: 960px;
+  margin: 0 auto;
+  display: block;
+}
+
+.mdx-chain__rail { stroke: var(--mdx-hairline); }
+.mdx-chain__stroke { stroke: rgba(var(--mdx-ink-rgb), 0.8); fill: none; }
+.mdx-chain__stroke-faint { stroke: rgba(var(--mdx-ink-rgb), 0.5); fill: none; }
+.mdx-chain__stroke-primary { stroke: var(--mdx-accent); fill: none; }
+.mdx-chain__stroke-amber { stroke: #ff9a5a; fill: none; }
+.mdx-chain__dot-amber { fill: #ffc120; }
+.mdx-chain__dot-green { fill: #8fe6b0; }
+.mdx-chain__label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  fill: rgba(var(--mdx-ink-rgb), 0.55);
+}
+
+.mdx-hero__caption {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-top: 18px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--mdx-fg-faint);
+  flex-wrap: wrap;
+}
+.mdx-hero__caption span {
+  padding: 0 18px;
+  border-right: 1px solid var(--mdx-hairline);
+}
+.mdx-hero__caption span:last-child { border-right: none; }
+
+@media (max-width: 640px) {
+  .mdx-hero__chain svg { max-width: 100%; }
+}
+
+/* ---------- below the hero: the real Markdown content, restyled ----------
+   Everything below comes from docs/en/index.md's actual prose, rendered
+   through the theme's normal .md-content / .md-typeset flow. This file
+   only loads on this page, so these selectors can't leak onto doc pages.
+
+   Vertical rhythm, mobile-first: the numbers directly below are the
+   BASE — they apply at every width, including 390px. The min-width:641px
+   block further down makes desktop MORE generous on top of that; nothing
+   here gets shrunk for small screens. Benchmark for "how generous" is
+   zensical.org's own section rhythm, using the same tokens already
+   extracted for color. */
+
+body:has(.mdx-hero) .md-content {
+  background: var(--mdx-bg);
+}
+
+body:has(.mdx-hero) .md-typeset {
+  font-family: "InterVariable", -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--mdx-fg-muted);
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+body:has(.mdx-hero) .md-typeset h2 {
+  font-size: clamp(23px, 5vw, 32px);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--mdx-fg);
+  font-weight: 650;
+  margin: 72px 0 20px;
+  border: none;
+  padding: 0;
+}
+
+body:has(.mdx-hero) .md-typeset h2:first-of-type { margin-top: 56px; }
+
+body:has(.mdx-hero) .md-typeset p {
+  font-size: 16px;
+  line-height: 1.7;
+  margin: 0 0 22px;
+}
+
+body:has(.mdx-hero) .md-typeset strong { color: var(--mdx-fg); font-weight: 600; }
+
+body:has(.mdx-hero) .md-typeset a { color: var(--mdx-primary); }
+/* NOTE: data-md-color-scheme is set ON <body> itself (verified against the
+   real build output: <body data-md-color-scheme="default" ...>), so the
+   attribute selector must apply to body directly — "[attr] body" (an
+   ancestor combinator) never matches, since body has no such ancestor.
+   Caught by the contrast audit: without this fix the code-chip dark-mode
+   color silently fell back to the light-mode value, at 2.41:1 instead of
+   the intended >=4.5:1. */
+body[data-md-color-scheme="slate"]:has(.mdx-hero) .md-typeset a { color: #8fa8ff; }
+
+/* :not(pre) code — NOT ".md-typeset code" on its own. Verified by
+   inspecting the live computed style: a plain ".md-typeset code"
+   selector also matches every <code> inside a <pre> block (syntax-
+   highlighted code panels use <pre><code>...), and the dark-mode
+   variant below has higher specificity (extra [data-md-color-scheme]
+   attribute) than the later ".md-typeset pre code { background:
+   transparent }" reset — so without the :not(pre) exclusion here, the
+   inline-code indigo tint silently wins and paints the whole quickstart
+   code block, which is exactly what happened before this was caught by
+   screenshot review (getComputedStyle confirmed rgba(82,108,254,.16)
+   painted over the code panel in dark mode). */
+body:has(.mdx-hero) .md-typeset :not(pre) > code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  background: rgba(82, 108, 254, 0.1);
+  color: #3546c4;
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.85em;
+}
+body[data-md-color-scheme="slate"]:has(.mdx-hero) .md-typeset :not(pre) > code {
+  background: rgba(82, 108, 254, 0.16);
+  color: #8fa8ff;
+}
+
+body:has(.mdx-hero) .md-typeset pre,
+body:has(.mdx-hero) .md-typeset .highlight {
+  background: var(--mdx-bg-elevated);
+  border: 1px solid var(--mdx-hairline);
+  border-radius: 12px;
+  margin: 24px 0 28px;
+}
+body:has(.mdx-hero) .md-typeset pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+/* status/quickstart admonition (Phase-1 honesty box) — the theme already
+   styles admonitions; this aligns the warning variant with the landing
+   palette instead of Material's default red/orange, and gives it the
+   same generous margin as every other block on the page (the theme's
+   own default admonition margin is noticeably tighter than the rest of
+   this page's rhythm). */
+body:has(.mdx-hero) .md-typeset .admonition,
+body:has(.mdx-hero) .md-typeset details {
+  margin: 28px 0 36px;
+}
+body:has(.mdx-hero) .md-typeset .admonition.warning,
+body:has(.mdx-hero) .md-typeset details.warning {
+  border-color: var(--mdx-hairline);
+  background: var(--mdx-bg-elevated);
+}
+body:has(.mdx-hero) .md-typeset .admonition.warning > :last-child,
+body:has(.mdx-hero) .md-typeset details.warning > :last-child {
+  margin-bottom: 0;
+}
+body:has(.mdx-hero) .md-typeset .admonition.warning > .admonition-title,
+body:has(.mdx-hero) .md-typeset details.warning > summary {
+  background: rgba(255, 193, 32, 0.12);
+  color: var(--mdx-headline-accent);
+}
+body:has(.mdx-hero) .md-typeset .admonition.warning > .admonition-title::before,
+body:has(.mdx-hero) .md-typeset details.warning > summary::before {
+  background-color: var(--mdx-headline-accent);
+}
+
+/* pipeline / trigger-path lists rendered as cards. The class lands on a
+   wrapping <div markdown="1"> (md_in_html) around the <ul>, not on an
+   attr_list trailing-line — see the .mdx-status comment below for why. */
+body:has(.mdx-hero) .md-typeset .mdx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin: 32px 0 40px;
+  list-style: none;
+  padding: 0;
+}
+body:has(.mdx-hero) .md-typeset .mdx-grid ul {
+  /* the grid lives on .mdx-grid itself; the <ul> just needs to stop
+     being a block so its <li> children become direct grid items */
+  display: contents;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+body:has(.mdx-hero) .md-typeset .mdx-grid li {
+  border: 1px solid var(--mdx-hairline);
+  border-radius: 12px;
+  padding: 22px 20px 24px;
+  background: var(--mdx-bg-elevated);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--mdx-fg-faint);
+  margin: 0;
+}
+body:has(.mdx-hero) .md-typeset .mdx-grid li strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--mdx-fg);
+}
+
+/* status table (Phase ledger) — the class lands on the wrapping <div>
+   (md_in_html), not the <table> itself; attr_list's trailing-line syntax
+   does not reliably attach to tables or to a whole <ul> (verified against
+   the real build output: it either binds to the last list item, turning
+   it into an accidental grid container, or gets parsed as a literal
+   extra table row) — div-wrapping is the reliable mechanism here. */
+body:has(.mdx-hero) .md-typeset .mdx-status {
+  background: var(--mdx-bg-elevated);
+  border: 1px solid var(--mdx-hairline);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 8px 0 36px;
+}
+body:has(.mdx-hero) .md-typeset .mdx-status table {
+  margin: 0;
+}
+body:has(.mdx-hero) .md-typeset .mdx-status th,
+body:has(.mdx-hero) .md-typeset .mdx-status td {
+  border: none;
+  border-bottom: 1px solid var(--mdx-hairline);
+  padding: 14px 16px;
+  line-height: 1.55;
+}
+body:has(.mdx-hero) .md-typeset .mdx-status th {
+  background: var(--mdx-bg-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mdx-fg-faint);
+}
+
+/* the "Where to go next" and any other plain <ul> in the flow (not the
+   card grids above) — give it the same comfortable rhythm as paragraphs
+   rather than the theme's tighter default list spacing. */
+body:has(.mdx-hero) .md-typeset ul:not(.mdx-grid) {
+  margin: 0 0 24px;
+  line-height: 1.7;
+}
+body:has(.mdx-hero) .md-typeset ul:not(.mdx-grid) li {
+  margin: 0 0 10px;
+}
+
+/* ---------- desktop rhythm: MORE generous, not the source of truth ----------
+   Everything above is the real, considered spacing for every viewport
+   including mobile. This block only ADDS more room once there is width
+   to spend it — nothing above gets shrunk to reach these numbers, and
+   nothing below undoes anything above; every property here also appears
+   above with a smaller value. */
+@media (min-width: 641px) {
+  .mdx-hero { padding: 96px 0 8px; }
+  .mdx-hero__diagram-stage { padding: 48px 0 44px; }
+  .mdx-hero__lede { margin-bottom: 36px; }
+
+  body:has(.mdx-hero) .md-typeset { padding: 0 24px; }
+
+  body:has(.mdx-hero) .md-typeset h2 {
+    font-size: clamp(26px, 3vw, 32px);
+    margin: 108px 0 24px;
+  }
+  body:has(.mdx-hero) .md-typeset h2:first-of-type { margin-top: 72px; }
+
+  body:has(.mdx-hero) .md-typeset p { margin-bottom: 26px; }
+
+  body:has(.mdx-hero) .md-typeset pre,
+  body:has(.mdx-hero) .md-typeset .highlight { margin: 28px 0 32px; }
+
+  body:has(.mdx-hero) .md-typeset .admonition,
+  body:has(.mdx-hero) .md-typeset details { margin: 32px 0 40px; }
+
+  body:has(.mdx-hero) .md-typeset .mdx-grid {
+    gap: 20px;
+    margin: 36px 0 44px;
+  }
+  body:has(.mdx-hero) .md-typeset .mdx-grid li { padding: 26px 24px 28px; }
+
+  body:has(.mdx-hero) .md-typeset .mdx-status { margin: 8px 0 40px; }
+  body:has(.mdx-hero) .md-typeset .mdx-status th,
+  body:has(.mdx-hero) .md-typeset .mdx-status td { padding: 16px 20px; }
+
+  body:has(.mdx-hero) .md-typeset ul:not(.mdx-grid) { margin-bottom: 26px; }
+}
+
+/*
+IMPECCABLE DIRECTION CONTRACT — scan-bridge homepage (production build)
+THESIS: A physical system, not a piece of software — the hero draws the
+actual object chain (scanner -> Pi -> NAS -> Paperless-ngx) as a line
+diagram, then hands off to the real Markdown docs content for everything
+below, so the page stays maintainable as ordinary prose rather than a
+wall of bespoke HTML.
+OWN-WORLD: zensical.org's own DNA, now LIGHT-primary per the operator's
+locked decision (dark stays available via the site's existing palette
+toggle) — near-black/white ground depending on scheme, indigo #4051B5 /
+accent #526CFE (identical in both themes, matching zensical.org's own
+real behaviour), the coral-to-gold gradient reserved for the one primary
+action, self-hosted InterVariable + JetBrains Mono (matches font=false's
+own reasoning: no third-party IP leak).
+STORY: A self-hosting engineer or curious power user sees the whole
+physical chain before reading a line of jargon, presses "Why this
+exists," and reads the same honest Phase-1 status this project states
+everywhere else (README, CONCEPT.md, ROADMAP.md) — no oversold claims.
+FIRST VIEWPORT: Centered SVG hardware-chain diagram with a soft warm
+glow, headline above, two real navigation CTAs below (not fabricated
+routes — "Why this exists" anchors into the page, "Getting started"
+links to the real docs section).
+FORM: locked direction (was variant 3 of the 7-variant round), now built
+to production quality inside the real Zensical site rather than a
+standalone mockup.
+FINISH: unreviewed and undocumented is unfinished; this build ends with
+the finish review, the verdict, and DESIGN.md.
+*/

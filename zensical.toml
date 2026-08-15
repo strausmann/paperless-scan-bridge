@@ -71,6 +71,14 @@ language = "en"
 # well-litigated one in Germany. System fonts instead.
 font = false
 
+# Template overrides. Only "home.html" exists here (assigned via
+# `template: home.html` in docs/en/index.md front matter) — it makes
+# the homepage a custom landing page while every other page keeps the
+# default docs template untouched. See docs/en/index.md and
+# overrides/home.html for the mechanism; both were verified against
+# Zensical's own customization docs before use, not guessed.
+custom_dir = "overrides"
+
 features = [
   "announce.dismiss",
   "content.action.edit",
