@@ -104,7 +104,7 @@ single point of reference.
 names only the language(s) its own documents are actually in. The
 `scan-processor` component's runtime image installs, and its
 `/process` endpoint therefore accepts, these Tesseract language codes
-(the [`scan-processor` README](../../../components/scan-processor/README.md#ocr-languages)
+(the [`scan-processor` README](https://github.com/strausmann/paperless-scan-bridge/blob/main/components/scan-processor/README.md#ocr-languages)
 is the authoritative, single-source list, and documents how to add
 another one):
 
@@ -145,7 +145,7 @@ response (`documents[].ocr_confidence` and
 **This never fails the scan** — a flagged document is still assembled
 and delivered normally; the flag is advisory, meant to route a
 document Tesseract itself was not confident about to manual review.
-See the [`scan-processor` README](../../../components/scan-processor/README.md#ocr-confidence-gate)
+See the [`scan-processor` README](https://github.com/strausmann/paperless-scan-bridge/blob/main/components/scan-processor/README.md#ocr-confidence-gate)
 for the mechanism.
 
 ### Auto language detection
@@ -165,7 +165,7 @@ particular), and heavily garbled OCR output can all be misidentified.
 For a profile whose documents are reliably in one non-default
 language, naming that language explicitly remains more accurate and
 cheaper. Full details, including the documented accuracy limits: the
-[`scan-processor` README](../../../components/scan-processor/README.md#auto-language-detection).
+[`scan-processor` README](https://github.com/strausmann/paperless-scan-bridge/blob/main/components/scan-processor/README.md#auto-language-detection).
 
 ## `assembly`
 
