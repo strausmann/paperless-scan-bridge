@@ -20,7 +20,7 @@ This repository fills that gap. It is also a living record of turning a
 Linux drivers — into a hands-free part of a homelab. If it can be made
 to work, most SANE-supported ADF scanners can too.
 
-## Three containers. No host installs.
+## Three containers. No host installs
 
 The Pi's job is Docker, an NFS mount, and udev rules — nothing else.
 Every real piece of work happens inside one of these three images, which
@@ -120,8 +120,8 @@ telemetry.
 | Phase | Scope | Status |
 | ----- | ----- | ------ |
 | **0** | Repository, MIT license, docs site, hardware table | complete* |
-| **1** | `scan-bridge` HTTP surface + `POST /scan` real; `sane-runtime` and `scan-processor` implemented and wired via `compose.yaml`; hardware smoke test prepared, not yet run; bootstrap script and published compose stack not written; job store (`/jobs*`) still `501` | in progress |
-| **2** | Hardware buttons (scanbd), Zigbee blueprints, n8n workflow exports | not started |
+| **1** | Core pipeline wired; hardware smoke test pending | in progress |
+| **2** | Hardware buttons, Zigbee blueprints, n8n exports | not started |
 | **3** | restic backup, Prometheus/Grafana, security hardening | not started |
 | **4** | Ecosystem maturity — community-driven | not started |
 </div>
