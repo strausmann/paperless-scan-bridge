@@ -15,4 +15,4 @@
 #   https://github.com/zensical/backlog/issues/38   tags plugin
 #   https://github.com/zensical/backlog/issues/155  pre-rendered diagrams
 
-zensical==0.0.53
+zensical==0.0.54
