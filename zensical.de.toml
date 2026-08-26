@@ -48,11 +48,12 @@ nav = [
 # copy to vendor and no third-party request. The dependency is real
 # though: moving or renaming those paths in zensical.toml silently
 # breaks the two German pages, and only a browser click would notice.
-# panel-tools.js is referenced with a LEADING SLASH here, unlike every
-# other asset in this file: the German site has no vendored copy of its
-# own, and an absolute path resolves to the English site's file at the
-# domain root (same origin, /de/ is just a prefix). That avoids a second,
-# drifting copy of the same source file under docs/de/.
+# panel-tools.js is referenced with an ABSOLUTE /en/ path here, unlike
+# every other asset in this file: the German site has no vendored copy of
+# its own, and /en/javascripts/ resolves to the English site's file on the
+# same origin. That avoids a second, drifting copy of the same source file
+# under docs/de/ — at the cost of a hard dependency on the English site's
+# layout, which is why both prefixes are spelled out rather than guessed.
 #
 # panel-tools.js loads the ESP Web Tools / Improv bundles for the
 # /install/ and /manage/ pages. It must live here rather than as an
@@ -60,7 +61,7 @@ nav = [
 # XHR without re-parsing the document, so an inline script never runs
 # when a visitor clicks through instead of loading the URL directly.
 # See the file header for the whole story.
-extra_javascript = ["javascripts/mermaid.min.js", "/javascripts/panel-tools.js"]
+extra_javascript = ["javascripts/mermaid.min.js", "/en/javascripts/panel-tools.js"]
 
 [project.theme]
 language = "de"

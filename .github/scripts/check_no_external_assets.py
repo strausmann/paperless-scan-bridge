@@ -104,8 +104,10 @@ def main(argv: list[str]) -> int:
     # falls back to the unpkg CDN the first time a page gains a diagram.
     # That URL lives inside the theme bundle, not in the markup, so the
     # check above cannot see it.
+    # Each language owns a prefix; the site root holds only the language
+    # picker, so there is no bundle to check there.
     missing = [
-        d for d in (site_dir, site_dir / "de")
+        d for d in (site_dir / "en", site_dir / "de")
         if not (d / "javascripts" / "mermaid.min.js").is_file()
     ]
     if missing:

@@ -19,9 +19,9 @@ das in Paperless-ngx landet.
   Scan
 - [Panel installieren](../install/index.md) — Firmware für das
   ESP32-Touch-Panel aus dem Browser flashen
-- [Scan profiles](/getting-started/scan-profiles/) *(englisch)* — wie
+- [Scan profiles](/en/getting-started/scan-profiles/) *(englisch)* — wie
   Profile definiert und ausgewählt werden
-- [Profile schema reference](/getting-started/profile-schema/)
+- [Profile schema reference](/en/getting-started/profile-schema/)
   *(englisch)* — vollständige Feldreferenz
 
 ## Was Sie vorher brauchen

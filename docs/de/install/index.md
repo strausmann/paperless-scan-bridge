@@ -69,7 +69,7 @@ Flashen. Sobald es gesetzt ist, wird die obere Leiste grün
 
 Die vollständige Anleitung, die Zustandstabelle der Anzeige und die
 bekannten Grenzen stehen in der englischen Doku:
-[CYD scan-control panel](/hardware/cyd-scan-panel/).
+[CYD scan-control panel](/en/hardware/cyd-scan-panel/).
 
 ## Voraussetzungen
 

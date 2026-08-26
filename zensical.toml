@@ -17,7 +17,7 @@
 
 [project]
 site_name = "paperless-scan-bridge"
-site_url = "https://scan-bridge.strausmann.de/"
+site_url = "https://scan-bridge.strausmann.de/en/"
 site_description = "Turn a SANE-compatible USB scanner into a hands-free ingestion pipeline for Paperless-ngx."
 site_author = "Björn Strausmann"
 copyright = "Copyright &copy; 2026 Björn Strausmann"
@@ -26,7 +26,7 @@ repo_name = "strausmann/paperless-scan-bridge"
 edit_uri = "edit/main/docs/en/"
 
 docs_dir = "docs/en"
-site_dir = "site"
+site_dir = "site/en"
 
 nav = [
   { "Home" = "index.md" },

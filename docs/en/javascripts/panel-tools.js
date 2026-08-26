@@ -33,8 +33,8 @@
   "use strict";
 
   var BUNDLES = [
-    ["esp-web-install-button", "/javascripts/esp-web-tools/install-button.js"],
-    ["improv-wifi-launch-button", "/javascripts/improv-wifi/launch-button.js"]
+    ["esp-web-install-button", "/en/javascripts/esp-web-tools/install-button.js"],
+    ["improv-wifi-launch-button", "/en/javascripts/improv-wifi/launch-button.js"]
   ];
 
   // Guards against a second import() of the same module. customElements

@@ -168,7 +168,7 @@ between releases as a running list.
   handlers actually implemented in `internal/api/` rather than the
   aspirational surface `CONTAINER_SUITE.md` §4.4 used to reference,
   rendered as an interactive [API
-  reference](https://scan-bridge.strausmann.de/api-reference/) page
+  reference](https://scan-bridge.strausmann.de/en/api-reference/) page
   via a self-hosted [Scalar](https://github.com/scalar/scalar)
   bundle (`.github/scripts/vendor-scalar.sh`, same
   pinned-and-digest-verified vendoring pattern as Mermaid and ESP Web
