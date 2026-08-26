@@ -33,11 +33,11 @@ Off-Site-Strategie gilt damit für alles, was das System produziert.
 !!! info "Deutsche Übersetzung: der Einstieg, nicht die Referenz"
 
     Übersetzt sind die Seiten, die man zum Anfangen braucht: diese
-    Startseite, [Erste Schritte](erste-schritte/index.md), der
-    [Schnellstart](erste-schritte/schnellstart.md), die
+    Startseite, [Erste Schritte](getting-started/index.md), der
+    [Schnellstart](getting-started/quickstart.md), die
     [Hardware-Übersicht](hardware/index.md) sowie
-    [Panel installieren](installieren/index.md) und
-    [Panel verwalten](verwalten/index.md).
+    [Panel installieren](install/index.md) und
+    [Panel verwalten](manage/index.md).
 
     **Die Referenzdokumentation bleibt vorerst englisch** — Profil-Schema,
     Architektur, Troubleshooting und API-Referenz. Das ist Absicht: Diese
@@ -77,9 +77,9 @@ dem Host. Keine Sprach-Runtimes auf dem Host.
 
 ## Weiterführend
 
-- [Panel installieren](installieren/index.md) — Firmware direkt aus dem
+- [Panel installieren](install/index.md) — Firmware direkt aus dem
   Browser auf das ESP32-Panel flashen
-- [Erste Schritte](erste-schritte/index.md) — was der Stack tut und was
+- [Erste Schritte](getting-started/index.md) — was der Stack tut und was
   man dafür braucht
 - [Englische Dokumentation](/) — vollständig, inklusive Referenz
 - [Repository auf GitHub](https://github.com/strausmann/paperless-scan-bridge)

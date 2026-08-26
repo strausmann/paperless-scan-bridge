@@ -58,6 +58,15 @@
             correctly-resolved link on this page actually points to.
           #}
           <a href="{{ 'getting-started/' | url }}" class="md-button">Getting started</a>
+          {#
+            The landing page sets `hide: [navigation]` and the theme has
+            no `navigation.tabs`, so this hero is the ONLY navigation a
+            first-time visitor gets. Anything that should be findable
+            from the front door has to be a CTA here — /install/ was
+            live and linked from the nav for days without being
+            reachable from this page at all.
+          #}
+          <a href="{{ 'install/' | url }}" class="md-button">Install the panel</a>
         </div>
       </div>
     </div>

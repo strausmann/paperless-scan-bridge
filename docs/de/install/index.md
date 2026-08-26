@@ -46,7 +46,7 @@ Direkt nach dem Flashen führt der Installer durch
 [Improv Wi-Fi](https://www.improv-wifi.com/). Wenn Sie das überspringen
 oder das Panel später sein Netz verliert, gibt es zwei weitere Wege:
 
-- **[Bluetooth](../verwalten/index.md)** — die Verwalten-Seite richtet
+- **[Bluetooth](../manage/index.md)** — die Verwalten-Seite richtet
   WLAN über BLE ein, ganz ohne Kabel.
 - **Setup-Hotspot** — findet das Panel kein bekanntes Netz, öffnet es
   einen Access Point `Scan Panel Setup` (Passwort `panelsetup`) mit

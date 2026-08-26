@@ -32,8 +32,8 @@ Kein Scanner, sondern ein Begleitgerät: Das CYD-Scan-Panel ist ein
 Touchscreen, der Scan-Profile auflistet und einen Scan über HTTP
 auslöst — direkt aus dem Browser flashbar.
 
-- [Panel installieren](../installieren/index.md) — Firmware flashen
-- [Panel verwalten](../verwalten/index.md) — WLAN über Bluetooth
+- [Panel installieren](../install/index.md) — Firmware flashen
+- [Panel verwalten](../manage/index.md) — WLAN über Bluetooth
   einrichten
 
 ## Einen eigenen Scanner testen

@@ -15,9 +15,9 @@ das in Paperless-ngx landet.
 
 ## Seiten
 
-- [Schnellstart](schnellstart.md) — Voraussetzungen, Bootstrap, erster
+- [Schnellstart](quickstart.md) — Voraussetzungen, Bootstrap, erster
   Scan
-- [Panel installieren](../installieren/index.md) — Firmware für das
+- [Panel installieren](../install/index.md) — Firmware für das
   ESP32-Touch-Panel aus dem Browser flashen
 - [Scan profiles](/getting-started/scan-profiles/) *(englisch)* — wie
   Profile definiert und ausgewählt werden

@@ -22,13 +22,18 @@ edit_uri = "edit/main/docs/de/"
 docs_dir = "docs/de"
 site_dir = "site/de"
 
+# URL PARITY: the directory names under docs/de/ deliberately match
+# docs/en/ exactly (install/, manage/, getting-started/, hardware/), even
+# though the nav labels are German. A reader must be able to switch
+# language by editing nothing but the /de/ prefix — translating the slugs
+# too would break that, and break every cross-language link.
 nav = [
   { "Start" = "index.md" },
-  { "Panel installieren" = "installieren/index.md" },
-  { "Panel verwalten" = "verwalten/index.md" },
+  { "Panel installieren" = "install/index.md" },
+  { "Panel verwalten" = "manage/index.md" },
   { "Erste Schritte" = [
-    "erste-schritte/index.md",
-    "erste-schritte/schnellstart.md",
+    "getting-started/index.md",
+    "getting-started/quickstart.md",
   ] },
   { "Hardware" = ["hardware/index.md"] },
 ]
@@ -36,7 +41,7 @@ nav = [
 # Same self-hosted Mermaid setup as the English site; see zensical.toml
 # for why this replaces the unpkg.com load.
 #
-# NOTE: installieren/ and verwalten/ load the ESP Web Tools and Improv
+# NOTE: install/ and manage/ load the ESP Web Tools and Improv
 # Wi-Fi bundles with ABSOLUTE paths (/javascripts/...), which resolve to
 # the English site's vendored copies at the domain root — the German
 # site is served under /de/ on the same origin, so there is no second
