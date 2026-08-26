@@ -93,11 +93,17 @@ curl -X POST http://your-pi-host:8080/scan \
   -d '{"profile": "default"}'
 ```
 
-!!! note "Returns 501 today"
+!!! note "This works today — the deployment tooling around it does not"
 
-    `POST /scan` and the `/jobs` endpoints currently return
-    `501 Not Implemented`. The scan dispatch path, the job store, and the
-    SANE-net client are Phase 1.2 work.
+    `POST /scan` is a real, bearer-protected handler: it dispatches
+    through `sane-runtime` to the scanner, has `scan-processor` assemble
+    the pages, and delivers the result to the configured destinations.
+    It was first driven end to end against the reference hardware on
+    2026-08-26. The `/jobs*` endpoints still return
+    `501 Not Implemented` — asynchronous job tracking is separate work.
+
+    What is missing is everything *around* it on this page: the
+    bootstrap script and the published compose stacks.
 
 ## Troubleshooting
 

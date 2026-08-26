@@ -24,10 +24,25 @@ site_dir = "site/de"
 
 nav = [
   { "Start" = "index.md" },
+  { "Panel installieren" = "installieren/index.md" },
+  { "Panel verwalten" = "verwalten/index.md" },
+  { "Erste Schritte" = [
+    "erste-schritte/index.md",
+    "erste-schritte/schnellstart.md",
+  ] },
+  { "Hardware" = ["hardware/index.md"] },
 ]
 
 # Same self-hosted Mermaid setup as the English site; see zensical.toml
 # for why this replaces the unpkg.com load.
+#
+# NOTE: installieren/ and verwalten/ load the ESP Web Tools and Improv
+# Wi-Fi bundles with ABSOLUTE paths (/javascripts/...), which resolve to
+# the English site's vendored copies at the domain root — the German
+# site is served under /de/ on the same origin, so there is no second
+# copy to vendor and no third-party request. The dependency is real
+# though: moving or renaming those paths in zensical.toml silently
+# breaks the two German pages, and only a browser click would notice.
 extra_javascript = ["javascripts/mermaid.min.js"]
 
 [project.theme]
