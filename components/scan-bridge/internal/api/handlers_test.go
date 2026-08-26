@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) *Server {
 profiles:
   - name: receipts
     description: "Receipts, grayscale"
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"

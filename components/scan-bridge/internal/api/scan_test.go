@@ -137,7 +137,7 @@ const scanTestProfilesYAML = `
 profiles:
   - name: receipts
     description: "Receipts, grayscale"
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -156,7 +156,7 @@ func scanTestProfileWithDestination(target, extra string) string {
 profiles:
   - name: receipts
     description: "Receipts, grayscale"
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -417,7 +417,7 @@ func TestScanOCRConfigPassedThroughToProcessor(t *testing.T) {
 	profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -470,7 +470,7 @@ func TestScanOCRMinConfidenceAndConfidenceFieldsRoundTrip(t *testing.T) {
 	profilesYAML := `
 profiles:
   - name: receipts-strict
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -540,7 +540,7 @@ func TestScanOCRLanguagesProfileSelectionPassedThroughUnchanged(t *testing.T) {
 	profilesYAML := `
 profiles:
   - name: correspondance-fr
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -588,7 +588,7 @@ func TestScanAssemblyAndFormatPassedThroughToProcessor(t *testing.T) {
 	profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "jpeg"
@@ -916,7 +916,7 @@ func TestScanDocumentTypeMapAffectsDelivery(t *testing.T) {
 	profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -1394,7 +1394,7 @@ func TestScanPipelineTimeoutHeadroom(t *testing.T) {
 		profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -1428,7 +1428,7 @@ profiles:
 		profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -1466,7 +1466,7 @@ profiles:
 		profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
@@ -1498,7 +1498,7 @@ profiles:
 		profilesYAML := `
 profiles:
   - name: receipts
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"

@@ -62,7 +62,7 @@ profiles:
 | --- | --- |
 | `name` | Unique, non-empty. Duplicate names fail the load. |
 | `description` | Free text. |
-| `source` | SANE source string, e.g. `ADF`, `ADF Duplex`, `Flatbed`. Spelled exactly as the backend reports it. |
+| `source` | SANE source string. Only `ADF Front`, `ADF Duplex` and `Flatbed` are accepted; anything else fails the load at startup. Spelled exactly as the backend reports it — the reference Kodak ScanMate i1120 offers `ADF Front` and `ADF Duplex` only (check yours with `scanimage -A`). |
 | `resolution` | DPI, 100–1200. |
 | `mode` | `Color`, `Gray`, `Lineart` |
 | `format` | `pdf`, `jpeg`, `tiff` |

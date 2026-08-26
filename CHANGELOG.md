@@ -192,6 +192,18 @@ between releases as a running list.
 
 ### Fixed
 
+- Scan profiles now reject a `source` the scanner does not offer, at
+  daemon startup instead of on the first scan. `validateProfile` only
+  checked that `source` was non-empty, so an unusable value passed
+  validation and surfaced later as a `400 invalid_request` from
+  `sane-runtime`, on the caller. Two shipped profiles were affected:
+  `private-simplex` and `receipts` set `source: "ADF"`, which the
+  reference Kodak ScanMate i1120 does not advertise — `scanimage -A`
+  reports exactly `ADF Front|ADF Duplex` — so neither profile could
+  ever have scanned. Accepted values are `ADF Front`, `ADF Duplex` and
+  `Flatbed`. Found while smoke-testing `sane-runtime` against the real
+  device.
+
 - CYD scan-control panel firmware: the status LED and on-screen status
   label now reset back to idle after every scan outcome, not just a
   successful one. Previously, only the `200` branch reset the display —

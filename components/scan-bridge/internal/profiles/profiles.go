@@ -30,6 +30,33 @@ import (
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
 )
 
+// supportedSources is the allow-list of SANE source strings a profile
+// may request. It mirrors sane-runtime's own allow-list
+// (components/sane-runtime/internal/scanapi/handlers.go): validating
+// here means a bad source fails fast at daemon startup instead of
+// surfacing as a 400 from sane-runtime on the first scan.
+//
+// The values are the SANE option strings, matched exactly (SANE is
+// case-sensitive). The reference Kodak ScanMate i1120 advertises
+// "ADF Front|ADF Duplex" via `scanimage -A`, verified on the hardware
+// on 2026-08-26; "Flatbed" is kept for flatbed-capable scanners.
+var supportedSources = map[string]bool{
+	"ADF Front":  true,
+	"ADF Duplex": true,
+	"Flatbed":    true,
+}
+
+// supportedSourceList renders the allow-list deterministically for
+// error messages.
+func supportedSourceList() string {
+	names := make([]string, 0, len(supportedSources))
+	for n := range supportedSources {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
 // ColorMode is the SANE-mode-equivalent enum.
 type ColorMode string
 
@@ -328,6 +355,9 @@ func validateProfile(p Profile) error {
 	}
 	if strings.TrimSpace(p.Source) == "" {
 		return errors.New("source must be non-empty (SANE source string)")
+	}
+	if !supportedSources[p.Source] {
+		return fmt.Errorf("source %q: must be one of %s", p.Source, supportedSourceList())
 	}
 
 	if p.Resolution < minResolutionDPI || p.Resolution > maxResolutionDPI {

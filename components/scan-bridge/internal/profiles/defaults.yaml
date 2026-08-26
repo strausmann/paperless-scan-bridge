@@ -25,7 +25,7 @@ profiles:
 
   - name: private-simplex
     description: "Private documents, single-sided, color, 300 DPI"
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -41,7 +41,7 @@ profiles:
 
   - name: receipts
     description: "Receipts and small slips, grayscale, 200 DPI"
-    source: "ADF"
+    source: "ADF Front"
     resolution: 200
     mode: "Gray"
     format: "pdf"
