@@ -166,11 +166,10 @@ json:
 # `!secret` values for the bridge connection. Both entities persist to
 # flash (`restore_value: true`) and are editable from the `web_server`
 # dashboard above at the panel's IP — no re-flash needed to change
-# either. `initial_value` on Bridge URL is a convenience default for
-# this project's own LAN, not a secret; every flasher is expected to
-# change it. Bridge Token has no `initial_value` — it starts empty on a
+# either. Neither entity has an `initial_value`: both start empty on a
 # freshly flashed, never-configured panel, which is exactly the state
-# the guards in the scripts below check for.
+# the guards in the scripts below check for (`state.empty()` ->
+# "Bridge: not set"). Set both from the dashboard after flashing.
 # ---------------------------------------------------------------------
 
 text:
@@ -179,7 +178,6 @@ text:
     id: bridge_url
     optimistic: true
     restore_value: true
-    initial_value: "http://hhplex01:18080"
     mode: text
   - platform: template
     name: "Bridge Token"

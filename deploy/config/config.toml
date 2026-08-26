@@ -1,5 +1,5 @@
-# Phase 1.2 (Task 15) hardware smoke-test configuration for scan-bridge
-# on hhplex01. Mounted read-only at /etc/scan-bridge/config.toml
+# Phase 1.2 (Task 15) hardware smoke-test configuration for scan-bridge.
+# Mounted read-only at /etc/scan-bridge/config.toml
 # (components/scan-bridge/Dockerfile CMD default).
 #
 # Schema/precedence: components/scan-bridge/internal/config/config.go.

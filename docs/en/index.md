@@ -106,7 +106,7 @@ telemetry.
     Both `sane-runtime` and `scan-processor` have real Go
     implementations and Dockerfiles, and the repository-root
     `compose.yaml` wires all three services together for a hardware
-    smoke test on hhplex01 that is prepared but, as of this writing,
+    smoke test that is prepared but, as of this writing,
     not yet run. What is genuinely missing: the bootstrap script, the
     published `deploy/compose/` stack, scanbd (hardware-button
     triggering — documented as out of scope for `sane-runtime` so far),

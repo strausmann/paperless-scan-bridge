@@ -54,11 +54,10 @@ README for why a single public binary works here at all.
    router, or the ESP Web Tools log), open `http://<panel-ip>/` in a
    browser on the same network.
 4. **Set Bridge URL and Bridge Token** — on that dashboard, set the
-   scan-bridge's address (defaults to this project's own
-   `http://hhplex01:18080`) and its bearer token (**source:** the
-   Vaultwarden item *"paperless-scan-bridge test token (hhplex01)"* for
-   this project's own deployment — ask whoever manages your HomeLab
-   Vaultwarden for access, or use your own bridge's token). Both persist
+   scan-bridge's address (the host and port you publish `scan-bridge`
+   on, e.g. `http://<your-bridge-host>:18080`) and its bearer token —
+   the plaintext whose SHA-256 digest is in your `auth.token_hash`,
+   kept in your password manager, not in this repository. Both persist
    across reboots; nothing here needs a re-flash. Once set, the top bar's
    Bridge indicator turns **green "Bridge: OK"** as soon as the bridge
    answers `GET /ready` with `200` — profiles loaded and the scanner

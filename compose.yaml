@@ -1,8 +1,8 @@
 # Phase 1.2 (Task 15) compose stack: scan-bridge + sane-runtime, wired
-# over the ADR 0009 shared Unix socket, deployed on hhplex01 for the
+# over the ADR 0009 shared Unix socket, deployed on the reference host
 # hardware smoke test explicitly anticipated in
 # components/sane-runtime/Dockerfile's root-tradeoff comment ("the
-# Task 13 hardware smoke test on hhplex01").
+# Task 13 hardware smoke test").
 #
 # Lives at the repo root, NOT under deploy/compose/ as originally
 # sketched in docs/superpowers/plans/2026-04-30-phase-1.2-plan-
@@ -136,8 +136,8 @@ services:
     container_name: paperless-scan-bridge-sane-runtime
     restart: unless-stopped
     # USB passthrough (ADR 0008: device-cgroup permissions, never
-    # --privileged). Scanner is at /dev/bus/usb/001/004 on hhplex01
-    # (avision:libusb:001:004); the whole bus is passed through because
+    # --privileged). On the reference host the scanner enumerates as
+    # avision:libusb:001:004; the whole bus is passed through because
     # deploy/udev/ (stable per-device symlink) is still empty
     # (.gitkeep only, per repo-root CLAUDE.md) — narrowing this to the
     # specific device node is tracked, not this task's scope.
@@ -224,6 +224,12 @@ services:
       # pre-create or own-fix for them (read-only, world-readable in
       # the checkout).
       - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
+      # deploy/profiles/default.yaml is gitignored and site-specific:
+      # copy deploy/profiles/default.yaml.example to it and set your
+      # own Paperless base_url before the first deploy. Docker creates
+      # a DIRECTORY at this path if the file is missing, which makes
+      # scan-bridge fail its profile load with a confusing error --
+      # check the file exists first.
       - ./deploy/profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
     secrets:
       - paperless_api_token

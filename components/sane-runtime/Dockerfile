@@ -89,7 +89,7 @@ COPY --from=build /out/sane-runtime /usr/local/bin/sane-runtime
 # GID 10003) is not implemented anywhere yet on the host side —
 # deploy/udev/ is still empty (.gitkeep only). This image therefore
 # runs as root, which is a deliberate, temporary exception scoped to
-# the Task 13 hardware smoke test on hhplex01, not a claim that ADR
+# the Task 13 hardware smoke test, not a claim that ADR
 # 0008/0013 are satisfied. Follow-up (tracked outside this task):
 # create the sanesvc:scanner user, match its GID to the host udev
 # rule's group once that rule exists, add `USER sanesvc:scanner`, and
