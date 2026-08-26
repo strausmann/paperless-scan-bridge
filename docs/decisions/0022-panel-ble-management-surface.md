@@ -13,10 +13,17 @@ The CYD scan-control panel is configured today through two paths: Improv
 IP — for everything else (Bridge URL, Bridge Token, grid geometry) plus live
 status.
 
-That leaves a gap the `/manage/` page makes visible: before Wi-Fi exists, or
-whenever the network is unavailable, the only reachable transport is BLE, and
-Improv carries **nothing but Wi-Fi credentials and a state code**. There is no
-way to see the panel's status or fix a wrong Bridge URL over Bluetooth.
+That leaves a gap the `/manage/` page makes visible. A panel with no usable
+network is not unreachable — the firmware falls back to a `Scan Panel Setup`
+SoftAP with a captive portal, and the bundled dashboard is fully usable over
+it. But that fallback costs the operator their own network connection: joining
+the panel's access point means leaving the Wi-Fi they were on, which on a
+phone or a laptop with a single radio is a disruptive, easily-abandoned detour.
+
+Bluetooth is the transport that avoids it, and over Bluetooth the panel speaks
+only Improv — **nothing but Wi-Fi credentials and a state code**. So there is
+no way to read the panel's status or correct a wrong Bridge URL without either
+a working network or a trip through the SoftAP.
 
 Comparable products solve this with a custom GATT service. LTS Design's
 Respooler does exactly that: one service, two characteristics — one notifying
@@ -108,8 +115,9 @@ capability that does not exist.
 - **Positive:** the shipped BLE surface cannot leak or accept the bridge
   credential. `/manage/` is honest about its scope. No firmware change and no
   new flash cost for the current release.
-- **Negative / trade-offs:** configuring a panel still needs Wi-Fi (or the
-  setup hotspot). Users who know the Respooler will expect more from a page
+- **Negative / trade-offs:** configuring a panel still needs a working network
+  or a detour through the `Scan Panel Setup` SoftAP — the capability is not
+  missing, it is merely inconvenient on a single-radio device. Users who know the Respooler will expect more from a page
   called "Manage" — the page therefore says what it cannot do, and why, in the
   page body rather than in a footnote.
 - **Neutral / follow-ups:** when the authorizer ADR lands, `esp32_improv`'s own
