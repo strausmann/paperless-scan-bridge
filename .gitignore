@@ -90,6 +90,11 @@ docs/*/javascripts/mermaid.min.js
 # committed: it is a reproducible build artifact, not source.
 docs/en/javascripts/esp-web-tools/
 
+# Fetched by .github/scripts/vendor-improv-wifi.sh, pinned + digest-
+# verified at build time. Same reason as the esp-web-tools bundle above:
+# a build artifact, not source.
+docs/en/javascripts/improv-wifi/
+
 # Vendored Scalar standalone bundle (~3.6 MB, single self-contained
 # file like Mermaid — fetched by .github/scripts/vendor-scalar.sh,
 # pinned + digest-verified against the npm registry's published

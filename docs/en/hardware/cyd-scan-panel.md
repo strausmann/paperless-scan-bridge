@@ -17,39 +17,31 @@ this firmware makes to be distributable as one public binary.
 | Firmware | ESPHome, secret-free — see below |
 | Hardware verification | Not yet flashed to real hardware (see README "Hardware verification status") |
 
-## Install from the browser
+## Install and manage
 
-<esp-web-install-button manifest="/firmware/manifest.json">
-  <span slot="activate">Install CYD Scan Panel firmware</span>
-  <span slot="unsupported">
-    Your browser doesn't support Web Serial. Use Chrome or Edge instead.
-  </span>
-  <span slot="not-allowed">
-    Installing needs a secure context (HTTPS or localhost) — this page
-    should already be one; if you see this, something's off.
-  </span>
-</esp-web-install-button>
+Flashing and Bluetooth setup have their own pages, linked from the top
+of the site:
 
-<script type="module" src="/javascripts/esp-web-tools/install-button.js"></script>
+- **[Install panel](../install/index.md)** — flash the firmware straight
+  from the browser over USB (Chrome/Edge, Web Serial).
+- **[Manage panel](../manage/index.md)** — get a panel onto Wi-Fi over
+  Bluetooth (Chrome/Edge, Web Bluetooth).
 
-Requires **Chrome or Edge** on desktop (Web Serial). Firefox and Safari
-are not supported by the underlying [Web Serial
-API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API),
-not by anything on this page. The button above flashes the same
-`cyd-scan-panel.factory.bin` that CI compiles from
-[`firmware/esp32-panel/cyd-scan-panel.yaml`](https://github.com/strausmann/paperless-scan-bridge/blob/main/firmware/esp32-panel/cyd-scan-panel.yaml)
-on every push to `main` — see the "Secret-free firmware" section of the
-README for why a single public binary works here at all.
+This page is the hardware reference behind those: what the panel is,
+how it behaves once configured, and what it still cannot do.
 
 ## Setup, step by step
 
-1. **Install** — plug the CYD in over USB, click the button above, pick
-   the serial port when Chrome/Edge asks.
+1. **Install** — plug the CYD in over USB and flash it from the
+   [Install panel](../install/index.md) page, picking the serial port
+   when Chrome/Edge asks.
 2. **Wi-Fi (Improv)** — right after flashing, the installer walks you
    through [Improv Wi-Fi](https://www.improv-wifi.com/) provisioning in
-   the same browser tab: pick your network, enter the password. If the
-   panel can't join any network, it falls back to a `Scan Panel Setup`
-   hotspot (password `panelsetup`) with a captive portal.
+   the same browser tab: pick your network, enter the password. You can
+   also do this later over Bluetooth from the
+   [Manage panel](../manage/index.md) page. If the panel can't join any
+   network, it falls back to a `Scan Panel Setup` hotspot (password
+   `panelsetup`) with a captive portal.
 3. **Open the panel's own dashboard** — once it has an IP (check your
    router, or the ESP Web Tools log), open `http://<panel-ip>/` in a
    browser on the same network.

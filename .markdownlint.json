@@ -11,7 +11,7 @@
   },
 
   "MD033": {
-    "$comment": "Inline HTML is needed for the front-matter template's checklist comment, for admonition markup, for the ESP Web Tools install button on the CYD scan-control panel page, and for the Scalar mount point + loader/init script on the API reference page (a JS-rendered component, no Markdown/fenced-code equivalent exists for any of these).",
+    "$comment": "Inline HTML is needed for the front-matter template's checklist comment, for admonition markup, for the ESP Web Tools install button on the Install page and the Improv Wi-Fi BLE launch button on the Manage page, and for the Scalar mount point + loader/init script on the API reference page (a JS-rendered component, no Markdown/fenced-code equivalent exists for any of these).",
     "allowed_elements": [
       "br",
       "kbd",
@@ -20,6 +20,8 @@
       "details",
       "summary",
       "esp-web-install-button",
+      "improv-wifi-launch-button",
+      "button",
       "span",
       "script",
       "div"

@@ -33,6 +33,7 @@ on:
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
       - '.github/workflows/esphome-firmware.yml'
+      - '.github/scripts/**'
   pull_request:
     paths:
       - 'docs/**'
@@ -43,6 +44,7 @@ on:
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
       - '.github/workflows/esphome-firmware.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -81,6 +83,9 @@ jobs:
 
       - name: Vendor ESP Web Tools
         run: ./.github/scripts/vendor-esp-web-tools.sh
+
+      - name: Vendor Improv Wi-Fi BLE SDK
+        run: ./.github/scripts/vendor-improv-wifi.sh
 
       - name: Vendor Scalar
         run: ./.github/scripts/vendor-scalar.sh
