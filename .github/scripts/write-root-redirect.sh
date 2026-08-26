@@ -56,39 +56,66 @@ cat > "${target_dir}/index.html" <<'HTML'
   <body>
     <main>
       <h1>paperless-scan-bridge</h1>
-      <p>Choose a language &middot; Sprache w&auml;hlen</p>
+      <!-- Each fragment carries its own lang: the document is en, so a
+           screen reader would otherwise pronounce "Sprache wählen" and
+           "Deutsch" with English phonetics. -->
+      <p><span lang="en">Choose a language</span> &middot;
+         <span lang="de">Sprache w&auml;hlen</span></p>
       <div class="langs">
-        <a href="/en/"><span>English</span></a>
-        <a href="/de/"><span>Deutsch</span></a>
+        <a href="/en/" data-lang="en" lang="en"><span>English</span></a>
+        <a href="/de/" data-lang="de" lang="de"><span>Deutsch</span></a>
       </div>
     </main>
     <script>
       (function () {
-        try {
-          var stored = localStorage.getItem("psb-lang");
-          if (stored === "de" || stored === "en") {
-            location.replace("/" + stored + "/");
-            return;
+        var KEY = "psb-lang";
+
+        function remember(lang) {
+          try {
+            localStorage.setItem(KEY, lang);
+          } catch (e) {
+            // Private mode and blocked storage throw here. Remembering
+            // is a convenience, not a requirement — the redirect below
+            // still happens.
+            console.warn("language picker: could not persist choice", e);
           }
-          var langs = navigator.languages || [navigator.language || "en"];
-          for (var i = 0; i < langs.length; i++) {
-            var tag = String(langs[i]).toLowerCase();
-            if (tag === "de" || tag.indexOf("de-") === 0) {
-              location.replace("/de/");
-              return;
-            }
-            // Any other resolved language wins here; only keep scanning
-            // past entries we cannot classify.
-            if (tag) {
-              location.replace("/en/");
-              return;
-            }
-          }
-          location.replace("/en/");
-        } catch (e) {
-          // Private mode can throw on localStorage. The links above are
-          // the fallback, so failing silently is correct.
         }
+
+        // Clicking a language is an explicit choice and outranks the
+        // browser's preference on the next visit. Without this the
+        // stored-choice branch below could never fire.
+        var links = document.querySelectorAll("a[data-lang]");
+        for (var j = 0; j < links.length; j++) {
+          links[j].addEventListener("click", function () {
+            remember(this.getAttribute("data-lang"));
+          });
+        }
+
+        var stored = null;
+        try {
+          stored = localStorage.getItem(KEY);
+        } catch (e) {
+          console.warn("language picker: could not read stored choice", e);
+        }
+        if (stored === "de" || stored === "en") {
+          location.replace("/" + stored + "/");
+          return;
+        }
+
+        var langs = navigator.languages || [navigator.language || "en"];
+        var target = "en";
+        for (var i = 0; i < langs.length; i++) {
+          var tag = String(langs[i]).toLowerCase();
+          if (!tag) {
+            continue;
+          }
+          target = (tag === "de" || tag.indexOf("de-") === 0) ? "de" : "en";
+          break;
+        }
+        // Deliberately NOT remembered: this was the browser's guess, not
+        // the visitor's decision. Persisting it would make the picker
+        // unreachable for someone who wanted the other language.
+        location.replace("/" + target + "/");
       })();
     </script>
   </body>

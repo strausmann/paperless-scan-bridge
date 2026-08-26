@@ -75,7 +75,7 @@ registry itself publishes for that version, and writes every file under
 page references it directly:
 
 ```html
-<script type="module" src="/javascripts/esp-web-tools/install-button.js"></script>
+<script src="/en/javascripts/panel-tools.js"></script>
 ```
 
 Same trade-off as Mermaid: about 540 KB, not committed (a reproducible
