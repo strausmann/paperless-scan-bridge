@@ -1,5 +1,12 @@
 # Phase 1.2 (Task 15) smoke-test profile set for the compose stack in
-# deploy/compose/scan-stack.compose.yml.
+# compose.yaml.
+#
+# THIS IS A TEMPLATE. compose.yaml mounts deploy/profiles/default.yaml,
+# which is local-only and gitignored -- copy this file to that name and
+# fill in your own deployment's values (notably the Paperless base_url
+# below). Same convention as deploy/secrets/*.example: the committed
+# file carries placeholders, the real one never enters git, so a public
+# repository never learns a private deployment's host names.
 #
 # Schema: components/scan-bridge/internal/profiles/profiles.go
 # (validateProfile). "default" is the profile name the morning
@@ -30,18 +37,21 @@ profiles:
     metadata_template:
       paperless_tags: ["phase-1.2-smoke-test"]
       paperless_correspondent: null
-    # Direct-to-API upload into the paperless-test stack used for this
-    # smoke test (Paperless-ngx 3.0.5 on hhdocker03). The hostname is a
-    # homelab-internal name, resolvable only inside the tailnet — same
-    # class of value as the hhplex01 references already carried by
-    # compose.yaml and firmware/esp32-panel/. The API token is NOT here:
-    # token_secret names a config.SecretResolver entry, resolved at
-    # runtime from the Docker secret mounted at
-    # /run/secrets/paperless_api_token (compose.yaml `secrets:`), whose
-    # backing file deploy/secrets/paperless_api_token is gitignored.
+    # Direct-to-API upload into your Paperless-ngx instance. Replace
+    # base_url with your own; the value below is a placeholder and will
+    # not resolve. Verified against Paperless-ngx 3.0.5.
     #
-    # tag_ids are INTEGER Paperless tag IDs, not names — 3 is
-    # "Inbox-Ingest-Test" in that instance. metadata_template's
+    # The API token is NOT here: token_secret names a
+    # config.SecretResolver entry, resolved at runtime from the Docker
+    # secret mounted at /run/secrets/paperless_api_token (compose.yaml
+    # `secrets:`), whose backing file deploy/secrets/paperless_api_token
+    # is gitignored.
+    #
+    # tag_ids are INTEGER Paperless tag IDs, not names, and they are
+    # instance-specific: the same number means a different tag (or no
+    # tag at all) in another Paperless. Left EMPTY here on purpose —
+    # fill it with IDs from your own instance (GET /api/tags/), or leave
+    # it empty to upload untagged. metadata_template's
     # paperless_tags above are the profile-level string tags; the
     # destination's tag_ids are what actually reaches the Paperless API
     # (internal/api/scan_metadata.go).
@@ -49,7 +59,7 @@ profiles:
       - target: paperless
         storage_first: false
         config:
-          base_url: "http://hhdocker03:28080"
+          base_url: "http://paperless.example.com:8000"
           token_secret: paperless_api_token
-          tag_ids: [3]
+          tag_ids: []
           tag_strategy: add

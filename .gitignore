@@ -43,6 +43,13 @@ sops.key
 deploy/secrets/*
 !deploy/secrets/*.example
 
+# Deployment profile set (deploy/profiles/*.example are the committed
+# templates; the real file compose.yaml mounts carries site-specific
+# values such as the Paperless base_url, so it stays local-only — a
+# public repository should not learn a private deployment's hosts)
+deploy/profiles/*
+!deploy/profiles/*.example
+
 # IDE / editor state
 .vscode/
 !.vscode/extensions.json

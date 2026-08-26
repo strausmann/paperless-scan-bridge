@@ -40,10 +40,10 @@ things:
   `Bridge Token`) that persist to flash (`restore_value: true`) and are
   set from the panel's own **on-device web dashboard** (`web_server:`,
   reachable at the panel's IP once it has Wi-Fi) — no re-flash needed to
-  change either. `Bridge URL` defaults to `http://hhplex01:18080` (this
-  project's own LAN address, purely a convenience default, not a
-  secret); every flasher is expected to change it to their own bridge's
-  address. `Bridge Token` starts **empty** on a freshly flashed panel —
+  change either. `Bridge URL` starts **empty** on a freshly flashed
+  panel — set it to your own bridge's address (for example
+  `http://<your-bridge-host>:18080`). `Bridge Token` starts **empty**
+  on a freshly flashed panel —
   see "Configuration" below.
 
 This is why a single compiled `.factory.bin` can be safely published for
@@ -104,12 +104,12 @@ Nothing to copy or fill in before flashing — everything below happens
    portal to configure Wi-Fi manually.
 2. **Bridge URL and Bridge Token:** once the panel has an IP, open
    `http://<panel-ip>/` in a browser — that's the on-device `web_server`
-   dashboard. Set **Bridge URL** to your scan-bridge's address (default
-   is this project's own `http://hhplex01:18080`) and **Bridge Token**
-   to the bridge's bearer token (**source:** the Vaultwarden item
-   *"paperless-scan-bridge test token (hhplex01)"* for this project's own
-   deployment; ask whoever manages your HomeLab Vaultwarden instance for
-   read access if you don't have it, or use your own bridge's token).
+   dashboard. Set **Bridge URL** to your scan-bridge's address (the
+   host and port you publish `scan-bridge` on, e.g.
+   `http://<your-bridge-host>:18080`) and **Bridge Token** to the
+   bridge's bearer token — the plaintext whose SHA-256 digest is in
+   your `auth.token_hash`. Keep that token in your password manager;
+   it is not in this repository.
    Both persist across reboots. Until **both** are set, the profile grid
    stays empty and tapping a (non-existent) button is a no-op — see
    `do_scan`'s guard in `cyd-scan-panel.yaml`.
