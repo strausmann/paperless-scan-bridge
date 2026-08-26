@@ -1,8 +1,8 @@
 # Manage the scan panel
 
-Connect to a panel over **Bluetooth** to get it onto Wi-Fi — useful when
-it has never been configured, when it moved to a new network, or when
-you simply don't want to plug in a cable.
+Connect to a panel over **Bluetooth** to get it onto Wi-Fi — for a
+freshly flashed panel, or one whose network has disappeared, without
+plugging in a cable.
 
 ## Connect over Bluetooth
 
@@ -21,8 +21,20 @@ you simply don't want to plug in a cable.
 
 <script type="module" src="/javascripts/improv-wifi/launch-button.js"></script>
 
-The panel advertises over BLE whenever it is powered. Pick it from the
-browser's device list, then choose a network and enter its password.
+Pick the panel from the browser's device list, then choose a network and
+enter its password.
+
+!!! important "The panel is only findable while it has no Wi-Fi"
+
+    ESPHome starts the Improv BLE service `wifi_timeout` after the Wi-Fi
+    connection drops — 90 seconds by default — and stops it again once
+    the panel is back on a network. A freshly flashed panel, or one whose
+    network is gone, will therefore appear in the browser's device list;
+    a panel that is happily connected will **not**.
+
+    To re-provision a connected panel, either use its own dashboard over
+    the network (below), or take its current network away and wait out
+    the timeout.
 
 !!! warning "What this page can and cannot do"
 

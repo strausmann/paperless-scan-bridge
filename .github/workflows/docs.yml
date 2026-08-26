@@ -33,6 +33,7 @@ on:
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
       - '.github/workflows/esphome-firmware.yml'
+      - '.github/scripts/**'
   pull_request:
     paths:
       - 'docs/**'
@@ -43,6 +44,7 @@ on:
       - 'requirements-docs.txt'
       - '.github/workflows/docs.yml'
       - '.github/workflows/esphome-firmware.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:

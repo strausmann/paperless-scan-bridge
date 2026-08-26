@@ -3,7 +3,10 @@
 Flash the CYD scan-control panel firmware straight from this page — no
 toolchain, no downloads, no command line. The binary is compiled by CI
 from [`firmware/esp32-panel/cyd-scan-panel.yaml`](https://github.com/strausmann/paperless-scan-bridge/blob/main/firmware/esp32-panel/cyd-scan-panel.yaml)
-on every push to `main` and served from this site.
+and published with this site, so it always matches the site you are
+reading. The build runs with the documentation pipeline rather than on
+every commit — the version string in the installer tells you which
+commit you are about to flash.
 
 ## 1. Flash
 
