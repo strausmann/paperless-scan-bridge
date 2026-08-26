@@ -26,7 +26,6 @@ Panel per USB an diesen Rechner anschließen, dann:
   </span>
 </esp-web-install-button>
 
-<script type="module" src="/javascripts/esp-web-tools/install-button.js"></script>
 
 Beim Nachfragen den seriellen Port auswählen. Der Installer löscht den
 Chip, schreibt das Factory-Image und bietet danach im selben Tab die

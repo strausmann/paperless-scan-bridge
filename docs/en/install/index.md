@@ -25,7 +25,6 @@ Plug the panel into this computer over USB, then:
   </span>
 </esp-web-install-button>
 
-<script type="module" src="/javascripts/esp-web-tools/install-button.js"></script>
 
 Pick the serial port when the browser asks. The installer erases the
 chip and writes the factory image, then offers to set up Wi-Fi in the

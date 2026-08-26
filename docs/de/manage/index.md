@@ -19,7 +19,6 @@ geflashtes Panel oder eines, dessen Netz verschwunden ist, ohne Kabel.
   </span>
 </improv-wifi-launch-button>
 
-<script type="module" src="/javascripts/improv-wifi/launch-button.js"></script>
 
 Das Panel aus der Geräteliste des Browsers auswählen, dann ein Netz
 wählen und das Passwort eingeben.

@@ -19,7 +19,6 @@ plugging in a cable.
   </span>
 </improv-wifi-launch-button>
 
-<script type="module" src="/javascripts/improv-wifi/launch-button.js"></script>
 
 Pick the panel from the browser's device list, then choose a network and
 enter its password.
