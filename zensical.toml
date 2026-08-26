@@ -30,6 +30,8 @@ site_dir = "site"
 
 nav = [
   { "Home" = "index.md" },
+  { "Install panel" = "install/index.md" },
+  { "Manage panel" = "manage/index.md" },
   { "Getting started" = [
     "getting-started/index.md",
     "getting-started/quickstart.md",

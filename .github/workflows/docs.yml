@@ -82,6 +82,9 @@ jobs:
       - name: Vendor ESP Web Tools
         run: ./.github/scripts/vendor-esp-web-tools.sh
 
+      - name: Vendor Improv Wi-Fi BLE SDK
+        run: ./.github/scripts/vendor-improv-wifi.sh
+
       - name: Vendor Scalar
         run: ./.github/scripts/vendor-scalar.sh
 

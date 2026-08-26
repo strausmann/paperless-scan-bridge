@@ -53,6 +53,8 @@ test-docker: ## Run hadolint over every Dockerfile under components/
 .PHONY: docs-vendor
 docs-vendor: ## Download pinned Mermaid/Scalar bundles, copy the OpenAPI spec
 	./.github/scripts/vendor-mermaid.sh
+	./.github/scripts/vendor-esp-web-tools.sh
+	./.github/scripts/vendor-improv-wifi.sh
 	./.github/scripts/vendor-scalar.sh
 	mkdir -p docs/en/api-reference
 	cp components/scan-bridge/api/openapi.yaml docs/en/api-reference/openapi.yaml
