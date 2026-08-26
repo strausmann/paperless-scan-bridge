@@ -79,7 +79,7 @@ single point of reference.
 | --- | --- |
 | `name` | Unique, non-empty. Duplicate names fail the load. |
 | `description` | Free text. |
-| `source` | SANE source string, e.g. `ADF`, `ADF Duplex`, `Flatbed`. |
+| `source` | SANE source string. Accepted values: `ADF Front`, `ADF Duplex`, `Flatbed`. Any other value fails the load at startup. Confirm what your scanner offers with `scanimage -A`. |
 | `resolution` | DPI, 100–1200. |
 | `mode` | `Color`, `Gray`, `Lineart` |
 | `format` | `pdf`, `jpeg`, `tiff` — this is also `scan-processor`'s `output_format` (no separate field). |
