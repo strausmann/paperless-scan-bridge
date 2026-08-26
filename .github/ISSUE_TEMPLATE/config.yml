@@ -12,7 +12,7 @@ contact_links:
       Do not file public issues for security vulnerabilities. Follow
       the responsible disclosure procedure documented in SECURITY.md.
   - name: Documentation site
-    url: https://scan-bridge.strausmann.de
+    url: https://strausmann.github.io/paperless-scan-bridge/
     about: |
       Quickstart, troubleshooting, hardware guides, architecture
       deep-dives. If your question is answered here, please link the

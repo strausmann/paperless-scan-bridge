@@ -1,4 +1,4 @@
-# Documentation build and deploy for scan-bridge.strausmann.de.
+# Documentation build and deploy for strausmann.github.io/paperless-scan-bridge.
 #
 # Zensical has no native multi-language support yet, so the site is two
 # separate builds stitched into one artifact. BUILD ORDER MATTERS: the
@@ -51,9 +51,6 @@ permissions:
 concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  SITE_DOMAIN: scan-bridge.strausmann.de
 
 jobs:
   firmware:
@@ -124,9 +121,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Write CNAME
-        run: echo "$SITE_DOMAIN" > site/CNAME
 
       - name: Check links
         uses: lycheeverse/lychee-action@v2

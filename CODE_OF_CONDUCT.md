@@ -63,7 +63,7 @@ For this project specifically, "community spaces" means:
 - The GitHub repository at `github.com/strausmann/paperless-scan-bridge`
   including issues, pull requests, discussions, and code review
   comments
-- The documentation site at `scan-bridge.strausmann.de`
+- The documentation site at `strausmann.github.io/paperless-scan-bridge`
 - Any official communication channel that may be added in the future
 
 ## Enforcement

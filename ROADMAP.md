@@ -34,9 +34,11 @@ can orient themselves.
 - `[x]` AGENTS.md and CONTRIBUTING.md
 - `[x]` CODE_OF_CONDUCT, SECURITY, THREAT_MODEL, DISASTER_RECOVERY
 - `[x]` Initial HARDWARE_COMPATIBILITY table with Kodak ScanMate i1120 reference entry
-- `[~]` Custom domain `scan-bridge.strausmann.de` configured for GitHub
-   Pages — the workflow writes the `CNAME`; the DNS record and the
-   Pages source setting are manual steps outside the repository
+- `[x]` Documentation site published at the default GitHub Pages
+   domain (`strausmann.github.io/paperless-scan-bridge`) — no custom
+   domain: a wildcard DNS record for `*.strausmann.de` would route
+   `scan-bridge.strausmann.de` to an internal service before it ever
+   reached GitHub, so the site stays on GitHub's own domain instead
 - `[x]` Zensical site skeleton with EN content, DE placeholder
 - `[ ]` First blog post draft on the project motivation
 - `[x]` GitHub issue templates for bug, hardware, feature

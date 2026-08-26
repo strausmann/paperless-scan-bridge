@@ -86,7 +86,7 @@ discussion in an issue or PR description.
 | Container build      | docker buildx bake      | Multi-arch, parallel, single command                         |
 | Local development    | Tilt                    | Live rebuild on file change, container-first dev loop        |
 | Documentation        | Zensical                | Successor to MkDocs Material, MIT, multi-language native     |
-| Doc site hosting     | GitHub Pages + custom domain | `scan-bridge.strausmann.de`                              |
+| Doc site hosting     | GitHub Pages, default domain | `strausmann.github.io/paperless-scan-bridge`             |
 | Doc languages        | English (primary), German | i18n via Zensical, EN under `/`, DE under `/de/`           |
 | CI/CD                | GitHub Actions          | Native, free for public repos                                |
 | Container registry   | GHCR                    | Native to GitHub, no separate auth                           |

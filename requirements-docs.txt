@@ -1,4 +1,4 @@
-# Documentation toolchain for scan-bridge.strausmann.de.
+# Documentation toolchain for strausmann.github.io/paperless-scan-bridge.
 #
 # Zensical is still alpha and ships several releases per week, so the
 # version is pinned exactly rather than with a range. Dependabot opens

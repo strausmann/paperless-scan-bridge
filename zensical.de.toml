@@ -11,7 +11,7 @@
 
 [project]
 site_name = "paperless-scan-bridge"
-site_url = "https://scan-bridge.strausmann.de/de/"
+site_url = "https://strausmann.github.io/paperless-scan-bridge/de/"
 site_description = "Ein SANE-kompatibler USB-Scanner wird zur freihändigen Ingestion-Pipeline für Paperless-ngx."
 site_author = "Björn Strausmann"
 copyright = "Copyright &copy; 2026 Björn Strausmann"

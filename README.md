@@ -52,7 +52,7 @@ without modern Linux drivers — into a hands-free part of my homelab.
 - Prometheus exporters, Grafana dashboards, and synthetic health checks
 - Security hardening profiles, threat model, and CrowdSec collections
 - Full documentation site at
-  [scan-bridge.strausmann.de](https://scan-bridge.strausmann.de)
+  [strausmann.github.io/paperless-scan-bridge](https://strausmann.github.io/paperless-scan-bridge/)
 
 ## Quickstart
 
@@ -86,7 +86,7 @@ docker compose -f deploy/compose/scan-bridge.yml up -d
 For step-by-step instructions including Synology share configuration,
 hardware verification, Home Assistant blueprint import, and storage
 topology choice, see the
-[Quickstart guide](https://scan-bridge.strausmann.de/getting-started/quickstart/).
+[Quickstart guide](https://strausmann.github.io/paperless-scan-bridge/getting-started/quickstart/).
 
 ## Architecture at a glance
 
@@ -122,7 +122,7 @@ discussion and trade-offs.
 | `monitoring/`    | Prometheus exporters, Grafana dashboards, synthetic checks    |
 | `security/`      | Hardening profiles, CrowdSec collections                      |
 | `ha/`            | Cold-standby setup, failover runbook, witness Pi pattern      |
-| `docs/`          | Zensical source for [scan-bridge.strausmann.de](https://scan-bridge.strausmann.de) |
+| `docs/`          | Zensical source for [strausmann.github.io/paperless-scan-bridge](https://strausmann.github.io/paperless-scan-bridge/) |
 | `tests/`         | Bats tests, integration tests, CI configuration               |
 
 ## Roadmap
@@ -140,18 +140,18 @@ See [ROADMAP.md](ROADMAP.md) for current status and tracked issues.
 ## Documentation
 
 Full documentation lives at
-[scan-bridge.strausmann.de](https://scan-bridge.strausmann.de) and is
+[strausmann.github.io/paperless-scan-bridge](https://strausmann.github.io/paperless-scan-bridge/) and is
 built from `docs/` using [Zensical](https://zensical.org).
 
 Key entry points:
 
-- [Quickstart guide](https://scan-bridge.strausmann.de/getting-started/quickstart/)
+- [Quickstart guide](https://strausmann.github.io/paperless-scan-bridge/getting-started/quickstart/)
 - [Architecture deep-dive](ARCHITECTURE.md)
 - [Hardware compatibility list](HARDWARE_COMPATIBILITY.md)
-- [Storage topology comparison](https://scan-bridge.strausmann.de/architecture/storage-topologies/)
+- [Storage topology comparison](https://strausmann.github.io/paperless-scan-bridge/architecture/storage-topologies/)
 - [Backup and disaster recovery](DISASTER_RECOVERY.md)
 - [Threat model](THREAT_MODEL.md)
-- [Troubleshooting guide](https://scan-bridge.strausmann.de/operations/troubleshooting/)
+- [Troubleshooting guide](https://strausmann.github.io/paperless-scan-bridge/operations/troubleshooting/)
 
 The site is English-first. A German version is served under `/de/` and
 is being filled in gradually — Zensical has no native multi-language

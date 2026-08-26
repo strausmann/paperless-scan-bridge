@@ -1,4 +1,4 @@
-# Zensical configuration — English site, served at the domain root.
+# Zensical configuration — English site, served at the site root.
 #
 # The German site is a second, separate build; see zensical.de.toml.
 # Zensical has no native multi-language support yet (the `alternate`
@@ -17,7 +17,7 @@
 
 [project]
 site_name = "paperless-scan-bridge"
-site_url = "https://scan-bridge.strausmann.de/"
+site_url = "https://strausmann.github.io/paperless-scan-bridge/"
 site_description = "Turn a SANE-compatible USB scanner into a hands-free ingestion pipeline for Paperless-ngx."
 site_author = "Björn Strausmann"
 copyright = "Copyright &copy; 2026 Björn Strausmann"

@@ -10,7 +10,7 @@ before the build. Everything below reflects what actually ships.
 ## Scope
 
 This file documents the **homepage only**. Every other page on
-`scan-bridge.strausmann.de` keeps Zensical's default `main.html` theme,
+`strausmann.github.io/paperless-scan-bridge` keeps Zensical's default `main.html` theme,
 completely unmodified. `custom_dir = "overrides"` in `zensical.toml`
 exists solely so the homepage can carry `template: home.html`; nothing
 in `overrides/` or `docs/en/assets/home/` is loaded on any other page.

@@ -76,7 +76,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     # The site's own canonical host is not a third party.
-    allowed.add("scan-bridge.strausmann.de")
+    allowed.add("strausmann.github.io")
 
     offenders: dict[str, set[str]] = {}
     pages = 0

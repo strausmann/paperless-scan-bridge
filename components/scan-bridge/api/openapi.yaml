@@ -34,7 +34,7 @@ info:
     url: https://github.com/strausmann/paperless-scan-bridge/blob/main/LICENSE
 externalDocs:
   description: paperless-scan-bridge documentation
-  url: https://scan-bridge.strausmann.de/
+  url: https://strausmann.github.io/paperless-scan-bridge/
 servers:
   - url: http://localhost:8080
     description: Default listen address (config.ServerConfig.Listen, ":8080")

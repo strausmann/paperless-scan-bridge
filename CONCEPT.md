@@ -98,7 +98,7 @@ indefinitely, driven by community demand.
 | Storage hub           | Synology NAS via NFS (3 topologies supported)      |
 | Trigger sources       | HTTP webhook, Zigbee+HA, scanner hardware buttons  |
 | Container registry    | GitHub Container Registry (ghcr.io)                |
-| Documentation hosting | GitHub Pages, custom domain `scan-bridge.strausmann.de` |
+| Documentation hosting | GitHub Pages, default domain (`strausmann.github.io/paperless-scan-bridge`) |
 | CI/CD                 | GitHub Actions                                     |
 
 ---
@@ -604,13 +604,18 @@ does not match the rest of the project's container-first ethos.
 **Why not Sphinx:** Excellent for Python API docs. Heavy for general
 technical writing. Steeper learning curve than the others.
 
-### 8.3 Documentation hosting: GitHub Pages with custom domain
+### 8.3 Documentation hosting: GitHub Pages, default domain
 
-**Chosen:** GitHub Pages, custom domain `scan-bridge.strausmann.de`
-**Alternatives considered:** GitLab Pages, self-hosted, Cloudflare Pages
+**Chosen:** GitHub Pages, default domain (`strausmann.github.io/paperless-scan-bridge`)
+**Alternatives considered:** GitLab Pages, self-hosted, Cloudflare Pages, custom domain
 **Why GitHub Pages won:** Repository is on GitHub. CI/CD is GitHub
 Actions. Pages deployment is a single workflow step. No additional
-service to maintain. Custom domain is free and well-supported.
+service to maintain.
+**Why not a custom domain:** A wildcard DNS record for `*.strausmann.de`
+routes every subdomain to an internal service before it reaches GitHub
+Pages, so `scan-bridge.strausmann.de` never completes a TLS handshake
+with GitHub. Rather than carve out a DNS exception for one subdomain,
+the site stays on GitHub's own domain.
 **Why not self-hosted:** Documentation site needs to be available
 even when my homelab is down. Self-hosting it would create a
 circular dependency.
