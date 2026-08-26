@@ -2,6 +2,30 @@
 
 Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/error-handling.md`.
 
+## 2026-08-26 — The first real end-to-end scan failed on a file mode nobody had documented
+
+- **What happened:** The first authenticated `POST /scan` against the real
+  scanner worked: duplex ADF, two pages, PDF assembled, 20 s. The Paperless
+  upload then failed with `open /run/secrets/paperless_api_token: permission
+  denied`. The secret had been placed at the obvious `chmod 0600` (root-only),
+  but `scan-bridge` runs as the distroless image's `nonroot` user (UID 65532),
+  so it could not read it.
+- **Root cause:** Compose bind-mounts a file-based secret with the host's own
+  ownership and mode; nothing translates it for the container user. The compose
+  file already reasoned carefully about exactly this for the *sockets*
+  (`group_add: ["0", "10010"]`, with a long comment), but the same reasoning was
+  never applied to the *secret file*, and no doc stated a required mode. `0600`
+  is the natural thing to reach for with a credential, and it is wrong here.
+- **Impact:** One failed upload on the first real run. Diagnosable only from the
+  error string plus `docker inspect` — the distroless image has no shell, so the
+  usual `ls -l /run/secrets/` from inside the container is not available. Cheap
+  this time; on an unattended deployment it would look like "scanning works,
+  documents silently never arrive".
+- **Fix / prevention:** `chmod 0640` with root group ownership, which the
+  existing supplementary group 0 already covers — no new privilege. Documented
+  in `compose.yaml` next to the secret definition, including the exact error
+  string so a search lands on it, and why `0644` is not the answer.
+
 ## 2026-08-26 — A deploy success criterion was derived from inference, not from source
 
 - **What happened:** The hand-off instructions for updating the stack on the
