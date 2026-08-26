@@ -34,12 +34,15 @@ und `/etc/udev/rules.d/` als root — es direkt in eine Shell zu pipen ist
 die Bequemlichkeit nicht wert: Ein abgebrochener Download würde als
 halbes Skript ausgeführt.
 
-```bash
+```bash title="Noch nicht — deploy/bootstrap/install.sh existiert nicht"
 ssh pi@ihr-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # lesen, was gleich passiert
 sudo bash install.sh
 ```
+
+    Die URL liefert heute 404. Sie steht hier, damit die Form des
+    Schritts überprüfbar ist — nicht zum Ausführen.
 
 Das Skript installiert Docker samt Compose-Plugin, trägt den NFS-Mount
 in `/etc/fstab` ein, legt die udev-Regel an, die dem Container stabilen
@@ -69,7 +72,7 @@ NFS-Mountpunkt.
 
 ## 4. Bridge starten
 
-```bash
+```bash title="Noch nicht — deploy/compose/ existiert nicht"
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
 

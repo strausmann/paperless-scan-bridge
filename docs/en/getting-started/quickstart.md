@@ -33,12 +33,15 @@ Download the script, read it, then run it. It modifies `/etc/fstab` and
 worth the convenience — a truncated download would execute as a
 half-script.
 
-```bash
+```bash title="Not yet — deploy/bootstrap/install.sh does not exist"
 ssh pi@your-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # read what it is about to do
 sudo bash install.sh
 ```
+
+    The URL above 404s today. It is shown so the shape of the step is
+    reviewable, not so it can be run.
 
 The script installs Docker and the compose plugin, adds the NFS mount to
 `/etc/fstab`, installs the udev rule that gives the container stable
@@ -67,7 +70,7 @@ mount point.
 
 ## 4. Bring up the bridge
 
-```bash
+```bash title="Not yet — deploy/compose/ does not exist"
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
 
