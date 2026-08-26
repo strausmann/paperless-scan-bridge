@@ -274,11 +274,11 @@ simply has nothing configured to deliver assembled documents to yet.
     "replace" semantics instead, say so before relying on this.
 
 What `paperless` does **not** support yet, even though the field
-exists on `Metadata`: `Title`, `Created`, `Labels`, `ASN`, and `Extra`
-are all resolvable from `Document`/`Metadata` internally, but no
-profile field or destination-config key sets `Title`/`Labels`/`ASN`
-today — only `TagIDs`, `Correspondent`, and `DocumentType` are wired
-from `resolveMetadata`.
+exists on `Metadata`: `Created`, `Labels`, `ASN`, and `Extra` are all
+resolvable from `Document`/`Metadata` internally, but no profile field
+or destination-config key sets `Labels`/`ASN` today. `resolveMetadata`
+wires `Title` (from [`title_template`](#title_template)), `TagIDs`,
+`Correspondent`, and `DocumentType`.
 
 ### Response shape
 

@@ -1,10 +1,11 @@
 package api
 
 import (
+	"time"
+
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/tag"
-	"time"
 )
 
 // destinationMetadataDefaults holds the profile-config-level
