@@ -265,4 +265,23 @@ services:
 
 secrets:
   paperless_api_token:
+    # PERMISSIONS MATTER. Compose bind-mounts this file into the
+    # container with the host's own ownership and mode, and scan-bridge
+    # reads it as the distroless image's nonroot user (UID 65532), not
+    # as root. A file left at the obvious `chmod 600` (root-only) is
+    # therefore unreadable inside the container, and the failure is
+    # late and quiet: the scan succeeds, the PDF is assembled, and only
+    # the upload fails with
+    #   paperless: resolve token secret "paperless_api_token":
+    #   ... open /run/secrets/paperless_api_token: permission denied
+    #
+    # scan-bridge already carries supplementary group 0 (see group_add
+    # above, added so it can dial sane-runtime's root-owned socket), so
+    # the smallest thing that works is root-owned and group-readable:
+    #
+    #   chown root:root deploy/secrets/paperless_api_token
+    #   chmod 0640      deploy/secrets/paperless_api_token
+    #
+    # Do NOT use 0644 — that makes the API token world-readable on the
+    # host for no benefit.
     file: ./deploy/secrets/paperless_api_token
