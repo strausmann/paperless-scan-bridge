@@ -150,7 +150,7 @@ func TestParseOCREnabledDefaultsLanguages(t *testing.T) {
 	body := `
 profiles:
   - name: ocr-no-langs
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -178,7 +178,7 @@ func TestParseOCREnabledDefaultsMinConfidence(t *testing.T) {
 	body := `
 profiles:
   - name: ocr-no-min-confidence
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -206,7 +206,7 @@ func TestParseOCRMinConfidenceExplicitValueNotOverwritten(t *testing.T) {
 	body := `
 profiles:
   - name: ocr-explicit-min-confidence
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -235,7 +235,7 @@ func TestParseOCRAutoLanguageAccepted(t *testing.T) {
 	body := `
 profiles:
   - name: ocr-auto
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -264,7 +264,7 @@ func TestParseRejectsUnknownOCRField(t *testing.T) {
 	body := `
 profiles:
   - name: bad
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -286,7 +286,7 @@ func TestParseRejectsUnknownAssemblyField(t *testing.T) {
 	body := `
 profiles:
   - name: bad
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -308,7 +308,7 @@ func TestParseRejectsUnknownDestinationField(t *testing.T) {
 	body := `
 profiles:
   - name: bad
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -443,14 +443,14 @@ func TestParseRejectsDuplicateNames(t *testing.T) {
 	body := `
 profiles:
   - name: dup
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
     page_size: "A4"
     timeout_seconds: 60
   - name: dup
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -469,7 +469,7 @@ func TestParseRejectsUnknownFields(t *testing.T) {
 	body := `
 profiles:
   - name: bad
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -567,7 +567,7 @@ func TestValidateBoundaries(t *testing.T) {
 
 	base := Profile{
 		Name:           "ok",
-		Source:         "ADF",
+		Source:         "ADF Front",
 		Resolution:     300,
 		Mode:           ColorModeColor,
 		Format:         FormatPDF,
@@ -624,14 +624,14 @@ func TestAllReturnsDeterministicOrder(t *testing.T) {
 	body := `
 profiles:
   - name: zeta
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
     page_size: "A4"
     timeout_seconds: 60
   - name: alpha
-    source: "ADF"
+    source: "ADF Front"
     resolution: 300
     mode: "Color"
     format: "pdf"
@@ -645,5 +645,86 @@ profiles:
 	all := set.All()
 	if len(all) != 2 || all[0].Name != "alpha" || all[1].Name != "zeta" {
 		t.Errorf("All() not sorted: %+v", all)
+	}
+}
+
+// TestValidateProfileRejectsUnknownSource locks in a bug found against
+// the real Kodak ScanMate i1120 on 2026-08-26: validateProfile only
+// checked that source was non-empty, so a profile could ship a source
+// string the scanner does not offer. The i1120 advertises exactly
+// "ADF Front|ADF Duplex" (scanimage -A), and sane-runtime's allowlist
+// rejects anything else with 400 invalid_request — so a bad source
+// passed profile validation at startup and only blew up later, at scan
+// time, on the caller.
+func TestValidateProfileRejectsUnknownSource(t *testing.T) {
+	t.Parallel()
+
+	for _, src := range []string{"ADF", "adf front", "Duplex", "Feeder"} {
+		t.Run(src, func(t *testing.T) {
+			t.Parallel()
+
+			p := validProfileFixture()
+			p.Source = src
+
+			if err := validateProfile(p); err == nil {
+				t.Fatalf("validateProfile(source=%q) = nil, want rejection", src)
+			}
+		})
+	}
+}
+
+// TestValidateProfileAcceptsKnownSources guards the other direction:
+// the sources the hardware actually offers must keep validating.
+func TestValidateProfileAcceptsKnownSources(t *testing.T) {
+	t.Parallel()
+
+	for _, src := range []string{"ADF Front", "ADF Duplex", "Flatbed"} {
+		t.Run(src, func(t *testing.T) {
+			t.Parallel()
+
+			p := validProfileFixture()
+			p.Source = src
+
+			if err := validateProfile(p); err != nil {
+				t.Fatalf("validateProfile(source=%q) = %v, want nil", src, err)
+			}
+		})
+	}
+}
+
+// TestShippedDefaultsUseSupportedSources asserts the profiles we ship
+// are actually scannable: every source in defaults.yaml must be one the
+// scanner offers. This is the regression guard for the two profiles
+// (private-simplex, receipts) that shipped source "ADF".
+func TestShippedDefaultsUseSupportedSources(t *testing.T) {
+	t.Parallel()
+
+	set, err := Load("defaults.yaml")
+	if err != nil {
+		t.Fatalf("Load defaults.yaml: %v", err)
+	}
+	for _, name := range set.Names() {
+		p, ok := set.Get(name)
+		if !ok {
+			t.Fatalf("profile %q vanished from set", name)
+		}
+		if !supportedSources[p.Source] {
+			t.Errorf("profile %q ships source %q, which the scanner does not offer", name, p.Source)
+		}
+	}
+}
+
+// validProfileFixture returns a minimal profile that passes
+// validateProfile, so a test can mutate exactly one field and attribute
+// the resulting error to that field alone.
+func validProfileFixture() Profile {
+	return Profile{
+		Name:           "ok",
+		Source:         "ADF Front",
+		Resolution:     300,
+		Mode:           ColorModeColor,
+		Format:         FormatPDF,
+		PageSize:       PageSizeA4,
+		TimeoutSeconds: 60,
 	}
 }
