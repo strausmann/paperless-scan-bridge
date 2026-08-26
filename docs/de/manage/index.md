@@ -6,7 +6,7 @@ geflashtes Panel oder eines, dessen Netz verschwunden ist, ohne Kabel.
 ## Über Bluetooth verbinden
 
 <improv-wifi-launch-button>
-  <button slot="activate">Panel über Bluetooth verbinden</button>
+  <button class="md-button md-button--primary" slot="activate">Panel über Bluetooth verbinden</button>
   <span slot="unsupported">
     Dieser Browser kann kein Bluetooth. Web Bluetooth gibt es nur in
     Chrome oder Edge (Desktop oder Android) — Firefox und Safari
