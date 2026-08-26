@@ -102,6 +102,21 @@
 # convention -- the operator copies it and swaps in the real token
 # before deploying, the value never touches git history.
 
+# Image version stamping: every service is built with
+# VERSION=${PSB_VERSION:-dev}, surfaced by scan-bridge on GET /version.
+# It used to be a hardcoded task label ("phase-1.2-task-15") that stayed
+# frozen while the code moved on, which made /version useless for
+# telling an old deployment from a new one -- and produced a deploy
+# success criterion that would have failed a good deploy
+# (docs/learnings/lessons-learned.md, 2026-08-26). Set PSB_VERSION in
+# the deploy environment (a git describe/short SHA is the obvious
+# choice) to make /version answer "which build is actually running".
+# `make stamp` does that for you: it writes PSB_VERSION=$(git describe)
+# into .env, which Compose reads automatically, so even a plain
+# `docker compose up --build` stamps a real value. Unstamped builds
+# report "dev" -- honest about being unstamped, but it cannot tell two
+# deployments apart, so stamp anything you intend to verify later.
+
 services:
   # One-shot: fixes ownership of the two host bind-mount directories
   # before either real service starts, so a fresh (Docker-auto-created)
@@ -132,7 +147,7 @@ services:
     build:
       context: components/sane-runtime
       args:
-        VERSION: phase-1.2-task-15
+        VERSION: ${PSB_VERSION:-dev}
     container_name: paperless-scan-bridge-sane-runtime
     restart: unless-stopped
     # USB passthrough (ADR 0008: device-cgroup permissions, never
@@ -156,7 +171,7 @@ services:
     build:
       context: components/scan-processor
       args:
-        VERSION: phase-1.2-task-8
+        VERSION: ${PSB_VERSION:-dev}
     container_name: paperless-scan-bridge-scan-processor
     restart: unless-stopped
     # ADR 0013 hardening, actually turned on here — see the header
@@ -200,7 +215,7 @@ services:
     build:
       context: components/scan-bridge
       args:
-        VERSION: phase-1.2-task-15
+        VERSION: ${PSB_VERSION:-dev}
     container_name: paperless-scan-bridge-scan-bridge
     restart: unless-stopped
     # See the uid/gid note above — scan-bridge keeps the image's

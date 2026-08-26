@@ -2,6 +2,42 @@
 
 Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/error-handling.md`.
 
+## 2026-08-26 — A deploy success criterion was derived from inference, not from source
+
+- **What happened:** The hand-off instructions for updating the stack on the
+  reference host listed five success criteria. One of them —
+  "`/version` must no longer report `phase-1.2-task-15`; if it does, the old
+  build was deployed" — was wrong. At the time, `VERSION: phase-1.2-task-15`
+  was a hardcoded build arg that `compose.yaml` carried on `main` for both
+  `scan-bridge` and `sane-runtime`, so a perfectly successful deploy still
+  reported that value. (The commit that records this lesson also replaces those
+  literals, so the current `compose.yaml` no longer looks like this.) The criterion would
+  have flagged a good deploy as a failure. The operator running the deploy
+  checked the source, disproved the criterion, and said so instead of reporting
+  a false red.
+- **Root cause:** The criterion was built by *inference*, not verification. The
+  old stack answered `/version` with `phase-1.2-task-15`, and that was assumed
+  to be an artifact of the old build — without opening `compose.yaml` on `main`
+  to see where the value actually comes from. One `grep VERSION compose.yaml`
+  would have shown it is a literal, identical on both sides, and therefore
+  useless as a deploy indicator. This is exactly the failure mode R1
+  (`00-core.md`) exists to prevent: a conclusion stated from plausibility rather
+  than from the artifact.
+- **Impact:** No damage — the operator caught it. Had they trusted the criterion,
+  a successful deploy would have been rolled back or rebuilt for nothing. The
+  two criteria that did carry information (`/ready` flipping from `501` to `200`,
+  and `scan-processor` existing at all) proved the new build independently.
+- **Fix / prevention:** Two parts. (1) Behavioural: a success criterion must name
+  the artifact it reads and be checked against that artifact on **both** sides
+  before it is handed to anyone — captured as a rule in
+  `.claude/rules/00-core.md` (R1). (2) Concrete guard: make `/version` actually
+  informative instead of a stale literal, so the obvious criterion becomes the
+  correct one — `compose.yaml` now passes `VERSION: ${PSB_VERSION:-dev}` rather
+  than a hardcoded task label that stopped tracking reality after the task that
+  named it, and `make stamp` writes the git description into `.env` so the
+  ordinary `docker compose` path stamps a real value instead of a second
+  constant.
+
 ## 2026-08-06 — Plan↔ADR reconciliation missed a third conflict (profiles storage)
 
 - **What happened:** The Phase 1.2 reconciliation (issue #19, PR #20) aligned the
