@@ -14,6 +14,11 @@ anything public (GitHub issues/PRs/comments, upstream reports). Check the actual
 versions, dates, code/artifacts), not inference. Don't present a half-verified conclusion and rely on
 the reviewer to catch gaps.
 
+**Hand-off criteria specifically:** every success/failure criterion you give someone else must name
+the artifact it reads and be checked against that artifact **on both sides** (before-state and
+target-state) before you hand it over. A criterion that cannot distinguish the two is not a
+criterion. See `docs/learnings/lessons-learned.md`, 2026-08-26.
+
 ## R2 — No AI attribution in version control
 Never add `Co-Authored-By`, `Claude-Session`, "Generated with …", or any AI self-attribution to
 commits, pushes, PRs, or issue/PR bodies. Write plain, factual messages.
