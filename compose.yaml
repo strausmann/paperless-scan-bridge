@@ -226,11 +226,18 @@ services:
       - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
       # deploy/profiles/default.yaml is gitignored and site-specific:
       # copy deploy/profiles/default.yaml.example to it and set your
-      # own Paperless base_url before the first deploy. Docker creates
-      # a DIRECTORY at this path if the file is missing, which makes
-      # scan-bridge fail its profile load with a confusing error --
-      # check the file exists first.
-      - ./deploy/profiles/default.yaml:/etc/scan-bridge/profiles.yaml:ro
+      # own Paperless base_url before the first deploy. Long syntax with
+      # create_host_path: false on purpose -- the short syntax would
+      # silently create a DIRECTORY at this path when the file is
+      # missing, and scan-bridge would then fail its profile load with a
+      # confusing "is a directory" error. This way `docker compose up`
+      # fails immediately, naming the missing file.
+      - type: bind
+        source: ./deploy/profiles/default.yaml
+        target: /etc/scan-bridge/profiles.yaml
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - paperless_api_token
     depends_on:

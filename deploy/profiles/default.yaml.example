@@ -47,8 +47,11 @@ profiles:
     # `secrets:`), whose backing file deploy/secrets/paperless_api_token
     # is gitignored.
     #
-    # tag_ids are INTEGER Paperless tag IDs, not names — look yours up
-    # via GET /api/tags/ on your instance. metadata_template's
+    # tag_ids are INTEGER Paperless tag IDs, not names, and they are
+    # instance-specific: the same number means a different tag (or no
+    # tag at all) in another Paperless. Left EMPTY here on purpose —
+    # fill it with IDs from your own instance (GET /api/tags/), or leave
+    # it empty to upload untagged. metadata_template's
     # paperless_tags above are the profile-level string tags; the
     # destination's tag_ids are what actually reaches the Paperless API
     # (internal/api/scan_metadata.go).
@@ -58,5 +61,5 @@ profiles:
         config:
           base_url: "http://paperless.example.com:8000"
           token_secret: paperless_api_token
-          tag_ids: [3]
+          tag_ids: []
           tag_strategy: add
