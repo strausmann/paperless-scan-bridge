@@ -200,15 +200,9 @@ between releases as a running list.
   `private-simplex` and `receipts` set `source: "ADF"`, which the
   reference Kodak ScanMate i1120 does not advertise — `scanimage -A`
   reports exactly `ADF Front|ADF Duplex` — so neither profile could
-  ever have scanned. Found while smoke-testing `sane-runtime` against
-  the real device.
-
-  **Action required if you run a custom profile:** the accepted values
-  are now `ADF Front`, `ADF Duplex` and `Flatbed`. A profile with any
-  other `source` (notably the previously documented `ADF`) will stop
-  the daemon from starting, with the offending profile named in the
-  error. Change `source: "ADF"` to `source: "ADF Front"`, or run
-  `scanimage -A` to see what your scanner actually offers.
+  ever have scanned. Accepted values are `ADF Front`, `ADF Duplex` and
+  `Flatbed`. Found while smoke-testing `sane-runtime` against the real
+  device.
 
 - CYD scan-control panel firmware: the status LED and on-screen status
   label now reset back to idle after every scan outcome, not just a
