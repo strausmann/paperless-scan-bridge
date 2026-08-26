@@ -50,12 +50,31 @@ provisioning** until an authorization model for the panel exists. A custom GATT
 management service (status + configuration) is **deferred, not rejected**, and
 is gated on a superseding ADR that first settles:
 
-1. **How a session is authorized** — with no confirm button on the reference
-   board, the candidates are an on-screen PIN the panel renders on its own
-   display and the browser must echo back (Improv's own
-   `AUTHORIZATION_REQUIRED` state models this), a touch-to-confirm prompt on
-   the panel's LVGL UI, or a pairing window opened only for a short period
-   after boot.
+1. **How a session is authorized** — the reference board has no physical
+   button, but it does have a touchscreen. Three candidates were weighed and
+   the operator has indicated a preference for combining the last two:
+
+   - *On-screen PIN* — the panel renders a code the browser must echo back.
+     Improv's own `AUTHORIZATION_REQUIRED` state models this directly. Strong,
+     but it needs a keypad flow in the browser page and a PIN renderer on a
+     display already crowded with the profile grid.
+   - **Touch-to-confirm (preferred)** — a BLE session stays unauthorized until
+     someone physically taps a prompt on the panel's LVGL UI. Proves physical
+     presence, which is the property that actually matters here, and reuses a
+     UI the firmware already drives. Maps onto Improv's
+     `AUTHORIZATION_REQUIRED` → `AUTHORIZED` transition without inventing a
+     protocol.
+   - **Pairing window after boot (preferred, as the second factor)** — BLE
+     accepts authorization attempts only for a short period after power-on.
+     Bounds the exposure window to a moment the operator chose, and gives a
+     recovery path for a panel whose touchscreen is unresponsive or whose
+     screen cannot be read.
+
+   Combining them means an attacker needs both physical presence *and* the
+   post-boot window — and a panel that has been running untouched for days
+   presents no attack surface at all. The superseding ADR settles the exact
+   window length, what happens when it expires, and whether touch-confirm is
+   mandatory inside it or only outside it.
 2. **What the surface may expose** — specifically whether the bearer token is
    write-only (settable, never readable) or excluded from BLE entirely.
 3. **Whether BLE stays advertising permanently** or only while unprovisioned.
@@ -95,7 +114,8 @@ capability that does not exist.
   page body rather than in a footnote.
 - **Neutral / follow-ups:** when the authorizer ADR lands, `esp32_improv`'s own
   `authorizer:` setting should be revisited in the same change — it is the same
-  question for the same radio. The `/manage/` page's "A fuller Bluetooth
+  question for the same radio, and the touch-confirm mechanism sketched above
+  would let Improv itself move off `authorizer: none` at the same time. The `/manage/` page's "A fuller Bluetooth
   surface" section is the place to link the outcome.
 
 ## References
