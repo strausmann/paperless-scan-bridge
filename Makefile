@@ -46,13 +46,16 @@ test-yaml: ## Run yamllint over the repository
 test-docker: ## Run hadolint over every Dockerfile under components/
 	@echo "TODO Phase 1: test-docker"
 
-# Fetch the Mermaid and Scalar bundles so the site serves them from
+# Fetch the pinned front-end bundles (Mermaid, ESP Web Tools, Improv
+# Wi-Fi, Scalar) so the site serves them from
 # its own origin instead of letting them load from a CDN at runtime,
-# and copy the OpenAPI spec to where Scalar fetches it. All three
-# targets are gitignored, so this has to run before any docs build.
+# and copy the OpenAPI spec to where Scalar fetches it. Every one of
+# these outputs is gitignored, so this has to run before any docs build.
 .PHONY: docs-vendor
-docs-vendor: ## Download pinned Mermaid/Scalar bundles, copy the OpenAPI spec
+docs-vendor: ## Download every pinned front-end bundle, copy the OpenAPI spec
 	./.github/scripts/vendor-mermaid.sh
+	./.github/scripts/vendor-esp-web-tools.sh
+	./.github/scripts/vendor-improv-wifi.sh
 	./.github/scripts/vendor-scalar.sh
 	mkdir -p docs/en/api-reference
 	cp components/scan-bridge/api/openapi.yaml docs/en/api-reference/openapi.yaml
