@@ -4,6 +4,7 @@ import (
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/tag"
+	"time"
 )
 
 // destinationMetadataDefaults holds the profile-config-level
@@ -73,7 +74,7 @@ type docTypeMapping struct {
 // not a verified contract. Needs explicit operator confirmation before
 // being relied on for anything where "replace" vs. "add" changes
 // behaviour.
-func resolveMetadata(profile profiles.Profile, cfg destinations.ProfileDestinationConfig, callerTagIDs []int, callerStrategy tag.Strategy) destinations.Metadata {
+func resolveMetadata(profile profiles.Profile, cfg destinations.ProfileDestinationConfig, callerTagIDs []int, callerStrategy tag.Strategy, scanID string, now time.Time) destinations.Metadata {
 	defaults := parseDestinationMetadataDefaults(cfg.Config)
 
 	tagIDs := defaults.tagIDs
@@ -89,6 +90,7 @@ func resolveMetadata(profile profiles.Profile, cfg destinations.ProfileDestinati
 	}
 
 	return destinations.Metadata{
+		Title:         renderTitle(profile.TitleTemplate, profile, scanID, now),
 		TagIDs:        tag.Merge(tagIDs, defaults.tagStrategy, callerTagIDs, callerStrategy),
 		Correspondent: defaults.correspondentID,
 		DocumentType:  documentTypeID,

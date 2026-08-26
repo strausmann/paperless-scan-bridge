@@ -34,6 +34,10 @@ profiles:
     rotate_pages: true
     page_size: A4
     timeout_seconds: 120
+    # Without this, Paperless falls back to the uploaded filename — the
+    # scan ID — and every document arrives named like a hash. See
+    # docs/en/getting-started/profile-schema.md for the placeholder list.
+    title_template: "{profile} {date} {time}"
     metadata_template:
       paperless_tags: ["phase-1.2-smoke-test"]
       paperless_correspondent: null

@@ -170,6 +170,15 @@ type Profile struct {
 	// at any destination.
 	DocumentType string `yaml:"document_type"`
 
+	// TitleTemplate, when set, produces the document title a destination
+	// receives (internal/api.renderTitle). Left empty -- the default --
+	// no title is sent at all and the destination keeps its own
+	// behaviour; Paperless-ngx, for one, derives a title from the
+	// uploaded filename, which is the scan ID. Placeholders: {profile},
+	// {document_type}, {scan_id}, {date}, {time}, {datetime}. Documented
+	// in docs/en/getting-started/profile-schema.md.
+	TitleTemplate string `yaml:"title_template"`
+
 	// Destinations lists the destination-routing targets (ADR 0016)
 	// this profile delivers to. Empty is valid: a profile that has not
 	// adopted the new schema yet (e.g. still relying on TargetSubdir /

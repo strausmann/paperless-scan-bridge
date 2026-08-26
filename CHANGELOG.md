@@ -46,6 +46,15 @@ between releases as a running list.
 
 ### Added
 
+- Add `title_template` to scan profiles: an optional per-profile pattern
+  that produces the document title a destination receives, with
+  `{profile}`, `{document_type}`, `{scan_id}`, `{date}`, `{time}` and
+  `{datetime}` placeholders. Until now nothing ever populated the title
+  field, so Paperless-ngx fell back to the uploaded filename — the scan
+  ID — and every document arrived named like
+  `7cc2ba0a36df384ca12f977b2bc64ddc`. Opt-in: a profile without
+  `title_template` sends no title, exactly as before.
+
 - Add the project homepage as a Zensical custom home template (Issue
   #60): landing page and documentation now live on one site, the same
   way zensical.org itself does it. Only `docs/en/index.md` opts in via

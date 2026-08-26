@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/destinations"
@@ -114,7 +115,7 @@ func deliverToDestination(
 		PageCount:   doc.PageCount,
 		DocType:     profile.DocumentType,
 	}
-	meta := resolveMetadata(profile, b.cfg, callerTagIDs, callerStrategy)
+	meta := resolveMetadata(profile, b.cfg, callerTagIDs, callerStrategy, scanID, time.Now())
 
 	result, err := b.dest.Deliver(ctx, ddoc, meta, b.cfg)
 	if err != nil {
