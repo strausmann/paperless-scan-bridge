@@ -7,9 +7,11 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
 - **What happened:** The hand-off instructions for updating the stack on the
   reference host listed five success criteria. One of them —
   "`/version` must no longer report `phase-1.2-task-15`; if it does, the old
-  build was deployed" — was wrong. `VERSION: phase-1.2-task-15` is a hardcoded
-  build arg in `compose.yaml` (lines 135 and 203) that `main` still carries, so
-  a perfectly successful deploy still reports that value. The criterion would
+  build was deployed" — was wrong. At the time, `VERSION: phase-1.2-task-15`
+  was a hardcoded build arg that `compose.yaml` carried on `main` for both
+  `scan-bridge` and `sane-runtime`, so a perfectly successful deploy still
+  reported that value. (The commit that records this lesson also replaces those
+  literals, so the current `compose.yaml` no longer looks like this.) The criterion would
   have flagged a good deploy as a failure. The operator running the deploy
   checked the source, disproved the criterion, and said so instead of reporting
   a false red.
@@ -32,7 +34,9 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   informative instead of a stale literal, so the obvious criterion becomes the
   correct one — `compose.yaml` now passes `VERSION: ${PSB_VERSION:-dev}` rather
   than a hardcoded task label that stopped tracking reality after the task that
-  named it.
+  named it, and `make stamp` writes the git description into `.env` so the
+  ordinary `docker compose` path stamps a real value instead of a second
+  constant.
 
 ## 2026-08-06 — Plan↔ADR reconciliation missed a third conflict (profiles storage)
 

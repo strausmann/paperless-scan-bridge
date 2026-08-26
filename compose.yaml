@@ -111,6 +111,11 @@
 # (docs/learnings/lessons-learned.md, 2026-08-26). Set PSB_VERSION in
 # the deploy environment (a git describe/short SHA is the obvious
 # choice) to make /version answer "which build is actually running".
+# `make stamp` does that for you: it writes PSB_VERSION=$(git describe)
+# into .env, which Compose reads automatically, so even a plain
+# `docker compose up --build` stamps a real value. Unstamped builds
+# report "dev" -- honest about being unstamped, but it cannot tell two
+# deployments apart, so stamp anything you intend to verify later.
 
 services:
   # One-shot: fixes ownership of the two host bind-mount directories

@@ -91,6 +91,29 @@ test-molecule: ## Run the full Molecule suite for the optional Ansible roles
 	@echo "TODO Phase 1: test-molecule"
 
 # ---------------------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------------------
+
+# compose.yaml stamps every image with VERSION=${PSB_VERSION:-dev}, which
+# scan-bridge reports on GET /version. A bare `docker compose up --build`
+# leaves PSB_VERSION unset and therefore stamps every build "dev" — honest
+# (it says "unstamped") but useless for telling two deployments apart.
+# `make stamp` writes the git description into .env, which Compose reads
+# automatically, so the plain `docker compose` commands pick it up too.
+.PHONY: stamp
+stamp: ## Write PSB_VERSION (git describe) to .env for compose to pick up
+	@printf 'PSB_VERSION=%s\n' "$$(git describe --tags --always --dirty)" > .env
+	@echo "Stamped .env with PSB_VERSION=$$(git describe --tags --always --dirty)"
+
+.PHONY: compose-up
+compose-up: stamp ## Build and start the stack with a stamped version
+	docker compose up -d --build
+
+.PHONY: compose-down
+compose-down: ## Stop the stack
+	docker compose down
+
+# ---------------------------------------------------------------------------
 # Self-documenting help target
 # ---------------------------------------------------------------------------
 
