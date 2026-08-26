@@ -62,7 +62,13 @@ nav = [
 # so listing it here satisfies that guard and no third-party request is
 # ever made. Fetched at build time by .github/scripts/vendor-mermaid.sh
 # (pinned version + sha384), gitignored, see issue #13.
-extra_javascript = ["javascripts/mermaid.min.js"]
+# panel-tools.js loads the ESP Web Tools / Improv bundles for the
+# /install/ and /manage/ pages. It must live here rather than as an
+# inline <script> in those pages: navigation.instant injects pages via
+# XHR without re-parsing the document, so an inline script never runs
+# when a visitor clicks through instead of loading the URL directly.
+# See the file header for the whole story.
+extra_javascript = ["javascripts/mermaid.min.js", "javascripts/panel-tools.js"]
 
 [project.theme]
 language = "en"

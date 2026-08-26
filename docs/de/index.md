@@ -9,34 +9,51 @@ Paperless-ngx-Instanz irgendwo im Netz verbindet. Die Dokumente landen
 auf einer Synology-NAS — die vorhandene Backup-, Snapshot- und
 Off-Site-Strategie gilt damit für alles, was das System produziert.
 
-!!! warning "Projektstand: frühe Phase 1 — es wird noch nichts gescannt"
+!!! warning "Projektstand: Der Kern von Phase 1 läuft, das Deployment-Werkzeug fehlt"
 
     Dies ist ein Home-Lab-Projekt in aktiver Entwicklung. Phase 0
-    (Repository, Dokumentation, diese Site) ist abgeschlossen. Phase 1 hat
-    begonnen: Der `scan-bridge`-Daemon liefert heute `/health`,
-    `/version`, `/profiles` und `/profiles/{name}`; `/ready`, `/scan` und
-    die `/jobs`-Endpunkte antworten mit `501 Not Implemented`. Die
-    Container `sane-runtime` und `scan-processor`, die Compose-Stacks und
-    das Bootstrap-Skript sind noch nicht geschrieben — einen
-    funktionierenden Scan-Pfad gibt es also noch nicht.
+    (Repository, Dokumentation, diese Site) ist abgeschlossen. Der Kern
+    der Phase-1.2-Pipeline ist weiter als ein Blick auf die Roadmap
+    vermuten lässt: `scan-bridge` liefert heute `/health`, `/version`,
+    `/ready`, `/profiles` und `/profiles/{name}`, und `POST /scan` ist
+    ein echter, Bearer-geschützter Handler, der über `sane-runtime` und
+    `scan-processor` bis zur Zustellung durchreicht — nur die
+    `/jobs*`-Endpunkte antworten noch mit `501 Not Implemented`.
+    `sane-runtime` und `scan-processor` existieren als echte
+    Go-Implementierungen samt Dockerfiles, und die `compose.yaml` im
+    Repository-Root verdrahtet alle drei Dienste.
 
-!!! info "Deutsche Übersetzung im Aufbau"
+    Am 26.08.2026 ist der erste vollständige Durchlauf gegen die
+    Referenz-Hardware gelungen: `POST /scan` hat einen Duplex-Scan
+    ausgelöst, das Ergebnis als zweiseitiges PDF montiert und in
+    Paperless-ngx hochgeladen. Was fehlt, ist das Drumherum —
+    Bootstrap-Skript, veröffentlichter Compose-Stack, Monitoring,
+    Backup.
 
-    Diese Seite ist derzeit die einzige deutsche Seite. Die vollständige
-    Dokumentation liegt auf Englisch vor und wird schrittweise übersetzt.
-    Bis dahin: [zur englischen Dokumentation](/).
+!!! info "Deutsche Übersetzung: der Einstieg, nicht die Referenz"
 
-    Grund für den Zuschnitt: Zensical hat noch keine native
+    Übersetzt sind die Seiten, die man zum Anfangen braucht: diese
+    Startseite, [Erste Schritte](getting-started/index.md), der
+    [Schnellstart](getting-started/quickstart.md), die
+    [Hardware-Übersicht](hardware/index.md) sowie
+    [Panel installieren](install/index.md) und
+    [Panel verwalten](manage/index.md).
+
+    **Die Referenzdokumentation bleibt vorerst englisch** — Profil-Schema,
+    Architektur, Troubleshooting und API-Referenz. Das ist Absicht: Diese
+    Seiten ändern sich am häufigsten, und eine Übersetzung, die
+    hinterherhinkt, ist schlechter als gar keine. Jede deutsche Seite
+    verlinkt an den passenden Stellen ins Englische.
+
+    Grund für den zweigeteilten Aufbau: Zensical hat noch keine native
     Mehrsprachigkeit. Englische und deutsche Site sind zwei getrennte
-    Builds, die im CI zusammengefügt werden.
-
-    Upstream ist das
+    Builds, die im CI zusammengefügt werden. Upstream sind das
     [zensical/backlog#2](https://github.com/zensical/backlog/issues/2)
-    (native i18n) beziehungsweise
-    [zensical/backlog#1](https://github.com/zensical/backlog/issues/1)
-    (Kompatibilität zu `mkdocs-static-i18n`); auf unserer Seite hält
+    (native i18n) und
+    [zensical/backlog#1](https://github.com/zensical/backlog/issues/1);
+    auf unserer Seite hält
     [Issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13)
-    fest, wann der Workaround wieder verschwindet.
+    fest, wann der Workaround verschwindet.
 
 ## Worum es geht
 
@@ -60,7 +77,11 @@ dem Host. Keine Sprach-Runtimes auf dem Host.
 
 ## Weiterführend
 
-- [Englische Dokumentation](/) — vollständig
+- [Panel installieren](install/index.md) — Firmware direkt aus dem
+  Browser auf das ESP32-Panel flashen
+- [Erste Schritte](getting-started/index.md) — was der Stack tut und was
+  man dafür braucht
+- [Englische Dokumentation](/) — vollständig, inklusive Referenz
 - [Repository auf GitHub](https://github.com/strausmann/paperless-scan-bridge)
 - [Roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
 

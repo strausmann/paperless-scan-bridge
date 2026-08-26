@@ -7,7 +7,7 @@ plugging in a cable.
 ## Connect over Bluetooth
 
 <improv-wifi-launch-button>
-  <button slot="activate">Connect to a panel over Bluetooth</button>
+  <button class="md-button md-button--primary" slot="activate">Connect to a panel over Bluetooth</button>
   <span slot="unsupported">
     This browser can't do Bluetooth. Web Bluetooth needs Chrome or Edge
     (desktop or Android) — Firefox and Safari do not implement it, and
@@ -19,7 +19,6 @@ plugging in a cable.
   </span>
 </improv-wifi-launch-button>
 
-<script type="module" src="/javascripts/improv-wifi/launch-button.js"></script>
 
 Pick the panel from the browser's device list, then choose a network and
 enter its password.
