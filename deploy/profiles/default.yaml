@@ -30,3 +30,26 @@ profiles:
     metadata_template:
       paperless_tags: ["phase-1.2-smoke-test"]
       paperless_correspondent: null
+    # Direct-to-API upload into the paperless-test stack used for this
+    # smoke test (Paperless-ngx 3.0.5 on hhdocker03). The hostname is a
+    # homelab-internal name, resolvable only inside the tailnet — same
+    # class of value as the hhplex01 references already carried by
+    # compose.yaml and firmware/esp32-panel/. The API token is NOT here:
+    # token_secret names a config.SecretResolver entry, resolved at
+    # runtime from the Docker secret mounted at
+    # /run/secrets/paperless_api_token (compose.yaml `secrets:`), whose
+    # backing file deploy/secrets/paperless_api_token is gitignored.
+    #
+    # tag_ids are INTEGER Paperless tag IDs, not names — 3 is
+    # "Inbox-Ingest-Test" in that instance. metadata_template's
+    # paperless_tags above are the profile-level string tags; the
+    # destination's tag_ids are what actually reaches the Paperless API
+    # (internal/api/scan_metadata.go).
+    destinations:
+      - target: paperless
+        storage_first: false
+        config:
+          base_url: "http://hhdocker03:28080"
+          token_secret: paperless_api_token
+          tag_ids: [3]
+          tag_strategy: add
