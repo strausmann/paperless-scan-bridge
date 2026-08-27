@@ -14,13 +14,15 @@ jobs:
   release:
     name: Cut the release
     runs-on: ubuntu-latest
+    outputs:
+      # Empty when semantic-release decided there was nothing to
+      # release, which is the normal outcome of a quiet week rather than
+      # a failure -- its exit status is 0 either way, so the tag has to
+      # be compared before and after.
+      tag: ${{ steps.tag.outputs.tag }}
     # Disable husky in CI so the semantic-release flow isn't intercepted by git hooks.
     env:
       HUSKY: 0
-    outputs:
-      # Empty when semantic-release decided there was nothing to release
-      # — which is the normal outcome of a quiet week, not a failure.
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,17 +33,26 @@ jobs:
           node-version: 'lts/*'
       - run: npm install
 
-      # Record what the newest tag was BEFORE the release, so the step
-      # after semantic-release can tell "a release was cut" from "there
-      # was nothing to release". semantic-release's own exit status is 0
-      # in both cases.
       - name: Tag before
         id: before
         run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
-
+      # RELEASE_TOKEN (a fine-grained PAT), not the default GITHUB_TOKEN.
+      # GitHub deliberately does not start new workflow runs for refs created
+      # with the automatic GITHUB_TOKEN (loop protection). @semantic-release/github
+      # creates the tag through the GitHub API rather than pushing it with git —
+      # the restriction applies either way, so the tag would never reach ci.yml's
+      # `tags: ['v*']` trigger and no versioned image would ever be published.
+      # (Do not go looking for a git push in the logs; there is none.)
+      # See issue #103.
+      #
+      # Do not "simplify" this back to secrets.GITHUB_TOKEN — it silently
+      # breaks the image build without failing anything.
+      #
+      # The variable must stay named GITHUB_TOKEN; that is what
+      # semantic-release reads. Only the source changes.
       - name: semantic-release (release-only — does not touch CHANGELOG.md)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release
 
       - name: Tag after
@@ -60,21 +71,18 @@ jobs:
 
   # The panel firmware, attached to the release it belongs to.
   #
-  # Why this job exists here rather than as a tag-triggered workflow:
-  # semantic-release pushes its tag using GITHUB_TOKEN, and GitHub's own
-  # documentation is explicit that "with the exception of
-  # workflow_dispatch and repository_dispatch, other GITHUB_TOKEN-
-  # triggered events do not create workflow runs at all". A
-  # `on: push: tags:` trigger therefore never fires for a
-  # semantic-release tag — it looks correct and silently does nothing.
-  # Doing the work inside this run sidesteps the loop guard entirely.
+  # Until this landed the firmware existed in exactly one place: the
+  # published docs site, holding whichever build came off main last and
+  # identified by a commit SHA. Neither v1.0.0 nor v1.1.0 carries a
+  # firmware asset, and there is no way to obtain the build that shipped
+  # with either -- so "roll back to the version that worked" had nothing
+  # to roll back to.
   #
-  # Until this landed, the firmware existed in exactly one place: the
-  # published docs site, holding whichever build came off main last,
-  # versioned by commit SHA. There was no copy of the firmware that
-  # shipped with v1.0.0 or v1.1.0, and no way to go back to one — which
-  # made "the running firmware survives a bad download" true only for
-  # the download, not for a bad build.
+  # The images are NOT handled here. RELEASE_TOKEN (see above) means the
+  # tag semantic-release creates does reach ci.yml's `tags: ['v*']`
+  # trigger, so the versioned image is built there. An earlier draft of
+  # this file dispatched ci.yml explicitly; that was written before
+  # RELEASE_TOKEN existed and is now redundant plumbing.
   firmware:
     name: Build the panel firmware for the release
     needs: release
@@ -103,24 +111,12 @@ jobs:
         run: |
           set -euo pipefail
           ls -l dist
-          # --clobber so a re-run of this job replaces the assets rather
-          # than failing on "already exists", which would otherwise make
-          # a retry impossible after a transient upload error.
+          # --clobber so a re-run replaces the assets rather than failing
+          # on "already exists", which would make a retry impossible
+          # after a transient upload error.
           gh release upload "$TAG" \
             dist/cyd-scan-panel.factory.bin \
             dist/cyd-scan-panel.ota.bin \
             dist/manifest.json \
             dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
-
-      # The images are the other half of "what shipped with this tag".
-      # ci.yml builds and pushes them, and its `on: push: tags:` trigger
-      # cannot fire here for the reason documented above -- but
-      # workflow_dispatch explicitly can, and is the documented
-      # exception. Dispatching it at the tag ref is what gets a
-      # ghcr.io/...:v1.2.3 to exist for a v1.2.3 release.
-      - name: Publish images for the tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release.outputs.tag }}
-        run: gh workflow run ci.yml --ref "$TAG" --repo "$GITHUB_REPOSITORY"

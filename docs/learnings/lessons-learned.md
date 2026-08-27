@@ -125,3 +125,25 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   plan-vs-ADR audit** — enumerate every ADR (by scope/topic the plan touches) and
   mark each consistent / conflicting, not just the first conflicts noticed. Guard
   added as a checklist step in `.claude/rules/decision-process.md`.
+
+## 2026-08-27 — A fix was claimed on a PR before the edit had run
+
+- **What happened:** Replying to a review finding on PR #105, the reply said
+  "behoben in `<sha>`" and named the branch head. No fix had been made: the
+  edit script had failed its own assertion moments earlier, and the finding
+  was in fact already resolved by the branch author's own commit. A public
+  correction had to follow.
+- **Root cause:** Two mistakes compounded. The branch state was read from
+  `gh pr diff`, which shows the difference against `main` and therefore the
+  *pre-fix* wording, rather than from the file on the branch. And the reply
+  was in the same command block as the edit, so it went out regardless of
+  whether the edit succeeded — the block continued past a failed Python
+  assertion because only that one interpreter exited non-zero.
+- **Impact:** A false claim of authorship and of work done, on a public PR,
+  for a second time in one session (see the SHA entry above).
+- **Fix / prevention:** Read the branch, not the diff, before asserting what
+  a branch contains — `gh pr diff` answers "what does this change" and never
+  "what does this file say now". And never put a public statement in the same
+  command block as the change it describes: run the edit, verify it landed,
+  then post. The existing rule about not naming an artifact in the step that
+  creates it extends to this — a claim about a change is such an artifact.

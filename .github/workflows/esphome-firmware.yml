@@ -52,7 +52,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: esphome-firmware-${{ github.ref }}
+  # The version input is part of the key, not just the ref. During a
+  # release github.ref is refs/heads/main -- the same value docs.yml
+  # produces when it calls this workflow on a push to main -- so with
+  # cancel-in-progress the two would cancel each other, and the release
+  # firmware build is the one that must not be lost. A release call
+  # passes its tag, so it lands in its own group.
+  group: esphome-firmware-${{ github.ref }}-${{ inputs.version || 'branch' }}
   cancel-in-progress: true
 
 jobs:

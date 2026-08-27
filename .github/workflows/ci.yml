@@ -19,14 +19,11 @@ name: CI
 on:
   push:
     branches: [main]
-    # Kept for a tag pushed by a human. It does NOT fire for a
-    # semantic-release tag, and that is not a configuration mistake:
-    # semantic-release pushes with GITHUB_TOKEN, and GitHub documents
-    # that "with the exception of workflow_dispatch and
-    # repository_dispatch, other GITHUB_TOKEN-triggered events do not
-    # create workflow runs at all". release.yml therefore dispatches
-    # this workflow at the tag instead -- see the publish condition on
-    # the build job, which accepts that dispatch.
+    # semantic-release creates the SemVer tag from release.yml, after
+    # the push to main that produced the commit has already run. Without
+    # this trigger a GitHub Release v1.2.3 would have no pullable
+    # ghcr.io image tagged v1.2.3 -- the branch build published the
+    # commit-describe version and nothing republished it under the tag.
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -81,7 +78,7 @@ jobs:
       #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
       # The project tracks the current stable Go release; see the note
       # on GOLANGCI_LINT_VERSION above, which has to move with it.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
@@ -120,7 +117,7 @@ jobs:
       #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
       # The project tracks the current stable Go release; see the note
       # on GOLANGCI_LINT_VERSION above, which has to move with it.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
@@ -186,26 +183,17 @@ jobs:
       # an amd64 runner. The reference deployment is a Pi 5, so an image
       # that only builds for amd64 is an image that cannot be deployed.
       - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      # main, a version tag, or a dispatch at a version tag. A pull
-      # request builds and throws the result away: publishing an image
-      # from an unreviewed branch would put it in the registry under a
-      # real version tag.
-      #
-      # The workflow_dispatch arm is what release.yml uses. It is not a
-      # convenience -- it is the only arm that can fire for a
-      # semantic-release tag, because that tag is pushed with
-      # GITHUB_TOKEN and workflow_dispatch is one of the two events
-      # GitHub exempts from its recursion guard.
+      # Only on main. A pull request builds and throws the result away:
+      # publishing an image from an unreviewed branch would put it in
+      # the registry under a real version tag.
       - name: Log in to GHCR
         if: >-
-          (github.event_name == 'push' &&
-           (github.ref == 'refs/heads/main' ||
-            startsWith(github.ref, 'refs/tags/v'))) ||
-          (github.event_name == 'workflow_dispatch' &&
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' ||
            startsWith(github.ref, 'refs/tags/v'))
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -224,15 +212,13 @@ jobs:
       # overrides VERSION from the environment and builds a different
       # set than intended.
       - name: Bake
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           files: docker-bake.hcl
           targets: default
           push: >-
-            ${{ (github.event_name == 'push' &&
-                 (github.ref == 'refs/heads/main' ||
-                  startsWith(github.ref, 'refs/tags/v'))) ||
-                (github.event_name == 'workflow_dispatch' &&
+            ${{ github.event_name == 'push' &&
+                (github.ref == 'refs/heads/main' ||
                  startsWith(github.ref, 'refs/tags/v')) }}
         env:
           VERSION: ${{ steps.stamp.outputs.version }}
