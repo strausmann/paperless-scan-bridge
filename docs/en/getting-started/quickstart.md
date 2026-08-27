@@ -1,23 +1,48 @@
 # Quickstart
 
-!!! warning "Not yet runnable"
+!!! info "The tooling on this page exists now"
 
-    The bootstrap script (`deploy/bootstrap/install.sh`) and the compose
-    stacks (`deploy/compose/`) referenced on this page are Phase 1
-    deliverables and are not in the repository yet. This page documents the
-    intended flow so the shape of the setup is reviewable before the code
-    lands.
+    `deploy/bootstrap/install.sh` and `deploy/compose/scan-bridge.yml`
+    are in the repository. What has **not** been done is a run of this
+    page end to end on a fresh Pi: the pipeline itself is proven against
+    the reference hardware, and the bootstrap script is proven by its own
+    `--dry-run` and by `docker compose config`, but nobody has yet taken
+    an unprepared machine from nothing to a scan by following these six
+    steps. Expect to hit something. Please report it.
 
 ## Prerequisites
 
-- Raspberry Pi 4 or 5 running Ubuntu Server 24.04 LTS (arm64)
+- **A Linux host running Docker, within USB reach of the scanner.**
+  Any amd64 or arm64 machine. A Raspberry Pi 4 or 5 on Ubuntu Server
+  24.04 is the reference, and it is the cheap way to put a host wherever
+  the scanner has to stand — but it is one option, not a requirement.
+  If you already run a Docker host within cable reach of where the
+  scanner will live, use that and skip the Pi entirely.
 - A SANE-compatible USB scanner — see the
   [hardware list](../hardware/index.md)
 - A Synology NAS with NFS enabled
 - A Docker host for Paperless-ngx (can be the NAS)
 
-The Pi only needs Docker, an NFS mount, and USB permissions. Everything
-else runs in containers.
+The host needs Docker, an NFS mount and USB permissions. Everything else
+runs in containers.
+
+!!! info "Scanned pages never touch the host's disk"
+
+    Every scan writes raw TIFF pages, has them read back by
+    `scan-processor`, and deletes them again before the HTTP response is
+    sent — they exist for the duration of one request and no longer. The
+    reference stack puts that scratch space on **tmpfs**, so it lives in
+    RAM and never reaches durable storage.
+
+    That matters most on a Pi booting from an SD card, where a
+    write-erase cycle per scan is the access pattern those cards
+    tolerate worst — but it is the right default everywhere, because the
+    data has no reason to be written to a disk it is about to be erased
+    from. Sizes are `SCAN_BRIDGE_SCRATCH_SIZE` and
+    `SCAN_PROCESSOR_TMPFS_SIZE` in `.env`; each holds one job at a time,
+    and an overrun fails loudly rather than producing a short document.
+
+    Finished documents go to the NFS share, not to the host.
 
 ## 1. Prepare the Synology share
 
@@ -33,15 +58,12 @@ Download the script, read it, then run it. It modifies `/etc/fstab` and
 worth the convenience — a truncated download would execute as a
 half-script.
 
-```bash title="Not yet — deploy/bootstrap/install.sh does not exist"
+```bash
 ssh pi@your-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # read what it is about to do
 sudo bash install.sh
 ```
-
-    The URL above 404s today. It is shown so the shape of the step is
-    reviewable, not so it can be run.
 
 The script installs Docker and the compose plugin, adds the NFS mount to
 `/etc/fstab`, installs the udev rule that gives the container stable
@@ -56,6 +78,13 @@ cd paperless-scan-bridge
 
 cp deploy/compose/.env.example deploy/compose/.env
 $EDITOR deploy/compose/.env
+
+# the two secrets, as files -- an env var shows up in `docker inspect`
+printf '%s' 'YOUR_PAPERLESS_TOKEN' > deploy/secrets/paperless_api_token
+openssl rand -hex 32               > deploy/secrets/bridge_token
+# 0644, not 0640: compose passes the host file's ownership into the
+# container, and scan-bridge runs as UID 65532, not as you.
+chmod 0644 deploy/secrets/*
 ```
 
 At minimum you set the Paperless-ngx URL, the API token, and the NFS
@@ -70,9 +99,13 @@ mount point.
 
 ## 4. Bring up the bridge
 
-```bash title="Not yet — deploy/compose/ does not exist"
+```bash
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
+
+`PSB_VERSION` in `.env` has no default: compose refuses to start
+without it rather than reaching for `latest` (ADR 0011), so an unpinned
+deployment cannot happen by forgetting.
 
 Pin an explicit image version in your compose file. This project does
 not publish or use `latest` tags.
@@ -80,8 +113,8 @@ not publish or use `latest` tags.
 ## 5. Verify
 
 ```bash
-curl -s http://your-pi-host:8080/health
-curl -s http://your-pi-host:8080/profiles
+curl -s http://your-host:18080/ready
+curl -s http://your-host:18080/profiles
 ```
 
 `/health` reports process liveness. `/profiles` lists the configured
@@ -90,7 +123,7 @@ scan profiles. Both endpoints work today.
 ## 6. First scan
 
 ```bash
-curl -X POST http://your-pi-host:8080/scan \
+curl -X POST http://your-host:18080/scan \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"profile": "default"}'

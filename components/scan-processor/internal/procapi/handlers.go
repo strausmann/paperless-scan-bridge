@@ -173,10 +173,17 @@ var allowedPageGroupings = map[string]bool{
 	string(pipeline.PageGroupingPerPage):  true,
 }
 
+// Keep this in step with pipeline.OutputFormat*. It is a second,
+// independent list of the same thing, which is why png was added to
+// the pipeline and forgotten here -- the bridge sent output_format
+// "png", the pipeline would have handled it, and this rejected the
+// request before the pipeline was ever called. TestAllowedOutputFormats
+// CoversEveryPipelineFormat is the guard against the next one.
 var allowedOutputFormats = map[string]bool{
 	string(pipeline.OutputFormatPDF):  true,
 	string(pipeline.OutputFormatJPEG): true,
 	string(pipeline.OutputFormatTIFF): true,
+	string(pipeline.OutputFormatPNG):  true,
 }
 
 // validateProcessRequest checks the fields scan-processor can reject
@@ -194,8 +201,9 @@ func (s *Server) validateProcessRequest(req processRequestPayload) error {
 			req.PageGrouping, pipeline.PageGroupingCombined, pipeline.PageGroupingPerPage)
 	}
 	if !allowedOutputFormats[req.OutputFormat] {
-		return fmt.Errorf("output_format %q is not supported (want %q, %q, or %q)",
-			req.OutputFormat, pipeline.OutputFormatPDF, pipeline.OutputFormatJPEG, pipeline.OutputFormatTIFF)
+		return fmt.Errorf("output_format %q is not supported (want %q, %q, %q, or %q)",
+			req.OutputFormat, pipeline.OutputFormatPDF, pipeline.OutputFormatJPEG,
+			pipeline.OutputFormatTIFF, pipeline.OutputFormatPNG)
 	}
 	if req.TimeoutSeconds < 0 {
 		return fmt.Errorf("timeout_seconds must not be negative")

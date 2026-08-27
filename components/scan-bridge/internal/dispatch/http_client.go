@@ -32,8 +32,9 @@ const (
 // Source does that via SANE's own selection), source, resolution,
 // mode, format (always "tiff", never Profile.Format — the raw capture
 // format is independent of the profile's final container format,
-// which scan-processor produces downstream), max_pages (always 0 —
-// unbounded, not yet exposed as a profile knob), timeout_seconds.
+// which scan-processor produces downstream), max_pages (the profile's
+// own cap; 0 drains the ADF, which is what every profile did before
+// the field existed), timeout_seconds.
 type scanRequestPayload struct {
 	RequestID      string `json:"request_id"`
 	Device         string `json:"device"`
@@ -109,7 +110,7 @@ func (c *httpUnixClient) Dispatch(ctx context.Context, req Request) (Response, e
 		Resolution:     req.Profile.Resolution,
 		Mode:           string(req.Profile.Mode),
 		Format:         "tiff",
-		MaxPages:       0,
+		MaxPages:       req.Profile.MaxPages,
 		TimeoutSeconds: req.Profile.TimeoutSeconds,
 	}
 	body, err := json.Marshal(payload)

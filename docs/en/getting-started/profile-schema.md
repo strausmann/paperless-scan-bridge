@@ -82,11 +82,12 @@ single point of reference.
 | `source` | SANE source string. Accepted values: `ADF Front`, `ADF Duplex`, `Flatbed`. Any other value fails the load at startup. Confirm what your scanner offers with `scanimage -A`. |
 | `resolution` | DPI, 100–1200. |
 | `mode` | `Color`, `Gray`, `Lineart` |
-| `format` | `pdf`, `jpeg`, `tiff` — this is also `scan-processor`'s `output_format` (no separate field). |
+| `format` | `pdf`, `jpeg`, `tiff`, `png` — this is also `scan-processor`'s `output_format` (no separate field). `png` is lossless, which matters for a scanned form: JPEG re-encoding leaves ringing artefacts around every letter. Like `jpeg` it holds one page per file. |
 | `target_subdir` | See "Fields that predate destinations" below. |
 | `deskew` | `true` / `false` — passed to `scan-processor`. |
 | `remove_blank` | `true` / `false` — passed to `scan-processor`. |
 | `rotate_pages` | `true` / `false` — passed to `scan-processor`. |
+| `max_pages` | How many sheets one scan pulls through the feeder. `0` (the default, and what every profile did before this field existed) drains the ADF until it is empty. Reaches the scanner as `scanimage --batch-count`. There is deliberately **no** `single_sheet` flag — it would mean exactly `max_pages: 1`, and two spellings of one setting only create a contradiction to resolve. |
 | `page_size` | `A4`, `Letter`, `A5`, `auto` |
 | `timeout_seconds` | Bounds the **entire** `POST /scan` call today — scan + `scan-processor` + every destination's upload *submission* — not just the scan itself. Must be positive. |
 
@@ -177,9 +178,9 @@ cheaper. Full details, including the documented accuracy limits: the
 one document. `per_page` emits one document per surviving source page.
 This is a per-profile choice read directly from this field — it is
 never inferred from page count or content. A `combined` request with
-`format: jpeg` and more than one surviving page is rejected by
-`scan-processor` (`400 unsupported_format`) — JPEG cannot hold
-multiple pages in one file.
+`format: jpeg` or `format: png` and more than one surviving page is
+rejected by `scan-processor` (`400 unsupported_format`) — neither
+format can hold multiple pages in one file. `pdf` and `tiff` can.
 
 ## `document_type`
 

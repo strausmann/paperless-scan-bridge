@@ -60,6 +60,39 @@ between releases as a running list.
   next deploy. The CYD hardware pages link straight to it in both
   languages, since that is where someone looking for the panel's
   firmware actually starts.
+- Scan scratch space moves to **tmpfs** in the reference stack, so
+  scanned pages never reach the host's disk. Every scan writes raw TIFF
+  pages, has them read back and deletes them again within the same
+  request — on a named volume that is a write-erase cycle per scan for
+  data that never needs to survive a reboot, which is the access pattern
+  an SD card tolerates worst. Sized by `SCAN_BRIDGE_SCRATCH_SIZE`. The
+  documentation also stops presenting a Raspberry Pi as a requirement:
+  it is the reference and the cheap way to put a host next to the
+  scanner, but any Linux Docker host within USB reach works, and an
+  existing one is the better choice when there is one.
+
+- The deployment tooling Phase 1 has been promising since Phase 0 now
+  exists: `deploy/bootstrap/install.sh` (Docker, the NFS mount, the udev
+  rule — the three host modifications the container-first principle
+  permits, and nothing else, all idempotent and with a `--dry-run`),
+  `deploy/compose/scan-bridge.yml` (the published Topology B stack,
+  pulling pinned GHCR images), `deploy/udev/99-paperless-scan-bridge.rules`,
+  a `Tiltfile` for the development loop, and `renovate.json`. `scan-bridge`
+  also gains a real `healthcheck` subcommand: the image is distroless, so
+  there is no curl for a container healthcheck to run, and the binary
+  already in the image is the only thing that can probe `/ready`.
+- Scan profiles gain `png` as a fourth output format (roadmap Epic A3)
+  and `max_pages` to cap how many sheets one scan pulls through the
+  feeder (Epic A5). `png` is lossless where `jpeg` is not — a scanned
+  form re-encoded as JPEG carries ringing around every letter — and like
+  `jpeg` it holds one page per file, so `page_grouping: combined` with
+  several pages is rejected rather than silently truncated. A
+  `max_pages` of `0` is the default and drains the ADF, exactly as
+  before; `1` is the single-sheet case. There is deliberately **no** separate
+  `single_sheet` flag: it would mean the same thing and only create a
+  contradiction to resolve. Everything below the profile already
+  supported the cap — `sane-runtime` turns it into `scanimage
+  --batch-count` — the bridge was simply sending a hardcoded `0`.
 - The panel now says which build it is running. Its dashboard header
   read `paperless-scan-bridge CYD scan-control panel (v2, Issue #9,
   secret-free, landscape)` — a description of the design, not of the
