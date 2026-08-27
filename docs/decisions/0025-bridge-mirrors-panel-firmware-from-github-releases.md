@@ -74,7 +74,11 @@ than implementation detail:
    newest generation holds by then — a different binary, failing the MD5 check
    in exactly the moments right after a release. So the served manifest has
    each build's `ota.path` rewritten to `/firmware/{tag}/{name}`, and the
-   mirror keeps two generations. The `md5` beside it is **never** rewritten:
+   mirror keeps two generations: the one being served and the one it
+   replaced, named explicitly rather than picked by modification time —
+   a daemon killed between the rename and the publish leaves a newer,
+   never-advertised directory behind, and an mtime rule would keep that
+   orphan and delete the generation panels actually hold a URL for. The `md5` beside it is **never** rewritten:
    it is the digest CI computed from the binary it shipped, which is what makes
    ADR 0024's "publish the digest of the file you will actually serve" hold.
 
@@ -151,9 +155,15 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   is in place, restoring it if the publish fails — deleting first would
   turn a repairable cache into an empty one on any rename error, with
   the published pointer still aimed at it.
-- **Neutral / follow-ups:** the mirror re-verifies the cached release
-  against the checksums it recorded before skipping a download on an
-  unchanged tag, and again when adopting a cache at startup. Without
+- **Neutral / follow-ups:** an unchanged release tag is not evidence
+  that the mirror is current, in either direction. Locally, a file may
+  have been damaged after it was mirrored; upstream, `release.yml`
+  attaches assets with `gh release upload --clobber`, which deletes the
+  existing ones before uploading, so re-running that job replaces the
+  binaries under the same tag. The mirror therefore re-verifies the
+  cached files against the checksums it recorded **and** compares those
+  against the release's current `SHA256SUMS` before it skips a
+  download. Without
   that, a file truncated or emptied after it was mirrored would be
   served indefinitely — the panel discarding it on the MD5 check every
   time, the mirror never noticing, because GitHub still reports the same

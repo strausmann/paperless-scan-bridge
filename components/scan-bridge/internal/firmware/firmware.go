@@ -151,19 +151,18 @@ const (
 	// anyway; the scheduled poll runs hours apart and never meets it.
 	DefaultMinRefreshInterval = 5 * time.Minute
 
-	// generationsKept is how many mirrored releases stay on disk.
-	//
-	// Two, not one, and this is a correctness requirement rather than
-	// caution. The panel reads the manifest on its own schedule and
-	// installs when a person clicks, which can be hours later; it
-	// carries the MD5 it read at check time. If the newer release
-	// replaced the older one in between, that click would download a
-	// binary the held MD5 does not describe and fail -- safely, but
-	// visibly, and exactly in the moments right after a release. Keeping
-	// the previous generation, together with the version-qualified path
-	// the served manifest points at, makes the URL the panel captured
-	// stay valid and keep returning the same bytes.
-	generationsKept = 2
+	// Two generations stay on disk: the one being served and the one it
+	// replaced. That is a correctness requirement, not caution. The
+	// panel reads the manifest on its own schedule and installs when a
+	// person clicks, which can be hours later; it carries the MD5 it
+	// read at check time. If the newer release had replaced the older
+	// one in between, that click would download a binary the held MD5
+	// does not describe and fail -- safely, but visibly, and exactly in
+	// the moments right after a release. Keeping the predecessor,
+	// together with the version-qualified path the served manifest
+	// points at, makes the URL the panel captured stay valid and keep
+	// returning the same bytes. See prune, which names both tags
+	// explicitly rather than inferring them.
 )
 
 // Release describes the firmware currently in the cache.
@@ -328,6 +327,11 @@ func (m *Mirror) Load() error {
 	}
 
 	m.publish(&rel)
+	// A process killed mid-download left its staging directory in a
+	// persistent volume; nothing else on the startup path would remove
+	// it, and a refresh that short-circuits on an unchanged tag never
+	// reaches prune.
+	m.pruneStaging()
 	m.logger.Info("firmware cache adopted",
 		slog.String("tag", rel.Tag),
 		slog.Int("files", len(rel.Files)))
@@ -387,7 +391,7 @@ func (m *Mirror) Open(name string) (io.ReadSeekCloser, Release, time.Time, error
 // Unlike Open it is not restricted to the current release: the whole
 // point is that a manifest a panel read hours ago keeps resolving to
 // the bytes it described. It is bounded by what is on disk instead, and
-// the mirror keeps generationsKept of those.
+// the mirror keeps the current and the previous one on disk.
 //
 // Both components are validated with the same rules that governed them
 // on the way in, so a request cannot name a directory or a file the
@@ -515,6 +519,29 @@ func renderManifest(raw []byte, rel Release) ([]byte, error) {
 		return nil, fmt.Errorf("firmware: encode manifest of %s: %w", rel.Tag, err)
 	}
 	return out, nil
+}
+
+// checksumsUnchanged reports whether the release still ships the exact
+// checksums the mirror recorded. It is the upstream half of the
+// same-tag question; verifyCached is the local half.
+func (m *Mirror) checksumsUnchanged(ctx context.Context, rel Release, assets map[string]string) (bool, error) {
+	url, ok := assets[ChecksumsName]
+	if !ok {
+		return false, fmt.Errorf("firmware: release %s carries no %s asset", rel.Tag, ChecksumsName)
+	}
+	sums, names, err := m.fetchChecksums(ctx, url)
+	if err != nil {
+		return false, err
+	}
+	if len(names) != len(rel.Files) {
+		return false, nil
+	}
+	for _, name := range names {
+		if !strings.EqualFold(sums[name], rel.Sums[name]) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // verifyCached re-hashes every file of rel against the checksums the
@@ -696,24 +723,46 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		return Release{}, err
 	}
 
-	if cur, ok := m.Current(); ok && cur.Tag == latest.TagName {
-		// Same tag is not the same thing as "still intact". A file
-		// deleted or truncated after it was mirrored would otherwise
-		// be served until a new release happens to appear: the panel
-		// discards it on the MD5 check every single time, and the
-		// mirror short-circuits before it could ever notice. So the
-		// cheap path is only taken when the bytes still verify.
-		if err := m.verifyCached(cur); err == nil {
-			return cur, nil
-		} else { //nolint:revive // the else carries the explanation
-			m.logger.Warn("cached firmware failed verification, re-downloading",
-				slog.String("tag", cur.Tag), slog.Any("err", err))
-		}
-	}
-
 	assets := make(map[string]string, len(latest.Assets))
 	for _, a := range latest.Assets {
 		assets[a.Name] = a.BrowserDownloadURL
+	}
+
+	previousTag := ""
+	if cur, ok := m.Current(); ok {
+		previousTag = cur.Tag
+	}
+
+	if cur, ok := m.Current(); ok && cur.Tag == latest.TagName {
+		// Same tag is not the same thing as "same bytes", in either
+		// direction.
+		//
+		// Locally: a file deleted or truncated after it was mirrored
+		// would be served until a new release happened to appear -- the
+		// panel discarding it on the MD5 check every single time while
+		// the mirror short-circuited before it could notice.
+		//
+		// Upstream: release.yml attaches assets with `gh release upload
+		// --clobber`, which deletes the existing assets before
+		// uploading. Re-running that job replaces the binaries under an
+		// unchanged tag, so the tag alone cannot say whether the mirror
+		// is current. Fetching SHA256SUMS is a few hundred bytes and
+		// settles it.
+		//
+		// The cheap path is taken only when both agree.
+		if err := m.verifyCached(cur); err != nil {
+			m.logger.Warn("cached firmware failed verification, re-downloading",
+				slog.String("tag", cur.Tag), slog.Any("err", err))
+		} else if same, err := m.checksumsUnchanged(ctx, cur, assets); err != nil {
+			m.logger.Warn("could not compare the release checksums, re-downloading",
+				slog.String("tag", cur.Tag), slog.Any("err", err))
+		} else if same {
+			m.pruneStaging()
+			return cur, nil
+		} else {
+			m.logger.Info("release assets changed under an unchanged tag, re-downloading",
+				slog.String("tag", cur.Tag))
+		}
 	}
 
 	sumsURL, ok := assets[ChecksumsName]
@@ -838,7 +887,7 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	// Only now is the old directory unreferenced.
-	m.prune(rel.Tag)
+	m.prune(rel.Tag, previousTag)
 
 	m.logger.Info("firmware mirrored",
 		slog.String("tag", rel.Tag),
@@ -975,51 +1024,53 @@ func (m *Mirror) writeState(rel Release) error {
 	return nil
 }
 
-// prune keeps the generationsKept most recent release directories —
-// keep among them, whatever its mtime — and removes the rest, together
-// with any staging directory a killed refresh left behind.
+// prune removes every cached directory except the two generations that
+// are allowed to exist: keep (the one just published) and previous (the
+// one it replaced). Staging leftovers always go.
 //
-// Keeping more than one is what makes an install offered by an older
-// manifest still work; see generationsKept. Failures are logged, not
-// returned: stale bytes cost disk, but the refresh they follow already
-// succeeded and reporting it as failed would be a lie.
-func (m *Mirror) prune(keep string) {
+// Explicit tags rather than "the N newest by mtime". A daemon killed
+// between the rename and the publish leaves a fully downloaded but
+// never-advertised directory behind, and it is NEWER than the
+// generation panels actually hold a versioned URL for -- so an
+// mtime-based rule would keep the orphan and delete the one still being
+// installed from, turning that install into a 404. Which two matter is
+// something the mirror knows; it should not have to infer it.
+//
+// Failures are logged, not returned: stale bytes cost disk, but the
+// refresh they follow already succeeded and reporting it as failed
+// would be a lie.
+func (m *Mirror) prune(keep, previous string) {
 	entries, err := os.ReadDir(m.cacheDir)
 	if err != nil {
 		m.logger.Warn("firmware cache prune failed", slog.Any("err", err))
 		return
 	}
-
-	type generation struct {
-		name string
-		mod  time.Time
-	}
-	var older []generation
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == keep {
+		if !e.IsDir() || e.Name() == keep || (previous != "" && e.Name() == previous) {
 			continue
 		}
-		// A staging directory is never a generation: it holds an
-		// abandoned, unverified download and always goes.
-		if strings.HasPrefix(e.Name(), stagingPrefix) {
-			m.remove(e.Name())
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			m.logger.Warn("firmware cache prune failed",
-				slog.String("entry", e.Name()), slog.Any("err", err))
-			continue
-		}
-		older = append(older, generation{name: e.Name(), mod: info.ModTime()})
+		m.remove(e.Name())
 	}
+}
 
-	// Newest first, so the survivors are the ones a recently-read
-	// manifest may still point at.
-	sort.Slice(older, func(i, j int) bool { return older[i].mod.After(older[j].mod) })
-	// keep already occupies one of the generationsKept slots.
-	for _, g := range older[min(len(older), generationsKept-1):] {
-		m.remove(g.name)
+// pruneStaging removes abandoned download and parking directories and
+// nothing else.
+//
+// Called on the paths prune does not reach: adopting a cache at
+// startup, and a refresh that short-circuits on an unchanged tag. A
+// process killed mid-download leaves a .staging-* directory in a
+// persistent volume, and without this those accumulate -- on a Pi, one
+// per interrupted refresh until the next release happens to land.
+func (m *Mirror) pruneStaging() {
+	entries, err := os.ReadDir(m.cacheDir)
+	if err != nil {
+		m.logger.Warn("firmware staging cleanup failed", slog.Any("err", err))
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), stagingPrefix) {
+			m.remove(e.Name())
+		}
 	}
 }
 

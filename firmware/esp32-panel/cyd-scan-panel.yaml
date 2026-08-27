@@ -1893,11 +1893,19 @@ script:
                 ESP_LOGI("panel.update", "update source -> %s", url.c_str());
                 id(firmware_update).set_source_url(url);
           else:
+            # Reset, do not merely complain. Clearing the Bridge URL has
+            # to stop the automatic 6h checks from continuing against
+            # the OLD bridge -- a host that may have been retired, or
+            # that the operator has deliberately stopped trusting. The
+            # scan path already honours an empty URL; this makes the
+            # update path match. Back to the .invalid placeholder, which
+            # fails DNS immediately and says why.
             - lambda: |-
                 ESP_LOGW("panel.update",
-                         "update source not set: Bridge URL is empty. "
+                         "update source reset: Bridge URL is empty. "
                          "Set it on this panel's own dashboard; the firmware "
                          "manifest is served by the bridge, not by GitHub.");
+                id(firmware_update).set_source_url("http://bridge.invalid/firmware/manifest.json");
 
   # What the "Check for Update" button does.
   #
@@ -1919,10 +1927,23 @@ script:
   # manifest, report "no update", and leave the newly published firmware
   # sitting there until the regular 6h poll.
   #
-  # So: 8s covers the ordinary case where the bridge was free to ask
-  # immediately, and 5min30 covers the deferred one. `delay` is
-  # scheduler-based and does not block the main loop, and `update.check`
-  # runs on its own FreeRTOS task, so neither costs responsiveness.
+  # There are three windows, so there are three checks:
+  #
+  #   8s     the bridge already held the release and answered at once
+  #   90s    the bridge was free to ask GitHub and has finished the
+  #          ~1.7 MB download
+  #   660s   the press landed at the START of the floor (up to 300s)
+  #          AND the deferred refresh then took its full timeout
+  #          (refreshTimeout, another 300s)
+  #
+  # 660 is the sum of both documented bridge-side limits plus a minute.
+  # Anything earlier can legitimately still read the old manifest, and
+  # then nothing would happen until the 6h poll -- which is the whole
+  # failure this button exists to avoid.
+  #
+  # `delay` is scheduler-based and does not block the main loop, and
+  # `update.check` runs on its own FreeRTOS task, so none of the three
+  # costs responsiveness.
   #
   # A check that lands while the bridge is still downloading is harmless:
   # the mirror only swaps the manifest once the binary is on disk and its
@@ -1963,10 +1984,12 @@ script:
             - delay: 8s
             - update.check: firmware_update
             - lvgl.label.update: { id: status_label, text: "idle" }
-            # The deferred case. mode: restart on this script means a
-            # second press simply starts the sequence over rather than
-            # stacking timers.
-            - delay: 330s
+            # Cumulative delays: 8s, then +82s = 90s, then +570s =
+            # 660s. mode: restart on this script means a second press
+            # starts the sequence over rather than stacking timers.
+            - delay: 82s
+            - update.check: firmware_update
+            - delay: 570s
             - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness

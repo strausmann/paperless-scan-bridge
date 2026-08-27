@@ -208,12 +208,119 @@ func TestRefreshIsNoOpWhenTagUnchanged(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
-	if g.downloads.Load() != after {
-		t.Errorf("second refresh downloaded %d extra files; an unchanged tag must cost one API call and nothing else",
-			g.downloads.Load()-after)
+	// One extra fetch, and exactly one: SHA256SUMS. The tag alone
+	// cannot answer whether the mirror is current, because
+	// `gh release upload --clobber` replaces assets under an unchanged
+	// tag. The binaries must NOT be re-fetched.
+	if extra := g.downloads.Load() - after; extra != 1 {
+		t.Errorf("second refresh fetched %d files, want exactly 1 (%s)", extra, ChecksumsName)
 	}
 	if g.apiCalls.Load() != 2 {
 		t.Errorf("apiCalls = %d, want 2", g.apiCalls.Load())
+	}
+}
+
+// Re-running the release workflow replaces the assets of an existing
+// tag (`gh release upload --clobber` deletes before it uploads), so a
+// mirror that trusted the tag alone would serve the superseded bytes
+// until some later release appeared.
+func TestRefreshDetectsReplacedAssetsAtTheSameTag(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	// Same tag, different bytes -- exactly what --clobber produces.
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("re-uploaded-ota-bytes")
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	f, _, _, err := m.Open("cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	got, err := io.ReadAll(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "re-uploaded-ota-bytes" {
+		t.Errorf("serving %q; the replaced asset was not picked up", got)
+	}
+}
+
+// A staging directory left by a killed download must be swept even when
+// the refresh short-circuits on an unchanged tag -- that path never
+// reaches prune, so without this they accumulate one per interruption.
+func TestStagingLeftoversAreSweptOnAShortCircuitAndOnLoad(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	orphan := filepath.Join(m.cacheDir, stagingPrefix+"abandoned")
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Unchanged tag: the short-circuit path.
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("staging leftover survived a short-circuiting refresh: %v", err)
+	}
+
+	// And on the startup path.
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	restarted, err := New(Options{CacheDir: m.cacheDir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := restarted.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("staging leftover survived Load: %v", err)
+	}
+}
+
+// Retention is by tag, not by mtime. A daemon killed between the rename
+// and the publish leaves a fully downloaded but never-advertised
+// directory that is NEWER than the generation panels actually hold a
+// versioned URL for; an mtime rule would keep the orphan and delete the
+// one still being installed from.
+func TestPruneKeepsThePublishedPredecessorNotTheNewestOrphan(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	// An orphan from a crashed refresh, newer than v1.0.0.
+	orphan := filepath.Join(m.cacheDir, "v1.5.0")
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("third-generation-bytes")
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(m.cacheDir, "v1.0.0")); err != nil {
+		t.Errorf("the published predecessor was pruned: %v", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("the never-published orphan survived: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(m.cacheDir, "v2.0.0")); err != nil {
+		t.Errorf("v2.0.0 missing: %v", err)
 	}
 }
 
@@ -417,8 +524,8 @@ func TestLoadOnEmptyCacheDirIsNotAnError(t *testing.T) {
 // earlier version of this test asserted the opposite, before it was
 // clear that a panel installs when a person clicks -- possibly hours
 // after it read the manifest -- and carries the MD5 from that read. See
-// generationsKept. Eviction is covered by
-// TestPruneKeepsExactlyTwoGenerations.
+// the prune comment. Eviction is covered by
+// TestPruneKeepsTheCurrentAndPreviousGeneration.
 func TestRefreshKeepsThePreviousRelease(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
@@ -780,7 +887,7 @@ func TestPreviousGenerationStaysServableAfterANewRelease(t *testing.T) {
 }
 
 // Two generations, not more: the third release evicts the first.
-func TestPruneKeepsExactlyTwoGenerations(t *testing.T) {
+func TestPruneKeepsTheCurrentAndPreviousGeneration(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
 
