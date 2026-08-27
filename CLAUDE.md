@@ -4,41 +4,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Phase 0 is complete. The repository is in **early Phase 1** — see
-`ROADMAP.md`, which splits it into sub-phases 1.1 to 1.4.
+Phase 0 is complete. Phase 1 is **in progress and further along than
+the sub-phase numbering suggests** — see `ROADMAP.md`, which is checked
+against the code rather than the plan.
 
-What exists on disk:
+The pipeline works end to end. On 2026-08-26 a `POST /scan` against the
+reference hardware pulled a duplex sheet through the feeder, assembled
+a two-page PDF and uploaded it to Paperless-ngx.
 
-- `components/scan-bridge/` — a real Go daemon (Phase 1.1). `GET /health`,
-  `GET /version`, `GET /profiles`, `GET /profiles/{name}` and
-  `GET /ready` are implemented. `GET /ready` returns
-  `200 {"status":"ready"}` when profiles are loaded and sane-runtime
-  answers its own health check within 3s, otherwise `503` (`{"error":
-  "no_profiles_loaded"}` or `{"error":"sane_runtime_unreachable"}`).
-  `POST /scan` and the `/jobs` endpoints return `501 Not Implemented`;
-  `dispatch`, `jobs`, `healthcheck` and `metrics` are stubs marked
-  `TODO(phase 1.4)`.
-- The documentation site: `zensical.toml`, `zensical.de.toml`,
-  `docs/en/`, `docs/de/`, `requirements-docs.txt`.
-- `Makefile`, `.pre-commit-config.yaml`, `.markdownlint.json`, the
-  `.github/` templates and workflows.
-- Phase 1.2 spec and implementation plan under `docs/superpowers/`,
-  hardware research under `docs/research/`.
+What is real:
 
-What does **not** exist yet: `components/sane-runtime/`,
-`components/scan-processor/`, `deploy/` (compose, bootstrap, udev,
-ansible), `tests/`, `monitoring/`, `backup/`, `ha/`, `homeassistant/`,
-`n8n/`, `security/` — all still `.gitkeep` only. There is no `go.work`,
-no `Tiltfile`, no `docker-bake.hcl`, and no Compose file.
+- All three components — `components/scan-bridge/`,
+  `components/sane-runtime/`, `components/scan-processor/` — are Go
+  implementations with Dockerfiles, and `compose.yaml` at the root
+  wires them together.
+- `scan-bridge` serves `GET /health`, `/version`, `/ready`,
+  `/profiles`, `/profiles/{name}` and `POST /scan` (bearer-protected,
+  dispatching through `sane-runtime` and `scan-processor` to
+  delivery), plus a `healthcheck` subcommand for the container probe.
+  **Only the three `/jobs` endpoints return `501`**, waiting on the
+  Phase 1.4 job store (`internal/jobs`, still `TODO(phase 1.4)`, as is
+  part of `internal/metrics`).
+- Deployment: `deploy/bootstrap/install.sh`,
+  `deploy/compose/scan-bridge.yml`, `deploy/udev/`,
+  `docker-bake.hcl`, `Tiltfile`, `renovate.json`, `go.work`.
+- CI builds, lints and tests the Go code (`golangci-lint`,
+  `go test -race` per module, `shellcheck`, `yamllint`, `hadolint`,
+  multi-arch `buildx bake` to GHCR). Until 2026-08-27 every job was an
+  `echo` placeholder.
+- The documentation site, English and German, live at
+  `scan-bridge.strausmann.de`.
+- Panel firmware under `firmware/esp32-panel/`, with a browser
+  installer at `/install/`.
 
-`make test-docs` is real. The other `make` targets and `ci.yml` are
-still `echo` placeholders — the Go code is currently **not** built or
-tested in CI. `tilt up` and `go work sync` from `CONTRIBUTING.md` do not
-run yet.
+What does **not** exist yet: `tests/` (integration), `monitoring/`,
+`backup/`, `ha/`, `homeassistant/`, `n8n/`, `security/` and
+`deploy/ansible/` — still `.gitkeep` only. No job store, so no scan
+history and no UI. `make test-ansible` and `test-molecule` are still
+placeholders; every other `make` target is real.
 
-When asked to "add a feature" or "implement X", verify whether the
-target file exists first. If it does not, say so rather than silently
-creating new structure.
+Before writing that something is missing, check. This section has been
+wrong before, precisely because it was easier to trust than to verify.
 
 ## Project identity
 

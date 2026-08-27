@@ -53,7 +53,16 @@ nav = [
     "operations/troubleshooting.md",
   ] },
   { "API reference" = ["api-reference/index.md"] },
-  { "Blog" = "blog/index.md" },
+  # One line, not a multi-line inline table: TOML 1.0 forbids a newline
+  # inside `{ }`. Zensical's own parser is lenient about it and builds
+  # either way, but a spec-compliant reader does not.
+  #
+  # This entry is written correctly; the file as a whole is NOT -- both
+  # config files already carry several multi-line nav entries and python
+  # tomllib rejects them, which was true before this line existed.
+  # Fixing them all is a separate change, and worth making before
+  # anything starts reading these configs with a strict parser.
+  { "Blog" = ["blog/index.md", "blog/posts/2026-08-27-a-sixteen-year-old-scanner-and-a-pi.md"] },
 ]
 
 # Mermaid is loaded from our own domain, not from unpkg.com. Zensical

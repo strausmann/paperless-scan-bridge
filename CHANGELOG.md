@@ -217,6 +217,14 @@ between releases as a running list.
 
 ### Documentation
 
+- The first blog post, and `ROADMAP.md` reconciled with the code.
+  The roadmap listed `sane-runtime`, `scan-processor` and the
+  documentation as open when all three were done, and claimed
+  `GET /ready` and `POST /scan` returned `501` when only the `/jobs`
+  endpoints do. Phase 1.3 was marked "planned" while everything in it
+  marked *Ready to dev* had shipped. `CLAUDE.md`'s repository-status
+  section carried the same stale claims and is corrected too.
+
 - The `/manage/` page now states the Bluetooth precondition *above* the
   connect button instead of below it. Improv's BLE service only
   advertises while the panel has no Wi-Fi, so a panel that is already
