@@ -81,7 +81,18 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 
 	f, modTime, err := s.Firmware.OpenAt(tag, name)
 	if err != nil {
-		s.writeFirmwareFileNotFound(w, r)
+		if errors.Is(err, firmware.ErrNotCached) {
+			s.writeFirmwareFileNotFound(w, r)
+			return
+		}
+		// A cache that exists but cannot be read is a broken bridge,
+		// not a missing file. Reporting it as 404 would hide a failing
+		// disk behind an update that simply never arrives.
+		s.Logger.LogAttrs(r.Context(), slog.LevelError, "firmware file unreadable",
+			slog.String("version", tag), slog.String("name", name), slog.Any("err", err))
+		s.writeJSON(w, r, http.StatusInternalServerError, errorResponse{
+			Error: "firmware_unreadable",
+		})
 		return
 	}
 	defer func() { _ = f.Close() }()

@@ -27,6 +27,9 @@ type fakeMirror struct {
 	// manifestErr models a cached release whose manifest cannot be
 	// read or decoded — a 500, not a 404.
 	manifestErr error
+	// openAtErr models a broken cache: the generation is there, the
+	// file cannot be read. Also a 500, for the same reason.
+	openAtErr error
 }
 
 func (f *fakeMirror) Current() (firmware.Release, bool) {
@@ -53,6 +56,9 @@ func (f *fakeMirror) Open(name string) (io.ReadSeekCloser, time.Time, error) {
 }
 
 func (f *fakeMirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
+	if f.openAtErr != nil {
+		return nil, time.Time{}, f.openAtErr
+	}
 	if !f.cached || tag != f.rel.Tag {
 		return nil, time.Time{}, firmware.ErrNotCached
 	}
@@ -329,5 +335,29 @@ func TestFirmwareManifestUnreadableIs500(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+}
+
+// A generation that exists but cannot be read is a broken bridge, not a
+// missing file. Answering 404 would hide a failing disk behind an update
+// that simply never arrives, with nothing in the log.
+func TestFirmwareVersionedFileIOErrorIs500(t *testing.T) {
+	m := newCachedMirror(t)
+	m.openAtErr = errors.New("input/output error")
+	h := newFirmwareServer(t, m)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/firmware/v1.2.3/cyd-scan-panel.ota.bin", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	var body errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error != "firmware_unreadable" {
+		t.Errorf("error = %q, want firmware_unreadable", body.Error)
 	}
 }

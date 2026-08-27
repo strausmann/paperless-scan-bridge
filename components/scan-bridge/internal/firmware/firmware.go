@@ -60,6 +60,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -68,6 +69,19 @@ import (
 // deliberately one error: a caller can only either serve the file or
 // not, and distinguishing them would leak which names exist.
 var ErrNotCached = errors.New("firmware: not cached")
+
+// ThrottledError reports that a refresh was refused by the API-call
+// floor, and how long remains. It exists so a refused refresh can be
+// re-armed instead of silently dropped: a person pressing "Check for
+// Update" four minutes after the scheduled poll must not have to wait
+// out the next five-hour tick.
+type ThrottledError struct {
+	RetryAfter time.Duration
+}
+
+func (e *ThrottledError) Error() string {
+	return fmt.Sprintf("firmware: refresh throttled, retry in %s", e.RetryAfter.Round(time.Second))
+}
 
 const (
 	// DefaultRepo is the GitHub repository the releases come from.
@@ -192,18 +206,20 @@ type Mirror struct {
 	// refreshes would race on the same staging and destination
 	// directories.
 	refreshMu sync.Mutex
-	// minInterval and lastAttempt implement the API-call floor, both
-	// under refreshMu. lastAttempt records attempts, not successes: a
-	// caller who can make the mirror fail must not thereby be able to
-	// make it retry faster.
+	// minInterval and lastAttempt implement the API-call floor.
+	// lastAttempt records attempts, not successes: a caller who can
+	// make the mirror fail must not thereby be able to make it retry
+	// faster. It is guarded by mu rather than refreshMu so Run can ask
+	// how long the floor still has to run without blocking behind a
+	// refresh that may take minutes.
 	minInterval time.Duration
-	lastAttempt time.Time
 
 	// mu guards the published pointer only — the short critical
 	// section every request takes, distinct from the minutes-long
 	// refreshMu.
-	mu      sync.RWMutex
-	current *Release
+	mu          sync.RWMutex
+	current     *Release
+	lastAttempt time.Time
 
 	// trigger is capacity 1 and written non-blockingly, so
 	// TriggerRefresh coalesces bursts and never blocks its caller.
@@ -361,10 +377,21 @@ func (m *Mirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) 
 	p := filepath.Join(m.cacheDir, tag, name)
 	f, err := os.Open(p) //nolint:gosec // both path components validated above
 	if err != nil {
-		return nil, time.Time{}, ErrNotCached
+		// Only "it is not there" is a 404. A permission problem or a
+		// failing disk is a broken cache, and reporting it as
+		// not-found would hide it completely: the panel's update would
+		// fail with nothing in the log to explain why.
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return nil, time.Time{}, ErrNotCached
+		}
+		return nil, time.Time{}, fmt.Errorf("firmware: open %q: %w", p, err)
 	}
 	info, err := f.Stat()
-	if err != nil || info.IsDir() {
+	if err != nil {
+		_ = f.Close()
+		return nil, time.Time{}, fmt.Errorf("firmware: stat %q: %w", p, err)
+	}
+	if info.IsDir() {
 		_ = f.Close()
 		return nil, time.Time{}, ErrNotCached
 	}
@@ -427,6 +454,24 @@ func (m *Mirror) Manifest() ([]byte, Release, error) {
 	return out, rel, nil
 }
 
+// throttleRemaining reports how much of the API-call floor is left,
+// or zero when a refresh may proceed.
+func (m *Mirror) throttleRemaining() time.Duration {
+	if m.minInterval <= 0 {
+		return 0
+	}
+	m.mu.RLock()
+	last := m.lastAttempt
+	m.mu.RUnlock()
+	if last.IsZero() {
+		return 0
+	}
+	if remaining := m.minInterval - time.Since(last); remaining > 0 {
+		return remaining
+	}
+	return 0
+}
+
 // TriggerRefresh asks the background loop to refresh now and returns
 // immediately. false means a refresh is already queued, so the request
 // is satisfied either way — it never means "refused".
@@ -448,17 +493,50 @@ func (m *Mirror) TriggerRefresh() bool {
 // whenever TriggerRefresh fires, until ctx is cancelled. A failed
 // refresh is logged and retried on the next tick; it never takes the
 // currently served release away.
+//
+// A trigger that lands inside the API-call floor is re-armed for the
+// moment the floor expires rather than dropped. Dropping it would mean
+// a "Check for Update" pressed four minutes after the scheduled poll
+// did nothing at all until the next five-hourly tick, while the route
+// had already answered 202 — late is a delay, never is a bug.
 func (m *Mirror) Run(ctx context.Context) {
 	m.refreshLogged(ctx)
 
-	t := time.NewTicker(m.interval)
-	defer t.Stop()
+	ticker := time.NewTicker(m.interval)
+	defer ticker.Stop()
+
+	// Created stopped; only ever armed from the trigger branch below.
+	deferred := time.NewTimer(time.Hour)
+	deferred.Stop()
+	defer deferred.Stop()
+	deferredPending := false
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-ticker.C:
+		case <-deferred.C:
+			deferredPending = false
 		case <-m.trigger:
+			if wait := m.throttleRemaining(); wait > 0 {
+				// Arm once per floor, and only for redundancy's sake --
+				// not for correctness. throttleRemaining counts down
+				// from lastAttempt, which does not move while the floor
+				// runs, so re-arming on every trigger would land on the
+				// same instant anyway; a caller in a loop cannot push
+				// the refresh out. The guard just avoids a Reset and a
+				// log line per press. (Verified by mutation: removing
+				// it breaks no test, which is why this comment no
+				// longer claims it prevents starvation.)
+				if !deferredPending {
+					deferredPending = true
+					deferred.Reset(wait)
+					m.logger.Info("firmware refresh deferred by the API-call floor",
+						slog.Duration("retry_in", wait.Round(time.Second)))
+				}
+				continue
+			}
 		}
 		m.refreshLogged(ctx)
 	}
@@ -470,6 +548,14 @@ func (m *Mirror) refreshLogged(ctx context.Context) {
 
 	rel, err := m.Refresh(ctx)
 	if err != nil {
+		var throttled *ThrottledError
+		if errors.As(err, &throttled) {
+			// Not a failure. Run re-arms these; anything reaching here
+			// came from a direct Refresh call.
+			m.logger.Debug("firmware refresh throttled",
+				slog.Duration("retry_in", throttled.RetryAfter.Round(time.Second)))
+			return
+		}
 		// Warn, not Error: an unreachable GitHub is an ordinary
 		// condition for a home-lab box, and the mirror keeps serving
 		// whatever it already has.
@@ -493,12 +579,16 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	// The API-call floor. Checked here rather than in TriggerRefresh
 	// because this is the only place an outbound call is made, so it is
 	// the only place that can actually bound them.
-	if m.minInterval > 0 && !m.lastAttempt.IsZero() &&
-		time.Since(m.lastAttempt) < m.minInterval {
-		cur, _ := m.Current()
-		return cur, nil
+	//
+	// Returning ErrThrottled rather than the current release: a caller
+	// that hit the floor did NOT get a fresh check, and Run needs to
+	// know that so it can re-arm rather than drop the request.
+	if wait := m.throttleRemaining(); wait > 0 {
+		return Release{}, &ThrottledError{RetryAfter: wait}
 	}
+	m.mu.Lock()
 	m.lastAttempt = time.Now()
+	m.mu.Unlock()
 
 	latest, err := m.latestRelease(ctx)
 	if err != nil {

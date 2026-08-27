@@ -128,7 +128,11 @@ rewrites a digest.
   caps trigger-driven checks at twelve per hour, well inside the anonymous
   sixty-per-hour quota. A failed attempt counts against the floor too:
   otherwise a caller who can make the mirror fail could make it retry without
-  limit. Nothing upstream changes in five minutes anyway.
+  limit. Nothing upstream changes in five minutes anyway. A request that
+  lands inside the floor is **re-armed for when the floor expires**, not
+  dropped: a person pressing the button four minutes after the scheduled
+  poll must get their check late, not never — the route has already
+  answered `202`.
 - **Negative / trade-offs:** `scan-bridge` now makes an outbound call to
   `api.github.com` every five hours. Deployments that must not talk to the
   public internet set `firmware.enabled = false`, and the three routes then

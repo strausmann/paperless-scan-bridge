@@ -526,7 +526,8 @@ paths:
             No such generation is cached, or it carries no file by that
             name. The two cases are one response on purpose — a caller
             can only either receive the file or not, and separating them
-            would report which tags exist.
+            would report which tags exist. Only genuine absence answers
+            `404`; a file that exists but cannot be read is a `500`.
           content:
             application/json:
               schema:
@@ -536,6 +537,18 @@ paths:
                 hint: >-
                   GET /firmware/manifest.json names the files of the
                   mirrored release.
+        "500":
+          description: >-
+            The file is there but unreadable — a permission problem, a
+            failing disk. Reported rather than folded into the `404`,
+            because a broken cache that answers "not found" is an update
+            that never arrives with nothing in the log to explain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
         "501":
           description: The mirror is disabled (`firmware.enabled = false`).
           content:
@@ -663,6 +676,12 @@ paths:
         outbound GitHub calls, so a caller in a loop cannot exhaust the
         anonymous sixty-per-hour quota and thereby stop real updates
         arriving. A failed attempt counts against the floor too.
+
+
+        A call that lands inside the floor is not discarded: the mirror
+        re-arms it for the moment the floor expires, so a press four
+        minutes after the scheduled poll happens late rather than not at
+        all. That is why `202` is honest in that case too.
       security: []
       responses:
         "202":

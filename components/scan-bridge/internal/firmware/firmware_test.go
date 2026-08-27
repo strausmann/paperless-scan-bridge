@@ -599,9 +599,14 @@ func TestRefreshThrottlesRepeatedCalls(t *testing.T) {
 	g.tag = "v2.0.0"
 	g.assets["cyd-scan-panel.ota.bin"] = []byte("newer-ota-image-bytes")
 
+	var throttled *ThrottledError
 	for range 20 {
-		if _, err := m.Refresh(t.Context()); err != nil {
-			t.Fatalf("throttled Refresh returned an error: %v", err)
+		_, err := m.Refresh(t.Context())
+		if !errors.As(err, &throttled) {
+			t.Fatalf("throttled Refresh = %v, want a *ThrottledError", err)
+		}
+		if throttled.RetryAfter <= 0 || throttled.RetryAfter > time.Hour {
+			t.Errorf("RetryAfter = %v, want it inside the floor", throttled.RetryAfter)
 		}
 	}
 	if got := g.apiCalls.Load(); got != 1 {
@@ -797,5 +802,133 @@ func TestOpenAtUnknownGeneration(t *testing.T) {
 	}
 	if _, _, err := m.OpenAt("v9.9.9", ManifestName); !errors.Is(err, ErrNotCached) {
 		t.Errorf("OpenAt on an unknown tag = %v, want ErrNotCached", err)
+	}
+}
+
+// A "Check for Update" pressed inside the API-call floor must happen
+// late, not never. Before this, Run consumed the trigger and returned
+// early, so the press did nothing at all until the next five-hourly
+// tick — while POST /firmware/refresh had already answered 202.
+func TestRunReArmsATriggerThatHitsTheFloor(t *testing.T) {
+	g := newFakeGitHub(t)
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		Interval:           time.Hour, // only the trigger path may fire
+		MinRefreshInterval: 300 * time.Millisecond,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() { m.Run(ctx); close(stopped) }()
+
+	// Run's initial refresh sets the floor.
+	waitFor(t, func() bool { _, ok := m.Current(); return ok }, "initial refresh")
+
+	// New release upstream, then press the button immediately — well
+	// inside the 300ms floor.
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("deferred-ota-bytes")
+	m.TriggerRefresh()
+
+	waitFor(t, func() bool {
+		cur, ok := m.Current()
+		return ok && cur.Tag == "v2.0.0"
+	}, "the deferred refresh to run once the floor expired")
+
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
+}
+
+// Continuous pressing across the whole floor must still end in exactly
+// one refresh, at the moment the floor expires — the trigger path must
+// not starve itself. (It cannot: throttleRemaining counts down from a
+// lastAttempt that does not move. This test pins that property rather
+// than the arming guard, which is only a redundancy saver.)
+func TestRunRefreshesOnceDespiteContinuousTriggering(t *testing.T) {
+	g := newFakeGitHub(t)
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		Interval:           time.Hour,
+		MinRefreshInterval: 400 * time.Millisecond,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.Run(ctx)
+	waitFor(t, func() bool { _, ok := m.Current(); return ok }, "initial refresh")
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("hammered-ota-bytes")
+
+	// Hammer the trigger across the whole floor.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 40 {
+			m.TriggerRefresh()
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	waitFor(t, func() bool {
+		cur, ok := m.Current()
+		return ok && cur.Tag == "v2.0.0"
+	}, "the deferred refresh despite continuous triggering")
+	<-done
+}
+
+// Only "it is not there" is a 404. A cache directory that is not a
+// directory produces ENOTDIR rather than ENOENT and is still absence;
+// anything else is a broken bridge and must surface.
+func TestOpenAtReportsIOErrorsRatherThanNotFound(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	// Make the file unreadable by turning it into a directory: opening
+	// dir/name then yields a directory handle, which OpenAt rejects as
+	// absence, so instead break the generation itself.
+	brokenTag := "v0.9.0"
+	if err := os.WriteFile(filepath.Join(m.cacheDir, brokenTag), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, _, err := m.OpenAt(brokenTag, "cyd-scan-panel.ota.bin")
+	if !errors.Is(err, ErrNotCached) {
+		t.Errorf("OpenAt through a non-directory = %v, want ErrNotCached (ENOTDIR is still absence)", err)
+	}
+
+	// A genuinely unreadable file must NOT be reported as absent.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod cannot make a file unreadable")
+	}
+	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	if err := os.Chmod(victim, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(victim, 0o644) })
+
+	_, _, err = m.OpenAt("v1.0.0", "cyd-scan-panel.ota.bin")
+	if err == nil {
+		t.Fatal("OpenAt on an unreadable file succeeded")
+	}
+	if errors.Is(err, ErrNotCached) {
+		t.Errorf("OpenAt on an unreadable file = %v; a permission error is a broken cache, not a missing file", err)
 	}
 }
