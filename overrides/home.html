@@ -9,6 +9,18 @@
 
   - `styles`: adds the self-hosted landing fonts + home.css, on top of the
     normal theme stylesheet (kept via `{{ super() }}`).
+
+  Every visible string is read from the page's own front matter with the
+  English text as the fallback, so the German build reuses this template
+  rather than forking it. Zensical has no native i18n and the site is two
+  separate builds; a second copy of this file would drift the moment
+  either one is touched. See docs/de/index.md for the German values.
+
+  Asset paths are absolute and carry the /en/ prefix on purpose: only the
+  English build vendors home.css, home.js and the fonts, and the German
+  site reaches the same files on the same origin instead of carrying a
+  second copy. Same trade-off, and the same hard dependency, as
+  panel-tools.js — see the note in zensical.de.toml.
   - `hero`: fills the (empty-by-default) hero block with the hardware-chain
     diagram, headline, and CTAs — this is the same block zensical.org's own
     homepage uses for its hero.
@@ -24,7 +36,7 @@
 
 {% block styles %}
   {{ super() }}
-  <link rel="stylesheet" href="{{ 'assets/home/home.css' | url }}" />
+  <link rel="stylesheet" href="/en/assets/home/home.css" />
 {% endblock %}
 
 {% block hero %}
@@ -39,14 +51,12 @@
           page's one semantic heading, screen-reader-only via CSS; this
           is the large VISUAL headline everyone sees.
         #}
-        <p class="mdx-hero__title">A scanner, a Pi, and a NAS you already trust.</p>
+        <p class="mdx-hero__title">{{ page.meta.hero_title | default("A scanner, a Pi, and a NAS you already trust.") }}</p>
         <p class="mdx-hero__lede">
-          Four physical pieces, wired together once. Place a document,
-          press a button, find it searchable in Paperless&#8209;ngx about
-          thirty seconds later.
+          {{ page.meta.hero_lede | default("Four physical pieces, wired together once. Place a document, press a button, find it searchable in Paperless-ngx about thirty seconds later.") }}
         </p>
         <div class="mdx-hero__actions">
-          <a href="#why-this-exists" class="md-button md-button--primary">Why this exists</a>
+          <a href="{{ page.meta.hero_cta_primary_href | default('#why-this-exists') }}" class="md-button md-button--primary">{{ page.meta.hero_cta_primary | default("Why this exists") }}</a>
           {#
             NOT "getting-started/index.md" | url: verified against the
             actual build output that the raw `url` filter does not apply
@@ -57,7 +67,7 @@
             index.html is). The directory-style path is what every
             correctly-resolved link on this page actually points to.
           #}
-          <a href="{{ 'getting-started/' | url }}" class="md-button">Getting started</a>
+          <a href="{{ 'getting-started/' | url }}" class="md-button">{{ page.meta.hero_cta_start | default("Getting started") }}</a>
           {#
             The landing page sets `hide: [navigation]` and the theme has
             no `navigation.tabs`, so this hero is the ONLY navigation a
@@ -66,7 +76,7 @@
             live and linked from the nav for days without being
             reachable from this page at all.
           #}
-          <a href="{{ 'install/' | url }}" class="md-button">Install the panel</a>
+          <a href="{{ 'install/' | url }}" class="md-button">{{ page.meta.hero_cta_install | default("Install the panel") }}</a>
         </div>
       </div>
     </div>
@@ -74,13 +84,13 @@
     <div class="mdx-hero__diagram-stage">
       <div class="md-grid mdx-hero__chain">
         <svg viewBox="0 0 960 220" fill="none" xmlns="http://www.w3.org/2000/svg"
-             role="img" aria-label="Scanner connects to a Raspberry Pi over USB; the Pi writes to a Synology NAS over NFS; Paperless-ngx reads from the NAS.">
+             role="img" aria-label="{{ page.meta.hero_diagram_alt | default('Scanner connects to a Raspberry Pi over USB; the Pi writes to a Synology NAS over NFS; Paperless-ngx reads from the NAS.') }}">
           <path d="M150 110 H 340 M420 110 H 610 M690 110 H 810" class="mdx-chain__rail" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
           <g transform="translate(40,60)">
             <rect x="0" y="30" width="110" height="60" rx="8" class="mdx-chain__stroke" stroke-width="1.6"/>
             <rect x="14" y="6" width="82" height="30" rx="4" class="mdx-chain__stroke" stroke-width="1.6"/>
             <circle cx="96" cy="70" r="4" class="mdx-chain__dot-amber"/>
-            <text x="55" y="118" text-anchor="middle" class="mdx-chain__label">USB scanner (ADF)</text>
+            <text x="55" y="118" text-anchor="middle" class="mdx-chain__label">{{ page.meta.hero_label_scanner | default("USB scanner (ADF)") }}</text>
           </g>
           <g transform="translate(300,55)">
             <rect x="0" y="0" width="90" height="90" rx="10" class="mdx-chain__stroke-primary" stroke-width="1.8"/>
@@ -103,7 +113,7 @@
           </g>
         </svg>
         <div class="mdx-hero__caption">
-          <span>USB</span><span>Docker Compose</span><span>NFS</span><span>consume folder</span>
+          <span>USB</span><span>Docker Compose</span><span>NFS</span><span>{{ page.meta.hero_chip_consume | default("consume folder") }}</span>
         </div>
       </div>
     </div>
@@ -112,5 +122,5 @@
 
 {% block scripts %}
   {{ super() }}
-  <script src="{{ 'assets/home/home.js' | url }}" defer></script>
+  <script src="/en/assets/home/home.js" defer></script>
 {% endblock %}

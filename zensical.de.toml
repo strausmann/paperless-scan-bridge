@@ -35,7 +35,16 @@ nav = [
     "getting-started/index.md",
     "getting-started/quickstart.md",
   ] },
-  { "Hardware" = ["hardware/index.md"] },
+  { "Architektur" = [
+    "architecture/index.md",
+    "architecture/storage-topologies.md",
+    "architecture/no-third-party-requests.md",
+  ] },
+  { "Hardware" = [
+    "hardware/index.md",
+    "hardware/kodak-scanmate-i1120.md",
+    "hardware/cyd-scan-panel.md",
+  ] },
 ]
 
 # Same self-hosted Mermaid setup as the English site; see zensical.toml
@@ -64,6 +73,14 @@ nav = [
 extra_javascript = ["javascripts/mermaid.min.js", "/en/javascripts/panel-tools.js"]
 
 [project.theme]
+# The German homepage uses the same custom landing template as the English
+# one (`template: home.html` in docs/de/index.md). Every visible string in
+# it is read from that page's front matter, so this is one template
+# serving two builds rather than two copies that drift apart. Its CSS,
+# JS and fonts are referenced with absolute /en/ paths for the same
+# reason panel-tools.js is — see the note further down.
+custom_dir = "overrides"
+
 language = "de"
 
 # No Google Fonts. The default theme pulls Inter and JetBrains Mono

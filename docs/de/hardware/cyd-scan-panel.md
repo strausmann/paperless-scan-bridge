@@ -1,0 +1,93 @@
+# CYD-Scan-Panel
+
+Ein Touch-Panel für Wand oder Schreibtisch, das die im Bridge
+hinterlegten Scan-Profile auflistet und einen Scan per Tipp auslöst — das
+hardware-unabhängige Gegenstück zur nur teilweisen Tastenunterstützung
+des [Kodak ScanMate i1120](kodak-scanmate-i1120.md). Der vollständige
+Entwurf steht in
+[Issue #9](https://github.com/strausmann/paperless-scan-bridge/issues/9),
+und alles Folgende ausführlicher in
+[`firmware/esp32-panel/README.md`](https://github.com/strausmann/paperless-scan-bridge/blob/main/firmware/esp32-panel/README.md)
+— einschließlich der Sicherheitsabwägungen, die diese Firmware eingeht,
+um als ein einziges öffentliches Binary verteilbar zu sein.
+
+| | |
+| --- | --- |
+| Board | ESP32-2432S028R („Cheap Yellow Display" / CYD) |
+| Anzeige | 2,8" 320x240 ILI9341 TFT, resistiver XPT2046-Touch |
+| Firmware | ESPHome, ohne eingebettete Geheimnisse — siehe unten |
+| Hardware-Verifikation | Gegen echte Hardware geprüft; offene Punkte siehe README |
+
+## Installieren und verwalten
+
+Flashen und Bluetooth-Einrichtung haben eigene Seiten, verlinkt oben auf
+der Site:
+
+- **[Panel installieren](../install/index.md)** — Firmware direkt aus dem
+  Browser über USB flashen (Chrome/Edge, Web Serial).
+- **[Panel verwalten](../manage/index.md)** — ein Panel über Bluetooth
+  ins WLAN bringen (Chrome/Edge, Web Bluetooth).
+
+Diese Seite ist die Hardware-Referenz dahinter: was das Panel ist, wie es
+sich nach der Einrichtung verhält und was es weiterhin nicht kann.
+
+## Einrichtung, Schritt für Schritt
+
+1. **Installieren** — CYD per USB anschließen und von der Seite
+   [Panel installieren](../install/index.md) flashen; den seriellen Port
+   auswählen, wenn Chrome oder Edge danach fragt.
+2. **WLAN (Improv)** — direkt nach dem Flashen führt der Installer im
+   selben Browser-Tab durch die Einrichtung per
+   [Improv Wi-Fi](https://www.improv-wifi.com/): Netz auswählen,
+   Passwort eingeben. Das geht auch später über Bluetooth von der Seite
+   [Panel verwalten](../manage/index.md). Findet das Panel kein
+   bekanntes Netz, öffnet es ersatzweise einen Hotspot
+   `Scan Panel Setup` (Passwort `panelsetup`) mit Captive Portal.
+3. **Das panel-eigene Dashboard öffnen** — sobald es eine IP hat (im
+   Router nachsehen oder im Protokoll der ESP Web Tools),
+   `http://<panel-ip>/` in einem Browser im selben Netz aufrufen.
+4. **Bridge URL und Bridge Token setzen** — auf diesem Dashboard die
+   Adresse der scan-bridge eintragen (Host und Port, unter dem Sie
+   `scan-bridge` veröffentlichen, etwa
+   `http://<ihr-bridge-host>:18080`) sowie ihren Bearer-Token — den
+   Klartext, dessen SHA-256-Summe in Ihrem `auth.token_hash` steht und
+   der in Ihren Passwortspeicher gehört, nicht in dieses Repository.
+   Beides übersteht einen Neustart, nichts davon braucht ein erneutes
+   Flashen. Sobald es gesetzt ist, wird die Bridge-Anzeige in der oberen
+   Leiste **grün „Bridge: OK"**, sobald die Bridge auf `GET /ready` mit
+   `200` antwortet — Profile geladen und Scanner-Backend erreichbar.
+   **Blau „Scanner: offline"** heißt, die Bridge selbst hat geantwortet,
+   nur das Scanner-Backend nicht; **rot** deckt jeden anderen Fall ab
+   (falsche URL, Bridge aus, fehlkonfiguriert). Die vollständige
+   Zustandstabelle steht im Abschnitt „Scope and known limitations" der
+   Firmware-README.
+5. **Rastergröße (optional)** — dasselbe Dashboard hat **Grid Rows** und
+   **Grid Cols** (je 1–3, Standard 2x3 — das heutige feste
+   Sechs-Tasten-Layout, unverändert, solange Sie nichts ändern). Erhöhen
+   Sie eines von beiden, um mehr Profile gleichzeitig zu sehen, bis zu
+   3x3 = 9. Hat die Bridge mehr Profile, als auf eine Seite passen,
+   blättern die Schaltflächen `<` und `>` in der Fußzeile durch den
+   Rest.
+6. **Touch-Kalibrierung** — der eine Schritt, den der Browser-Installer
+   nicht übernehmen kann. Jedes Panel ist anders; siehe den Abschnitt
+   „Touch calibration" der README (braucht ein lokales `esphome` und ein
+   erneutes Flashen, über USB oder OTA).
+
+## Bekannte Grenzen
+
+Kein eigenes Hochformat-Layout (das Tastenraster passt sich zwar beiden
+Ausrichtungen an, Kopf- und Fußzeile sind aber weiterhin auf Querformat
+festgelegt — siehe „Display orientation" in der Firmware-README), keine
+Abfrage laufender Aufträge, kein Kalibrierungsassistent auf dem Gerät und
+kein LVGL-Speicherbudget gegen Hardware belegt.
+
+Dazu kommt eine Einschränkung, die Sie direkt betrifft: **Das
+Selbst-Update über das gehostete Manifest funktioniert auf dieser
+Hardware nicht.** Der TLS-Kontext lässt sich neben WLAN, Bluetooth-Stack,
+LVGL und dem eigenen Dashboard nicht mehr anlegen. Aktualisiert wird
+vorerst über das Upload-Formular im Dashboard; die Einzelheiten und der
+beschlossene Ausweg stehen auf der Seite
+[Panel installieren](../install/index.md).
+
+Die vollständige, aktuelle Liste führt die Firmware-README unter „Scope
+and known limitations".
