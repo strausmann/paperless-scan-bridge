@@ -182,7 +182,7 @@ jobs:
       # QEMU is what makes the linux/arm64 half of the bake possible on
       # an amd64 runner. The reference deployment is a Pi 5, so an image
       # that only builds for amd64 is an image that cannot be deployed.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
       # Only on main. A pull request builds and throws the result away:
