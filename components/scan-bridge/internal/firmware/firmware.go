@@ -64,6 +64,13 @@ import (
 	"time"
 )
 
+// renameFile is os.Rename behind a seam. The two renames that swap a
+// generation into place are the only steps in this package that can
+// destroy a working cache, and there is no other way to exercise the
+// restore path -- os.Rename simply does not fail on a healthy
+// filesystem. Tests replace it; nothing else ever does.
+var renameFile = os.Rename
+
 // ErrNotCached is returned by Open when the mirror holds no release, or
 // holds one that does not carry the requested file. The two cases are
 // deliberately one error: a caller can only either serve the file or
@@ -768,14 +775,47 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	dest := filepath.Join(m.cacheDir, latest.TagName)
-	// A leftover directory for this tag can only come from a refresh
-	// that died between rename and state write; its contents are
-	// unverified, so it is replaced rather than reused.
-	if err := os.RemoveAll(dest); err != nil {
-		return Release{}, fmt.Errorf("firmware: clear %q: %w", dest, err)
+
+	// A directory may already exist here: a refresh that died between
+	// rename and state write, or -- since the verification above can
+	// send an UNCHANGED tag down this path -- the generation currently
+	// being served. Deleting it first and then renaming would destroy a
+	// working cache if the rename failed, leaving m.current pointing at
+	// nothing and every request 500ing.
+	//
+	// So the old directory is moved aside, not removed, and only
+	// discarded once the new one is in place. The parking name carries
+	// the staging prefix so prune sweeps it up if the process dies
+	// mid-swap; validateTag rejects leading dots, so it can never
+	// collide with a real tag.
+	//nolint:gocritic // the seam is deliberate; see renameFile
+	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-"+latest.TagName)
+	_ = os.RemoveAll(parked)
+	hadOld := false
+	if _, err := os.Stat(dest); err == nil {
+		if err := renameFile(dest, parked); err != nil {
+			return Release{}, fmt.Errorf("firmware: set aside %q: %w", dest, err)
+		}
+		hadOld = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Release{}, fmt.Errorf("firmware: stat %q: %w", dest, err)
 	}
-	if err := os.Rename(staging, dest); err != nil {
+	if err := renameFile(staging, dest); err != nil {
+		if hadOld {
+			// Put it back. Serving the old release is strictly better
+			// than serving nothing.
+			if restoreErr := os.Rename(parked, dest); restoreErr != nil {
+				m.logger.Error("firmware cache left without its published release",
+					slog.String("tag", latest.TagName), slog.Any("err", restoreErr))
+			}
+		}
 		return Release{}, fmt.Errorf("firmware: publish %q: %w", dest, err)
+	}
+	if hadOld {
+		if err := os.RemoveAll(parked); err != nil {
+			m.logger.Warn("firmware cache cleanup failed",
+				slog.String("entry", filepath.Base(parked)), slog.Any("err", err))
+		}
 	}
 	// MkdirTemp creates 0700. The daemon is the only reader, but an
 	// operator inspecting the volume should not need root.

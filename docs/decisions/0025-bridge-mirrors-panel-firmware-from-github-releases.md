@@ -144,6 +144,13 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   `api.github.com` every five hours. Deployments that must not talk to the
   public internet set `firmware.enabled = false`, and the three routes then
   answer the project's uniform `501` envelope.
+- **Neutral / follow-ups:** because that re-verification can send an
+  *unchanged* tag down the full download path, the directory being
+  replaced may be the one currently being served. The swap therefore
+  moves the old generation aside and discards it only once the new one
+  is in place, restoring it if the publish fails — deleting first would
+  turn a repairable cache into an empty one on any rename error, with
+  the published pointer still aimed at it.
 - **Neutral / follow-ups:** the mirror re-verifies the cached release
   against the checksums it recorded before skipping a download on an
   unchanged tag, and again when adopting a cache at startup. Without

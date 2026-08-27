@@ -1199,3 +1199,152 @@ func TestLoadRejectsAStateFileWithoutChecksums(t *testing.T) {
 		t.Fatal("Load adopted a release it has no way to verify")
 	}
 }
+
+// Re-mirroring a generation must not be able to leave the cache with
+// nothing at all.
+//
+// This matters because of verifyCached: a corrupted cache at an
+// UNCHANGED tag now falls through the short-circuit into a full
+// re-download, so the directory being replaced can be the one currently
+// being served. Removing it before the rename -- which is what the code
+// did first -- destroys a working cache the moment the rename fails,
+// leaving m.current pointing at nothing and every request 500ing.
+//
+// os.Rename does not fail on a healthy filesystem, so the failure is
+// injected through the renameFile seam.
+func TestRefreshRestoresTheOldGenerationIfThePublishFails(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	dir := filepath.Join(m.cacheDir, "v1.0.0")
+
+	// Corrupt a file so the same tag takes the full download path and
+	// the swap therefore targets the generation being served.
+	if err := os.WriteFile(filepath.Join(dir, "cyd-scan-panel.ota.bin"), []byte("truncated"), 0o644); err != nil {
+		t.Fatalf("corrupt: %v", err)
+	}
+	// Snapshot AFTER the corruption: a failed publish has to restore
+	// what was actually there, corrupt file included. Serving a stale
+	// release the panel rejects on its MD5 check is bad; serving
+	// nothing at all, with Current() still pointing at it, is worse.
+	before := readDirContents(t, dir)
+
+	// Fail only the second rename -- the one that publishes staging --
+	// so the old directory has already been moved aside.
+	real := renameFile
+	calls := 0
+	renameFile = func(oldpath, newpath string) error {
+		calls++
+		if calls == 2 {
+			return errors.New("injected rename failure")
+		}
+		return real(oldpath, newpath)
+	}
+	t.Cleanup(func() { renameFile = real })
+
+	if _, err := m.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh reported success despite a failed publish")
+	}
+	if calls != 2 {
+		t.Fatalf("renameFile called %d times, want 2 (set aside, then publish)", calls)
+	}
+
+	// The served generation must be back, complete.
+	after := readDirContents(t, dir)
+	if len(after) != len(before) {
+		t.Fatalf("generation has %d files after a failed publish, had %d", len(after), len(before))
+	}
+	for name, content := range before {
+		if after[name] != content {
+			t.Errorf("%q changed across a failed publish", name)
+		}
+	}
+	if cur, ok := m.Current(); !ok || cur.Tag != "v1.0.0" {
+		t.Errorf("Current() = %+v, %v; the served release must survive", cur, ok)
+	}
+}
+
+func readDirContents(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir %q: %v", dir, err)
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %q: %v", e.Name(), err)
+		}
+		out[e.Name()] = string(b)
+	}
+	return out
+}
+
+// A successful same-tag re-mirror repairs the corruption and leaves no
+// parking directory behind.
+func TestRefreshRepairsInPlaceWithoutLeavingLeftovers(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	dir := filepath.Join(m.cacheDir, "v1.0.0")
+	original := readDirContents(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "cyd-scan-panel.ota.bin"), []byte("truncated"), 0o644); err != nil {
+		t.Fatalf("corrupt: %v", err)
+	}
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	if got := readDirContents(t, dir); len(got) != len(original) {
+		t.Errorf("generation has %d files after repair, had %d", len(got), len(original))
+	} else if got["cyd-scan-panel.ota.bin"] != original["cyd-scan-panel.ota.bin"] {
+		t.Error("the corrupted file was not repaired")
+	}
+
+	entries, err := os.ReadDir(m.cacheDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), stagingPrefix) {
+			t.Errorf("staging leftover %q after a successful refresh", e.Name())
+		}
+	}
+}
+
+// prune must sweep a parking directory left behind by a process that
+// died mid-swap, exactly as it does an abandoned staging download.
+func TestPruneRemovesAParkedGeneration(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-v1.0.0")
+	if err := os.MkdirAll(parked, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-bytes")
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	if _, err := os.Stat(parked); !os.IsNotExist(err) {
+		t.Errorf("parked generation survived prune: %v", err)
+	}
+	// The two real generations are untouched.
+	for _, tag := range []string{"v1.0.0", "v2.0.0"} {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
+			t.Errorf("%s missing: %v", tag, err)
+		}
+	}
+}
