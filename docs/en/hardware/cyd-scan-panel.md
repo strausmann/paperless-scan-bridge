@@ -26,6 +26,9 @@ of the site:
   from the browser over USB (Chrome/Edge, Web Serial).
 - **[Manage panel](../manage/index.md)** — get a panel onto Wi-Fi over
   Bluetooth (Chrome/Edge, Web Bluetooth).
+- **[Download the firmware](../install/index.md#download-the-firmware)**
+  — the `.bin` for the dashboard's upload form, which is the working
+  update path while self-update is broken.
 
 This page is the hardware reference behind those: what the panel is,
 how it behaves once configured, and what it still cannot do.

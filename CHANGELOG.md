@@ -53,8 +53,13 @@ between releases as a running list.
   came off `main` last and identified by a commit SHA. No copy of the
   build that shipped with `v1.0.0` or `v1.1.0` existed anywhere, so
   "roll back to the version that worked" had nothing to roll back to.
-  Both install pages now say where to download from, which file goes
-  into the dashboard's upload form, and how to verify it.
+  Both install pages now carry a **direct download link** to
+  `cyd-scan-panel.ota.bin` — the file the dashboard's upload form
+  wants — plus the `curl` line, the MD5 check against the manifest, and
+  a warning that this path holds one build and is overwritten by the
+  next deploy. The CYD hardware pages link straight to it in both
+  languages, since that is where someone looking for the panel's
+  firmware actually starts.
 
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
