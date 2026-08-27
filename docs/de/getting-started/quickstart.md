@@ -24,7 +24,7 @@ andere läuft in Containern.
 Legen Sie einen freigegebenen Ordner für die Scan-Pipeline an und
 aktivieren Sie NFS-Zugriff für die IP des Pi. Welche Export-Optionen
 nötig sind, hängt von der gewählten
-[Storage-Topologie](/architecture/storage-topologies/) *(englisch)* ab;
+[Storage-Topologie](/en/architecture/storage-topologies/) *(englisch)* ab;
 Topologie B (NFS direkt) ist der einfachste Einstieg.
 
 ## 2. Pi bootstrappen
@@ -115,4 +115,4 @@ curl -X POST http://ihr-pi-host:8080/scan \
 ## Wenn etwas klemmt
 
 Wird der Scanner nicht erkannt, beginnen Sie bei
-[Troubleshooting](/operations/troubleshooting/) *(englisch)*.
+[Troubleshooting](/en/operations/troubleshooting/) *(englisch)*.
