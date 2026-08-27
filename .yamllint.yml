@@ -1,0 +1,45 @@
+# yamllint configuration.
+#
+# The point of this linter here is catching breakage -- a tab, a
+# duplicate key, a file that does not parse -- not enforcing a house
+# style retroactively. The first run flagged 300 findings across
+# 16 files, 244 of them in the ESPHome firmware config alone, and
+# reformatting working firmware to satisfy a linter is the wrong trade.
+extends: default
+
+rules:
+  # Prose wraps at 80; YAML values do not. A URL or a `run:` one-liner
+  # cannot be wrapped without changing what it means.
+  line-length: disable
+
+  # `consistent`, not a fixed choice. AGENTS.md says sequence items sit
+  # aligned with their key, but every YAML file in this repository
+  # indents them instead -- compose.yaml, all six workflows, the issue
+  # templates. Enforcing the documented rule would mean reformatting all
+  # of them; enforcing the actual one would contradict AGENTS.md. This
+  # accepts either as long as a file does not mix them, which is the
+  # part that actually hurts a reader. See the PR that introduced this
+  # for the mismatch, which needs settling separately.
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+
+  # `{ id: status_label, text: "idle" }` is used throughout the ESPHome
+  # config to keep one-line LVGL actions on one line. Readable, and the
+  # alternative is several hundred lines of expansion.
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # `on:` in a GitHub workflow is a key, not the boolean it looks like.
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+  # Not used consistently here, and adding it everywhere would touch
+  # every file for no benefit.
+  document-start: disable
+
+  # Comments in the ESPHome config are frequently indented to line up
+  # with the block they explain rather than with the following key.
+  comments-indentation: disable

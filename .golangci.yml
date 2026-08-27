@@ -1,0 +1,97 @@
+# golangci-lint configuration for the three Go modules.
+#
+# There was no configuration file at all until now, and ci.yml never ran
+# the linter either (issue #86), so this is the first time these modules
+# have been linted. The set below is deliberately close to
+# golangci-lint's defaults plus the checks AGENTS.md already asks for --
+# a first run that fails on a hundred stylistic opinions only teaches
+# people to ignore it.
+#
+# CI runs this once per module, not across the workspace: the three are
+# independent modules with their own go.mod, and `./...` from the root
+# would miss two of them.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # Defaults, spelled out so a future golangci-lint release changing
+    # its own defaults cannot silently widen or narrow what we check.
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # AGENTS.md: errors wrapped as fmt.Errorf("context: %w", err).
+    # errorlint catches the %v that should have been %w, and the
+    # comparisons that should have been errors.Is/errors.As.
+    - errorlint
+
+    # AGENTS.md: context.Context propagated through every I/O function.
+    # noctx flags HTTP requests built without one -- exactly the call
+    # sites that would otherwise ignore a caller's timeout.
+    - noctx
+
+    # bodyclose has caught real leaks in code shaped like this: the
+    # bridge and every destination open http.Response bodies.
+    - bodyclose
+
+    - gocritic
+
+  settings:
+    errcheck:
+      exclude-functions:
+        # A deferred Close on a reader that has already been consumed is
+        # the one unchecked error that is genuinely uninteresting, and
+        # `defer func() { _ = f.Close() }()` everywhere costs more
+        # readability than it buys correctness. Writers are NOT excluded
+        # -- a failed Close there can mean unflushed data.
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        # *os.File does not match the interface forms above -- errcheck
+        # matches the concrete type. Read-side only in practice: both
+        # write-side Close calls in this repository were found by this
+        # linter on its first run and are now checked explicitly
+        # (dispatch.writePagePart, procclient.writeDocumentPart), which
+        # is the case that matters -- a dropped Close on a writer means
+        # a truncated scan page or a truncated PDF reported as success.
+        - (*os.File).Close
+  exclusions:
+    rules:
+      # Tests build their requests with httptest and net/http helpers
+      # that legitimately have no context, and they close bodies whose
+      # errors a failing assertion would report anyway. 23 of the 25
+      # noctx findings on the first run were of exactly this kind.
+      - path: _test\.go
+        linters:
+          - noctx
+          - errcheck
+          - bodyclose
+
+      # noctx wants (*net.ListenConfig).Listen instead of net.Listen.
+      # Both call sites open the service's own Unix socket once at
+      # startup and keep it for the process lifetime; there is no
+      # caller whose cancellation the listener could honour, and
+      # rewriting a working startup path to satisfy a linter's
+      # preference buys nothing. Kept enabled everywhere else, where it
+      # guards the rule AGENTS.md actually cares about: outgoing
+      # requests built without a context.
+      - path: cmd/(sane-runtime|scan-processor)/main\.go
+        linters:
+          - noctx
+        text: net\.Listen must not be called
+
+issues:
+  # The defaults cap output at 50 and 3 per linter, which on a first run
+  # hides most of what there is to see.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

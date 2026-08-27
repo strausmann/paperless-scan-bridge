@@ -1,10 +1,14 @@
-# Phase 1 CI stub.
+# Lint, test and build for the three Go components.
 #
-# This workflow exists so the README badge does not 404 and so
-# branch protection can require it once real jobs land. Each job is
-# intentionally a placeholder with `echo "placeholder"`. Real lint,
-# test, and build steps arrive in subsequent Phase 1 sessions, one
-# component at a time.
+# Until 2026-08-27 every job here was `echo "placeholder"`, so three Go
+# modules and 26 test files were never built, linted or tested anywhere
+# (issue #86). Every PR reported "Lint: pass / Test: pass / Build: pass"
+# and none of those statements covered Go.
+#
+# The jobs call `make` targets rather than repeating their commands, so
+# what a contributor runs locally and what CI runs cannot drift apart.
+# The Go version comes from each module's own go.mod -- pinning it here
+# too would give two places to forget.
 
 name: CI
 
@@ -21,27 +25,135 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Placeholder
-        run: echo "placeholder — real lint pipeline lands with the first component"
+env:
+  # Keep in step with .golangci.yml's `version: "2"`.
+  GOLANGCI_LINT_VERSION: v2.12.2
 
-  test:
-    name: Test
+jobs:
+  lint-go:
+    name: Lint (Go)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [scan-bridge, sane-runtime, scan-processor]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: components/${{ matrix.module }}/go.mod
+          cache-dependency-path: components/${{ matrix.module }}/go.sum
+
+      # One module per matrix leg rather than one run over the
+      # workspace: the three are independent modules with their own
+      # go.mod, and a single `./...` from the root covers none of them.
+      # A separate leg also names which module failed in the check list.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: components/${{ matrix.module }}
+          args: --config=${{ github.workspace }}/.golangci.yml
+
+  test-go:
+    name: Test (Go)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [scan-bridge, sane-runtime, scan-processor]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: components/${{ matrix.module }}/go.mod
+          cache-dependency-path: components/${{ matrix.module }}/go.sum
+
+      # -race because these services are concurrent by construction: an
+      # HTTP server, a job dispatcher and shared profile state. A data
+      # race that only shows up under load on the Pi is exactly what
+      # this is for.
+      - name: go test -race
+        working-directory: components/${{ matrix.module }}
+        run: go test -race -count=1 ./...
+
+      # Not part of `go test`: `go vet` is a separate contract, and
+      # golangci-lint's govet runs with a narrower analyzer set.
+      - name: go vet
+        working-directory: components/${{ matrix.module }}
+        run: go vet ./...
+
+  lint-other:
+    name: Lint (shell, YAML, Docker)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Placeholder
-        run: echo "placeholder — real test pipeline lands with the first component"
+
+      - name: Install linters
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+          pipx install yamllint
+          # hadolint ships no apt package; the pinned release binary is
+          # the documented install path.
+          curl -fsSL -o /usr/local/bin/hadolint \
+            https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+
+      # Each target uses `git ls-files`, which skips the gitignored
+      # ESPHome build tree under firmware/ -- several hundred vendored
+      # upstream scripts we neither wrote nor lint.
+      - run: make test-shell
+      - run: make test-yaml
+      - run: make test-docker
 
   build:
-    name: Build
+    name: Build images
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
-      - name: Placeholder
-        run: echo "placeholder — buildx bake pipeline lands with the first component"
+
+      # QEMU is what makes the linux/arm64 half of the bake possible on
+      # an amd64 runner. The reference deployment is a Pi 5, so an image
+      # that only builds for amd64 is an image that cannot be deployed.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Only on main. A pull request builds and throws the result away:
+      # publishing an image from an unreviewed branch would put it in
+      # the registry under a real version tag.
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Version stamp
+        id: stamp
+        run: |
+          set -euo pipefail
+          echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # -f docker-bake.hcl explicitly: with no -f, bake also reads
+      # compose.yaml and merges its services in as targets, which
+      # overrides VERSION from the environment and builds a different
+      # set than intended.
+      - name: Bake
+        uses: docker/bake-action@v6
+        with:
+          files: docker-bake.hcl
+          targets: default
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          VERSION: ${{ steps.stamp.outputs.version }}
+          COMMIT: ${{ steps.stamp.outputs.commit }}
+          BUILD_DATE: ${{ steps.stamp.outputs.date }}

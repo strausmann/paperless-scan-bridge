@@ -46,6 +46,12 @@ between releases as a running list.
 
 ### Added
 
+- Multi-arch container builds via `docker buildx bake` for all three
+  components (linux/amd64 + linux/arm64, the reference deployment is a
+  Pi 5), pushed to GHCR on `main` and built-and-discarded on pull
+  requests. Closes three Phase 1 roadmap items at once. New:
+  `docker-bake.hcl`, `.golangci.yml`, `.yamllint.yml`, `.hadolint.yaml`.
+
 - The scan panel now logs what it is actually doing. Its log used to be
   dominated by two framework components — `xpt2046` printing a line per
   touch sample and `http_request.idf` one per response header — so a
@@ -254,6 +260,17 @@ between releases as a running list.
   the shipped config uses `!secret` anymore.
 
 ### Fixed
+
+- CI now actually builds, lints and tests the Go code. Every job in
+  `ci.yml` was `echo "placeholder"`, and the `Makefile`'s `test-go`,
+  `lint`, `test-shell`, `test-yaml` and `test-docker` targets printed
+  `TODO Phase 1` — so three modules and 26 test files were never checked
+  anywhere, while every pull request reported "Lint: pass / Test: pass /
+  Build: pass". The linter's first run found two real defects: the
+  deferred `Close` on the files that receive a scanned page and an
+  assembled document was unchecked, so a failed final flush would have
+  written a truncated PDF and reported success for it. Both are checked
+  explicitly now.
 
 - A long scan-profile name no longer draws outside its button on the
   panel. The name label had neither a width nor a `long_mode`, and an

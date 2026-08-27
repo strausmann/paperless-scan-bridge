@@ -31,8 +31,8 @@ const (
 
 // Job is one scan request and everything we know about its execution.
 type Job struct {
-	ID          string            // ULID, sortable by creation time
-	Profile     string            // profile name from the YAML registry
+	ID          string // ULID, sortable by creation time
+	Profile     string // profile name from the YAML registry
 	State       State
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

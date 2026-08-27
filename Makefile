@@ -1,10 +1,15 @@
-# Phase 1 Makefile stub.
+# Phase 1 Makefile.
 #
-# Targets mirror the suite documented in CONTRIBUTING.md so
-# contributors can already discover the intended developer
-# workflow. Each recipe is a placeholder that prints "TODO Phase 1"
-# — the real implementations land alongside the components, lint
-# configs, and Ansible roles they exercise.
+# Targets mirror the suite documented in CONTRIBUTING.md. The Go, shell,
+# YAML, Docker and docs targets are real; `test-ansible` and
+# `test-molecule` are still placeholders because deploy/ansible/ holds
+# nothing but a .gitkeep.
+#
+# ci.yml calls these targets rather than repeating their commands, so
+# what runs locally and what runs in CI cannot drift apart. Until
+# 2026-08-27 the Go targets printed "TODO Phase 1" and CI printed
+# "placeholder", which meant three modules and 26 test files were never
+# built, linted or tested anywhere (issue #86).
 #
 # Conventions:
 #   * Recipe lines must be tab-indented (Make requirement).
@@ -23,28 +28,43 @@ SHELL := /usr/bin/env bash
 test: test-go test-shell test-yaml test-docker test-docs ## Run the full lint+test suite (Phase 1)
 
 .PHONY: lint
-lint: ## Run every linter (alias for the lint half of `test`)
-	@echo "TODO Phase 1: lint"
+lint: lint-go test-shell test-yaml test-docker ## Run every linter
 
 # ---------------------------------------------------------------------------
 # Per-language test targets
 # ---------------------------------------------------------------------------
 
+# One `go test` per module, not one across the workspace: the three are
+# independent modules with their own go.mod, and `go test ./...` from the
+# repository root covers none of them.
 .PHONY: test-go
-test-go: ## Run `go test ./...` across the workspace
-	@echo "TODO Phase 1: test-go"
+test-go: ## Run `go test ./...` in each of the three Go modules
+	@for m in components/scan-bridge components/sane-runtime components/scan-processor; do \
+		echo "==> $$m"; \
+		(cd $$m && go test ./...) || exit 1; \
+	done
 
+.PHONY: lint-go
+lint-go: ## Run golangci-lint in each of the three Go modules
+	@for m in components/scan-bridge components/sane-runtime components/scan-processor; do \
+		echo "==> $$m"; \
+		(cd $$m && golangci-lint run --config $(CURDIR)/.golangci.yml ./...) || exit 1; \
+	done
+
+# git ls-files, not find: it skips the gitignored ESPHome build tree
+# under firmware/, which vendors hundreds of upstream scripts we neither
+# wrote nor lint.
 .PHONY: test-shell
-test-shell: ## Run shellcheck + bats over deploy/ and backup/scripts/
-	@echo "TODO Phase 1: test-shell"
+test-shell: ## Run shellcheck over every tracked shell script
+	@git ls-files '*.sh' | xargs -r shellcheck -S style
 
 .PHONY: test-yaml
-test-yaml: ## Run yamllint over the repository
-	@echo "TODO Phase 1: test-yaml"
+test-yaml: ## Run yamllint over every tracked YAML file
+	@git ls-files '*.yml' '*.yaml' | xargs -r yamllint -c .yamllint.yml
 
 .PHONY: test-docker
-test-docker: ## Run hadolint over every Dockerfile under components/
-	@echo "TODO Phase 1: test-docker"
+test-docker: ## Run hadolint over every tracked Dockerfile
+	@git ls-files '*Dockerfile*' | xargs -r hadolint
 
 # Fetch the pinned front-end bundles (Mermaid, ESP Web Tools, Improv
 # Wi-Fi, Scalar) so the site serves them from
