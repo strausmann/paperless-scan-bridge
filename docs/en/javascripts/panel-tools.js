@@ -24,17 +24,19 @@
  * pages pay nothing. The heavy per-chip payloads inside ESP Web Tools
  * are themselves lazily imported by the bundle when someone clicks.
  *
- * Paths are absolute on purpose. The German site is served under /de/
- * on the same origin and has no vendored copy of its own; /javascripts/
- * resolves to the English site's bundles either way. Renaming those
- * directories breaks both languages at once — see zensical.de.toml.
+ * Paths are absolute and carry the /en/ prefix on purpose. Both
+ * languages are served under a prefix now, and only the English build
+ * vendors these bundles; the German pages reach the same files through
+ * /en/javascripts/ on the same origin rather than carrying a second
+ * copy. Renaming those directories breaks both languages at once — see
+ * zensical.de.toml.
  */
 (function () {
   "use strict";
 
   var BUNDLES = [
-    ["esp-web-install-button", "/javascripts/esp-web-tools/install-button.js"],
-    ["improv-wifi-launch-button", "/javascripts/improv-wifi/launch-button.js"]
+    ["esp-web-install-button", "/en/javascripts/esp-web-tools/install-button.js"],
+    ["improv-wifi-launch-button", "/en/javascripts/improv-wifi/launch-button.js"]
   ];
 
   // Guards against a second import() of the same module. customElements

@@ -1,10 +1,13 @@
 # Documentation build and deploy for scan-bridge.strausmann.de.
 #
 # Zensical has no native multi-language support yet, so the site is two
-# separate builds stitched into one artifact. BUILD ORDER MATTERS: the
-# English build writes to site/ and clears it first, which would delete
-# site/de/. English must run before German, never the other way round.
-# Tracked in issue #13; upstream in zensical/backlog#2 and #1.
+# separate builds stitched into one artifact. Each language owns its own
+# prefix (site/en and site/de) and clears only its own directory, so the
+# build order no longer matters — it used to, because English wrote to
+# site/ itself and wiped site/de/ on the way. The shared root now holds
+# only what this workflow puts there: the language picker, the CNAME and
+# the firmware artifact. Tracked in issue #13; upstream in
+# zensical/backlog#2 and #1.
 #
 # The site makes no third-party requests at runtime. Mermaid and ESP Web
 # Tools are vendored (both would otherwise be fetched from unpkg.com /
@@ -101,14 +104,25 @@ jobs:
       - name: Build German site
         run: zensical build -f zensical.de.toml --strict
 
-      - name: Assert both languages are present
+      - name: Write the root language picker
+        run: ./.github/scripts/write-root-redirect.sh site
+
+      - name: Assert both languages and the root picker are present
         run: |
-          if [ ! -f site/index.html ]; then
-            echo "::error::site/index.html missing"
+          for f in site/index.html site/en/index.html site/de/index.html; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f missing"
+              exit 1
+            fi
+          done
+          # The picker must not shadow a real page, and each language must
+          # have actually rendered rather than left an empty directory.
+          if ! grep -q 'href="/en/"' site/index.html; then
+            echo "::error::root index.html does not link /en/"
             exit 1
           fi
-          if [ ! -f site/de/index.html ]; then
-            echo "::error::site/de/index.html missing - build order wrong?"
+          if ! grep -q 'href="/de/"' site/index.html; then
+            echo "::error::root index.html does not link /de/"
             exit 1
           fi
 
@@ -124,10 +138,12 @@ jobs:
       - name: Assert internal working documents were not published
         run: |
           for d in research superpowers decisions learnings; do
-            if [ -e "site/$d" ]; then
-              echo "::error::site/$d published - keep it out of docs_dir"
-              exit 1
-            fi
+            for base in site site/en site/de; do
+              if [ -e "$base/$d" ]; then
+                echo "::error::$base/$d published - keep it out of docs_dir"
+                exit 1
+              fi
+            done
           done
 
       - name: Write CNAME
