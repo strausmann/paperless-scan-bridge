@@ -823,10 +823,19 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		return Release{}, fmt.Errorf("firmware: chmod %q: %w", dest, err)
 	}
 
-	if err := m.writeState(rel); err != nil {
-		return Release{}, err
-	}
+	// Publish first, record afterwards. The bytes are downloaded,
+	// checksum-verified and in place; refusing to serve them because a
+	// bookkeeping file could not be written would strand a good release
+	// on disk -- and the next refresh would hit the same failure, so it
+	// would stay stranded. state.json only governs what a restart
+	// adopts before the first refresh completes; a stale one means the
+	// daemon comes back on the previous generation, which is still
+	// cached and still valid, and the first refresh corrects it.
 	m.publish(&rel)
+	if err := m.writeState(rel); err != nil {
+		m.logger.Error("firmware cache state not recorded; a restart will fall back to the previous release",
+			slog.String("tag", rel.Tag), slog.Any("err", err))
+	}
 
 	// Only now is the old directory unreferenced.
 	m.prune(rel.Tag)

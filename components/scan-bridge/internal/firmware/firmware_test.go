@@ -1348,3 +1348,53 @@ func TestPruneRemovesAParkedGeneration(t *testing.T) {
 		}
 	}
 }
+
+// A bookkeeping failure must not strand a good release. The bytes are
+// downloaded and verified and in place; state.json only decides what a
+// restart adopts before the first refresh lands. Refusing to publish
+// over it would leave the release unserved -- and the next refresh
+// would hit the same failure, so it would stay that way.
+func TestRefreshPublishesEvenIfTheStateFileCannotBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not stop a write")
+	}
+
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	// A directory where the state file's temp path has to go makes the
+	// write fail without touching anything else.
+	statePath := filepath.Join(m.cacheDir, stateFile)
+	if err := os.Remove(statePath); err != nil {
+		t.Fatalf("remove state: %v", err)
+	}
+	if err := os.Mkdir(statePath+".tmp", 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(statePath + ".tmp") })
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-bytes")
+	rel, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("Refresh refused to publish over a state-write failure: %v", err)
+	}
+	if rel.Tag != "v2.0.0" {
+		t.Errorf("returned tag = %q, want v2.0.0", rel.Tag)
+	}
+	cur, ok := m.Current()
+	if !ok || cur.Tag != "v2.0.0" {
+		t.Fatalf("Current() = %+v, %v; the verified release must be served", cur, ok)
+	}
+	f, from, _, err := m.Open("cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_ = f.Close()
+	if from.Tag != "v2.0.0" {
+		t.Errorf("Open served %q", from.Tag)
+	}
+}
