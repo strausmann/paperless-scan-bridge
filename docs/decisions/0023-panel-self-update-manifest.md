@@ -1,6 +1,6 @@
 # 0023 — The panel self-updates from a hosted manifest; MD5, not TLS, is the integrity guarantee
 
-- **Status:** Proposed
+- **Status:** Superseded by [0024](0024-panel-updates-from-the-bridge-over-http.md)
 - **Date:** 2026-08-27
 - **Deciders:** strausmann
 - **Tags:** deploy, ci, docs
