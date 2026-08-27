@@ -91,10 +91,26 @@ substitutions:
   screen_height: "240"
   panel_rotation: "0"
   touch_swap_xy: "true"
+  # Measured, not guessed: a tap on the physical top-left corner of the
+  # reference unit reads raw [3820, 3820], near the ADC maximum on both
+  # axes. Unmirrored, that same tap mapped to (316, 237) — the opposite
+  # corner — so every press on the profile button landed on empty
+  # screen and did nothing. Mirroring both axes maps it to (4, 3).
+  #
+  # Still a starting point, not a finished calibration: the far
+  # endpoints (280 / 340) are the original placeholders and have not
+  # been measured on this unit. Re-measure per panel — README.md
+  # "Touch calibration" has the procedure.
   touch_x_min: "280"
   touch_x_max: "3860"
   touch_y_min: "340"
   touch_y_max: "3860"
+  # Both axes read inverted on the reference unit, so both are mirrored
+  # below. ESPHome refuses a descending calibration range ("x_min must
+  # be smaller than x_max. To mirror the direction use the 'transform'
+  # options"), which is why this is a transform and not swapped bounds.
+  touch_mirror_x: "true"
+  touch_mirror_y: "true"
 
 logger:
   baud_rate: 115200
@@ -227,12 +243,27 @@ text:
     optimistic: true
     restore_value: true
     mode: text
+    # A freshly flashed panel boots with both values empty, so on_boot
+    # skips refresh_profiles and check_bridge_health. Without this,
+    # filling them in from the dashboard changed nothing visible: the
+    # grid stayed empty and the bridge indicator stayed grey until the
+    # next 300s poll or a reboot, which reads as "I configured it and
+    # it does not work".
+    on_value:
+      - script.execute: refresh_profiles
+      - script.execute: check_bridge_health
   - platform: template
     name: "Bridge Token"
     id: bridge_token
     optimistic: true
     restore_value: true
     mode: password
+    # Same reason as Bridge URL above. Both are needed before a scan can
+    # be triggered, and either one arriving last is the one that
+    # completes the configuration — so both re-check.
+    on_value:
+      - script.execute: refresh_profiles
+      - script.execute: check_bridge_health
 
 # ---------------------------------------------------------------------
 # Grid size (Issue #9 item B1). Two persistent `number` entities, same
@@ -359,6 +390,8 @@ touchscreen:
       y_max: ${touch_y_max}
     transform:
       swap_xy: ${touch_swap_xy}
+      mirror_x: ${touch_mirror_x}
+      mirror_y: ${touch_mirror_y}
 
 output:
   # Backlight: GPIO21, active-HIGH. Wrapped in a monochromatic light
@@ -1211,6 +1244,20 @@ script:
                 id: status_label
                 text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
             - lvgl.widget.update: { id: scan_spinner, hidden: false }
+            # Hand the loop back before blocking on the scan.
+            #
+            # lvgl.label.update and lvgl.widget.update only write into
+            # LVGL's object tree; the pixels are pushed in the component
+            # loop. http_request.post is synchronous and holds that loop
+            # for the whole scan — twenty seconds on the reference
+            # hardware — so without this the "Scanning: ..." text and the
+            # spinner are set and then never drawn. The panel appeared to
+            # sit at "idle" for the entire scan and only came alive when
+            # the response arrived.
+            #
+            # A script `delay` yields (ESPHome scripts are state
+            # machines), which is exactly the render pass LVGL needs.
+            - delay: 100ms
             - lambda: |-
                 id(scan_url) = id(bridge_url).state + "/scan";
                 id(scan_auth) = std::string("Bearer ") + id(bridge_token).state;
@@ -1340,11 +1387,26 @@ script:
                     # disabled: false.
                     - script.execute: render_page
 
+# Polling intervals are a responsiveness decision, not just a freshness
+# one. ESPHome's http_request is synchronous: while a poll is in flight
+# the main loop is blocked, LVGL processes no input, and a tap landing in
+# that window is simply lost. A panel on a slow link showed
+#
+#   [W][component:473] interval took a long time for an operation
+#   (1091 ms), max is 190 ms
+#
+# so each poll cost over a second of dead touchscreen. At the previous
+# 15s/30s the panel was unresponsive several percent of the time, and
+# tapping a profile "did nothing" often enough to look broken.
+#
+# Neither value needs to be that eager. The bridge indicator is a status
+# light, not a heartbeat, and profiles change when someone edits a YAML
+# file and restarts the daemon — not every half minute.
 interval:
-  - interval: 30s
+  - interval: 300s
     then:
       - script.execute: refresh_profiles
-  - interval: 15s
+  - interval: 60s
     then:
       - script.execute: check_bridge_health
 
