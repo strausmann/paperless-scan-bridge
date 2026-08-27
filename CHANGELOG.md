@@ -173,6 +173,15 @@ between releases as a running list.
 
 ### Documentation
 
+- The `/manage/` page now states the Bluetooth precondition *above* the
+  connect button instead of below it. Improv's BLE service only
+  advertises while the panel has no Wi-Fi, so a panel that is already
+  connected never appears in the browser's device list — correct, but
+  indistinguishable from a broken page if the button comes first: an
+  operator clicks, waits out the scan, and reads "no compatible devices
+  found" before ever reaching the paragraph explaining why. Content
+  unchanged in both languages; only the reading order moved.
+
 - Documentation site at
   [scan-bridge.strausmann.de](https://scan-bridge.strausmann.de):
   Zensical configuration, the English content tree under `docs/en/`
