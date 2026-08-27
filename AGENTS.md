@@ -81,8 +81,8 @@ discussion in an issue or PR description.
 
 | Concern              | Choice                  | Reasoning                                                    |
 | -------------------- | ----------------------- | ------------------------------------------------------------ |
-| Daemon language      | Go                      | Single static binary, ARM64 cross-build, small container     |
-| Pipeline language    | Go                      | Same toolchain, good PDF libraries (pdfcpu)                  |
+| Daemon language      | Go (current stable)     | Single static binary, ARM64 cross-build, small container     |
+| Pipeline language    | Go (current stable)     | Same toolchain, good PDF libraries (pdfcpu)                  |
 | Container build      | docker buildx bake      | Multi-arch, parallel, single command                         |
 | Local development    | Tilt                    | Live rebuild on file change, container-first dev loop        |
 | Documentation        | Zensical                | Successor to MkDocs Material, MIT, multi-language native     |
@@ -118,6 +118,27 @@ note the migration cost.
 - `shellcheck` clean at the strict level (`-S style`)
 - Functions documented with a leading block comment
 - Arguments quoted unless word-splitting is intentional
+
+**Go version.** The project tracks the **current stable Go release** —
+it is not held back for compatibility with older toolchains, and there
+are no external consumers of these modules to hold back for. Five places
+declare it and all five move together:
+
+- `go.work` — the binding one; inside a workspace its directive
+  outranks each module's
+- `components/*/go.mod` (three files)
+- `components/*/Dockerfile` — `ARG GO_VERSION`
+- `.github/workflows/ci.yml` — `GOLANGCI_LINT_VERSION`, which is
+  **coupled**: golangci-lint parses source with the `go/types` of the Go
+  release it was built with, so a lagging binary does not merely miss
+  new checks, it panics with `file requires newer Go version`
+- `components/scan-bridge/Dockerfile` — `ARG ALPINE_VERSION`, because
+  upstream publishes only some `golang:<go>-alpine<alpine>` pairings;
+  check the pairing exists before assuming a bump resolves
+
+Dependabot proposes the moves (`gomod` and `docker` entries for all
+three components); accepting one means accepting the rest in the same
+commit.
 
 **YAML:**
 

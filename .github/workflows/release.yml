@@ -25,7 +25,21 @@ jobs:
         with:
           node-version: 'lts/*'
       - run: npm install
+      # RELEASE_TOKEN (a fine-grained PAT), not the default GITHUB_TOKEN.
+      # GitHub deliberately does not start new workflow runs for refs created
+      # with the automatic GITHUB_TOKEN (loop protection). @semantic-release/github
+      # creates the tag through the GitHub API rather than pushing it with git —
+      # the restriction applies either way, so the tag would never reach ci.yml's
+      # `tags: ['v*']` trigger and no versioned image would ever be published.
+      # (Do not go looking for a git push in the logs; there is none.)
+      # See issue #103.
+      #
+      # Do not "simplify" this back to secrets.GITHUB_TOKEN — it silently
+      # breaks the image build without failing anything.
+      #
+      # The variable must stay named GITHUB_TOKEN; that is what
+      # semantic-release reads. Only the source changes.
       - name: semantic-release (release-only — does not touch CHANGELOG.md)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release

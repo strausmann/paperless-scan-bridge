@@ -37,10 +37,20 @@ concurrency:
 
 env:
   # The golangci-lint BINARY version -- unrelated to `version: "2"` in
-  # .golangci.yml, which is that file's config-schema version. Pinned so
-  # a new upstream release cannot turn a green branch red on its own;
-  # bumping it is a deliberate commit.
-  GOLANGCI_LINT_VERSION: v2.12.2
+  # .golangci.yml, which is that file's config-schema version.
+  #
+  # This one is coupled to the Go version and cannot lag behind it.
+  # golangci-lint parses source with the go/types of the Go release it
+  # was itself built with, so a binary built with an older Go does not
+  # merely miss new checks -- it panics:
+  #
+  #   panic: file requires newer Go version go1.27
+  #         (application built with go1.25)
+  #
+  # v2.13.0 is the release that added go1.27 support (golangci-lint
+  # #6642). Whenever go.work moves to a new major Go release, this has
+  # to move with it in the same commit.
+  GOLANGCI_LINT_VERSION: v2.13.1
 
   # Pinned for the same reason. hadolint additionally carries its
   # published SHA-256 because it is fetched as a raw binary.
@@ -59,14 +69,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # go.work, not the module's own go.mod. The modules declare
-      # `go 1.25.0` but the workspace declares `go 1.25.12`, and inside
-      # a workspace the higher directive wins -- with setup-go's
-      # GOTOOLCHAIN=local, resolving that from go.mod fails outright:
-      #   go: ../../go.work requires go >= 1.25.12 (running go 1.25.0)
-      # One file to bump instead of four, and it is the one that
-      # actually constrains the build.
-      - uses: actions/setup-go@v6
+      # go.work is the single source of truth for the Go version. It
+      # and the three go.mod files now agree, but the workspace
+      # directive is the one that binds: inside a workspace the higher
+      # of the two wins, and setup-go pins GOTOOLCHAIN=local, so a
+      # go.mod lagging behind go.work fails outright rather than
+      # fetching a newer toolchain:
+      #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
+      # The project tracks the current stable Go release; see the note
+      # on GOLANGCI_LINT_VERSION above, which has to move with it.
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
@@ -96,14 +108,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # go.work, not the module's own go.mod. The modules declare
-      # `go 1.25.0` but the workspace declares `go 1.25.12`, and inside
-      # a workspace the higher directive wins -- with setup-go's
-      # GOTOOLCHAIN=local, resolving that from go.mod fails outright:
-      #   go: ../../go.work requires go >= 1.25.12 (running go 1.25.0)
-      # One file to bump instead of four, and it is the one that
-      # actually constrains the build.
-      - uses: actions/setup-go@v6
+      # go.work is the single source of truth for the Go version. It
+      # and the three go.mod files now agree, but the workspace
+      # directive is the one that binds: inside a workspace the higher
+      # of the two wins, and setup-go pins GOTOOLCHAIN=local, so a
+      # go.mod lagging behind go.work fails outright rather than
+      # fetching a newer toolchain:
+      #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
+      # The project tracks the current stable Go release; see the note
+      # on GOLANGCI_LINT_VERSION above, which has to move with it.
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
@@ -169,7 +183,7 @@ jobs:
       # an amd64 runner. The reference deployment is a Pi 5, so an image
       # that only builds for amd64 is an image that cannot be deployed.
       - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Only on main. A pull request builds and throws the result away:
       # publishing an image from an unreviewed branch would put it in
@@ -179,7 +193,7 @@ jobs:
           github.event_name == 'push' &&
           (github.ref == 'refs/heads/main' ||
            startsWith(github.ref, 'refs/tags/v'))
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -198,7 +212,7 @@ jobs:
       # overrides VERSION from the environment and builds a different
       # set than intended.
       - name: Bake
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           files: docker-bake.hcl
           targets: default

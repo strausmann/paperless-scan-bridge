@@ -22,12 +22,12 @@
 # `cap_drop: [ALL]` (Task 8, deployment-only, not built here).
 #
 # GOWORK=off is load-bearing for the same reason documented in
-# sane-runtime/Dockerfile: the repo-root go.work pins a newer Go
-# toolchain than may be installed on the build host, and the build
-# context here is this module directory, not the repo root — this
-# module's own go.mod (`go 1.25.0`) is authoritative for the build.
+# sane-runtime/Dockerfile: the build context here is this module
+# directory, not the repo root, so the repo-root go.work is not
+# present and this module's own go.mod is authoritative. No version is
+# named here deliberately — see that file.
 
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.27
 ARG DEBIAN_VERSION=12
 
 # ---- Build stage ----

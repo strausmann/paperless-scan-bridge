@@ -58,6 +58,18 @@ between releases as a running list.
   contradiction to resolve. Everything below the profile already
   supported the cap — `sane-runtime` turns it into `scanimage
   --batch-count` — the bridge was simply sending a hardcoded `0`.
+- The panel now says which build it is running. Its dashboard header
+  read `paperless-scan-bridge CYD scan-control panel (v2, Issue #9,
+  secret-free, landscape)` — a description of the design, not of the
+  binary — and nothing anywhere exposed the version. The build already
+  carried one: CI stamps `project.version` with the short commit SHA it
+  also writes into the manifest, and the update platform compares
+  against it, but it was never rendered. The header now shows it, two
+  entities carry it (**Firmware Version** and, separately, **ESPHome
+  Version** — a firmware bug is often an upstream regression, and the
+  project version cannot answer which release built the binary), and it
+  is logged once at boot so a pasted log excerpt identifies its own
+  build.
 
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
@@ -272,6 +284,18 @@ between releases as a running list.
 
 ### Changed
 
+- Go moves from 1.25 to **1.27**, the current stable release, across all
+  five places that declare it: `go.work`, the three `go.mod` files and
+  the three Dockerfiles. Two couplings had to move with it and are now
+  written down rather than rediscovered — `golangci-lint` parses source
+  with the `go/types` of the release it was itself built with, so a
+  lagging binary panics with `file requires newer Go version` instead of
+  quietly missing checks (bumped to v2.13.1, the release that added
+  go1.27 support); and `golang:1.27-alpine3.21` does not exist upstream
+  at all, so `scan-bridge`'s Alpine base moves to 3.24. Dependabot now
+  covers `gomod` and `docker` for all three components instead of only
+  `scan-bridge`, so the next Go release arrives as a pull request.
+
 - CYD scan-control panel firmware (`firmware/esp32-panel/`) is now
   **secret-free**: Wi-Fi credentials, the bridge URL and the bearer
   token are no longer build-time `!secret` values. Wi-Fi is provisioned
@@ -286,6 +310,28 @@ between releases as a running list.
   the shipped config uses `!secret` anymore.
 
 ### Fixed
+
+- **Starting a scan from the panel rebooted the panel.** Two numbers
+  made it certain: `http_request.timeout` was `8s` while a duplex scan
+  takes about twenty seconds, and the ESP-IDF task watchdog fires at
+  `5s` with `CONFIG_ESP_TASK_WDT_PANIC` on. The scan POST blocks the
+  main loop for its whole duration, so every scan the panel ever started
+  panicked the device five seconds in — and because the bridge already
+  had the request, the scanner went on scanning while the panel that
+  asked for it rebooted. That is exactly the reported "the paper was
+  pulled and the panel crashed". `watchdog_timeout` is now at the highest
+  value ESPHome permits (`60s` — it rejects more) and the HTTP timeout
+  `55s`, which has to stay under it. **A scan that takes longer than 55
+  seconds therefore cannot be started from the panel**: it reports
+  "Bridge unreachable" while the scan itself completes, because the
+  bridge already has the request. Three of the four shipped profiles
+  allow more (180 / 300 / 600 seconds) and are out of reach from the
+  panel until the `/jobs` endpoints land.
+- The profile grid no longer stays empty for up to five minutes after a
+  boot. `on_boot` refreshes once, and if that comes to nothing — the
+  bridge still starting, or the Bridge Token not yet restored from flash
+  — the only retry was the 300-second interval. A 15-second retry now
+  runs while the grid is empty and stops as soon as it is not.
 
 - CI now actually builds, lints and tests the Go code. Every job in
   `ci.yml` was `echo "placeholder"`, and the `Makefile`'s `test-go`,

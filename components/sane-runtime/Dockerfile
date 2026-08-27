@@ -7,13 +7,15 @@
 # the avision SANE backend (Kodak ScanMate i1120) on debian:12-slim
 # and runs the binary over a Unix-domain socket.
 #
-# GOWORK=off is load-bearing: the repo-root go.work pins
-# `go 1.25.12`, which is newer than most locally installed Go
-# toolchains and would otherwise force a toolchain download or fail
-# outright the moment this module is built outside the repo-root
-# workspace context (as it is here — build context is this module
-# directory, not the repo root). This module's own go.mod (`go
-# 1.25.0`) is authoritative for the build.
+# GOWORK=off is load-bearing: the build context here is this module
+# directory, not the repo root, so the repo-root go.work is not even
+# present — leaving GOWORK at its default would make the build depend
+# on whether a workspace happens to be visible. This module's own
+# go.mod is authoritative instead, and it and go.work now declare the
+# same version anyway (the project tracks the current stable Go
+# release; see AGENTS.md "Go version" for the five places that move
+# together). Neither is spelled out here on purpose: a version in a
+# comment is a version that goes stale — this one had, twice.
 #
 # See README.md ("Status", "Configuration", "Run") for why this
 # Dockerfile does not match the CONTAINER_SUITE.md sec. 5.3 sketch
@@ -22,7 +24,7 @@
 # for the privilege and transport decisions this image is built
 # against.
 
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.27
 ARG DEBIAN_VERSION=12
 
 # ---- Build stage ----
