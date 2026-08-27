@@ -226,6 +226,59 @@ http_request:
 json:
 
 # ---------------------------------------------------------------------
+# Crash diagnostics.
+#
+# The operator reports the panel "crashing" under heavy tapping and
+# dragging: the profile buttons vanish, the Wi-Fi and Bridge indicators
+# both go bad, and everything repairs itself a few seconds later. That
+# is precisely the panel's own boot sequence seen from the outside --
+# `on_boot` re-runs `refresh_profiles` and `check_bridge_health`, and
+# the grid is empty until the first answers arrive -- so a reboot is the
+# obvious reading. Obvious is not verified, and the plausible causes
+# want opposite fixes:
+#
+#   - a task/interrupt watchdog (the loop was held too long),
+#   - a panic from a bad memory access,
+#   - a brownout, which on a CYD fed from a weak USB supply is a real
+#     possibility the moment Wi-Fi transmits,
+#   - or no reset at all, and the UI merely repaints wrongly.
+#
+# `reset_reason` tells these apart in one reading, so it is measured
+# rather than guessed. `uptime` proves whether a reset happened at all;
+# `loop_time` shows how long the loop is actually held (the watchdog
+# case); the heap sensors show exhaustion or fragmentation (the panic
+# case). All of it lands on the panel's own dashboard, so whoever is
+# holding the panel can read it without a cable or a toolchain.
+#
+# Kept after diagnosis: these are ESPHome's standard diagnostics and
+# cost a few hundred bytes of flash. The next unexplained restart should
+# not need this commit written a second time.
+# ---------------------------------------------------------------------
+debug:
+  update_interval: 30s
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    id: panel_uptime
+    update_interval: 30s
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Largest Block"
+    fragmentation:
+      name: "Heap Fragmentation"
+    loop_time:
+      name: "Loop Time"
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+
+
+# ---------------------------------------------------------------------
 # Runtime configuration. Replaces the v1 build-time `substitutions:` /
 # `!secret` values for the bridge connection. Both entities persist to
 # flash (`restore_value: true`) and are editable from the `web_server`
