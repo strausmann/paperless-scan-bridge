@@ -98,36 +98,34 @@ jobs:
           set -euo pipefail
           build_dir=".esphome/build/${{ env.FIRMWARE_NAME }}"
 
-          factory="$(find "$build_dir" -name '*.factory.bin' -print -quit)"
+          # Both images are named explicitly by ESPHome. Verified
+          # against a real 2026.7.4 build, whose tree also contains
+          # bootloader.bin, partition-table.bin, ota_data_initial.bin
+          # and CMake's compiler-probe binaries — a glob would happily
+          # return one of those.
+          factory="$(find "$build_dir" -name 'firmware.factory.bin' -print -quit)"
           if [ -z "$factory" ]; then
-            echo "::error::no *.factory.bin found under $build_dir"
-            find "$build_dir" -maxdepth 5 -name '*.bin' || true
+            echo "::error::no firmware.factory.bin found under $build_dir"
+            find "$build_dir" -maxdepth 6 -name '*.bin' || true
             exit 1
           fi
 
-          # Select the application image BY NAME. "any .bin that is not
-          # the factory image" is not good enough: the build tree also
-          # holds bootloader.bin and partitions.bin, and `find -print
-          # -quit` returns whichever the traversal reaches first. Picking
-          # one of those would publish a manifest pointing at a
-          # bootloader — and the md5 check below would happily confirm
-          # it, because it hashes whatever was selected. The device would
-          # then install a bootloader as an application.
-          ota="$(find "$build_dir" -name 'firmware.bin' -print -quit)"
+          # ESPHome writes the OTA image as firmware.ota.bin. Selecting
+          # it by name matters more than it looks: the previous
+          # "any .bin that is not the factory image" would have taken
+          # whatever `find -print -quit` reached first, and the real
+          # build tree contains bootloader.bin, partition-table.bin,
+          # ota_data_initial.bin and two CMakeDetermineCompilerABI_*.bin
+          # probes. The md5 guard below could not have caught it — it
+          # hashes whatever was selected, so a compiler probe would have
+          # been published with a perfectly matching checksum and the
+          # panel would have tried to install it.
+          ota="$(find "$build_dir" -name 'firmware.ota.bin' -print -quit)"
           if [ -z "$ota" ]; then
-            echo "::error::no firmware.bin found under $build_dir"
-            find "$build_dir" -maxdepth 5 -name '*.bin' || true
+            echo "::error::no firmware.ota.bin found under $build_dir"
+            find "$build_dir" -maxdepth 6 -name '*.bin' || true
             exit 1
           fi
-          # Belt and braces: if a future ESPHome release renames the
-          # application image, fail loudly rather than shipping a helper
-          # artifact that happens to match.
-          case "$(basename "$ota")" in
-            bootloader.bin|partitions.bin|boot_app0.bin)
-              echo "::error::selected $ota, which is a build helper, not the application image"
-              exit 1
-              ;;
-          esac
 
           echo "Factory: $factory"
           echo "OTA:     $ota"
