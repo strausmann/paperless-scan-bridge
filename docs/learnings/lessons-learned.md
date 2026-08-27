@@ -2,6 +2,50 @@
 
 Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/error-handling.md`.
 
+## 2026-08-27 — A branch cut from another feature branch duplicated a merged change
+
+- **What happened:** `/en/manage/` and `/de/manage/` shipped the "The panel is
+  only findable while it has no Wi-Fi" box **twice** — once above the
+  `## Connect over Bluetooth` heading and once below it. The operator spotted it
+  on the deployed site.
+- **Root cause:** `fix/panel-crash-diagnostics` (PR #82) was created with
+  `git checkout -b` while the working copy was still on
+  `docs/manage-precondition-before-button` (PR #81), not on `main`. PR #82 thus
+  carried PR #81's *first* commit (box moved above the heading) but not its
+  *second* (box moved below it, fixing the anchor). Squash-merging #81 put one
+  box below the heading; squash-merging #82 afterwards re-applied the inherited
+  first commit on top, adding a second box above it. Git cannot flag this: the
+  two states touch different line ranges, so there is no textual conflict — only
+  a semantic one.
+- **Impact:** A duplicated paragraph on two published pages. Both PRs were green
+  and both bot reviews passed; nothing in CI or review looks at whether a branch
+  descends from `main`.
+- **Fix / prevention:** Always `git checkout main && git pull` immediately before
+  `git checkout -b`. Never run `git checkout -b` from an unverified current
+  branch. Before opening a PR, check what it actually contains —
+  `git log --oneline main..HEAD` must show only that PR's own commits; a foreign
+  commit in that list means the branch point is wrong and the branch must be
+  rebased onto `main` before review.
+
+## 2026-08-27 — A commit SHA was quoted in a public review reply without checking it
+
+- **What happened:** Replying to a Copilot finding on PR #82, the reply cited the
+  fix as `0b0e2d4`. The actual commit was `15992f3`. The SHA was written from
+  expectation, in the same command that created the commit, so it was never read
+  back from `git log`. A correction had to be posted publicly.
+- **Root cause:** The commit and the reply about the commit were composed in one
+  step. Anything referring to an artifact that the same step produces cannot have
+  been verified against it: the artifact does not exist yet when the
+  reference is written.
+- **Impact:** A wrong SHA in a review thread on a public repository. Cosmetic in
+  effect, but it points a reader at a commit that does not exist, and it is
+  exactly the class of unverified claim R1 exists to prevent.
+- **Fix / prevention:** Never write an identifier for an artifact in the same step
+  that creates it. Commit first, read the SHA back (`git log --oneline -1`), then
+  compose any text that cites it. Generalized: a reference to a SHA, URL, line
+  number, file path or version in public text must be copied from a command's
+  output, never from memory or expectation.
+
 ## 2026-08-26 — The first real end-to-end scan failed on a file mode nobody had documented
 
 - **What happened:** The first authenticated `POST /scan` against the real
@@ -35,7 +79,8 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   was a hardcoded build arg that `compose.yaml` carried on `main` for both
   `scan-bridge` and `sane-runtime`, so a perfectly successful deploy still
   reported that value. (The commit that records this lesson also replaces those
-  literals, so the current `compose.yaml` no longer looks like this.) The criterion would
+  literals, so the current `compose.yaml` no longer looks like this.) The
+  criterion would
   have flagged a good deploy as a failure. The operator running the deploy
   checked the source, disproved the criterion, and said so instead of reporting
   a false red.
@@ -80,47 +125,3 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   plan-vs-ADR audit** — enumerate every ADR (by scope/topic the plan touches) and
   mark each consistent / conflicting, not just the first conflicts noticed. Guard
   added as a checklist step in `.claude/rules/decision-process.md`.
-
-## 2026-08-27 — A commit SHA was quoted in a public review reply without checking it
-
-- **What happened:** Replying to a Copilot finding on PR #82, the reply cited the
-  fix as `0b0e2d4`. The actual commit was `15992f3`. The SHA was written from
-  expectation, in the same command that created the commit, so it was never read
-  back from `git log`. A correction had to be posted publicly.
-- **Root cause:** The commit and the reply about the commit were composed in one
-  step. Anything referring to an artifact that the same step produces cannot have
-  been verified against it: the artifact does not exist yet when the
-  reference is written.
-- **Impact:** A wrong SHA in a review thread on a public repository. Cosmetic in
-  effect, but it points a reader at a commit that does not exist, and it is
-  exactly the class of unverified claim R1 exists to prevent.
-- **Fix / prevention:** Never write an identifier for an artifact in the same step
-  that creates it. Commit first, read the SHA back (`git log --oneline -1`), then
-  compose any text that cites it. Generalized: a reference to a SHA, URL, line
-  number, file path or version in public text must be copied from a command's
-  output, never from memory or expectation.
-
-## 2026-08-27 — A branch cut from another feature branch duplicated a merged change
-
-- **What happened:** `/en/manage/` and `/de/manage/` shipped the "The panel is
-  only findable while it has no Wi-Fi" box **twice** — once above the
-  `## Connect over Bluetooth` heading and once below it. The operator spotted it
-  on the deployed site.
-- **Root cause:** `fix/panel-crash-diagnostics` (PR #82) was created with
-  `git checkout -b` while the working copy was still on
-  `docs/manage-precondition-before-button` (PR #81), not on `main`. PR #82 thus
-  carried PR #81's *first* commit (box moved above the heading) but not its
-  *second* (box moved below it, fixing the anchor). Squash-merging #81 put one
-  box below the heading; squash-merging #82 afterwards re-applied the inherited
-  first commit on top, adding a second box above it. Git cannot flag this: the
-  two states touch different line ranges, so there is no textual conflict — only
-  a semantic one.
-- **Impact:** A duplicated paragraph on two published pages. Both PRs were green
-  and both bot reviews passed; nothing in CI or review looks at whether a branch
-  descends from `main`.
-- **Fix / prevention:** Always `git checkout main && git pull` immediately before
-  `git checkout -b`. Never run `git checkout -b` from an unverified current
-  branch. Before opening a PR, check what it actually contains —
-  `git log --oneline main..HEAD` must show only that PR's own commits; a foreign
-  commit in that list means the branch point is wrong and the branch must be
-  rebased onto `main` before review.
