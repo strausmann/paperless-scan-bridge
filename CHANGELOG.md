@@ -69,7 +69,7 @@ between releases as a running list.
   a reboot's plausible causes (watchdog, panic, brownout) call for
   opposite fixes and could not be told apart. `reset_reason` separates
   them in one reading, without a cable or a local toolchain. No
-  behaviour change.
+  behavior change.
 
 - Add `title_template` to scan profiles: an optional per-profile pattern
   that produces the document title a destination receives, with
