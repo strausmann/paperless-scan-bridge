@@ -75,17 +75,40 @@ esphome:
 
 esp32:
   board: esp32dev
-  # ESPHome's own option, not a raw sdkconfig override: it writes
-  # CONFIG_ESP_TASK_WDT_TIMEOUT_S itself (esp32/__init__.py), so setting
-  # both would be two writers for one key with no defined winner.
-  # CONFIG_ESP_TASK_WDT_PANIC is True alongside it, which is why hitting
-  # the limit reboots rather than merely logging.
+  # The task watchdog, at the highest value ESPHome permits -- it
+  # rejects anything above 60s ("value must be at most 60s").
+  #
+  # That cap decides what the panel can do. http_request is synchronous,
+  # so POST /scan holds the main loop for the whole scan, and the loop
+  # not returning for longer than this reboots the device
+  # (CONFIG_ESP_TASK_WDT_PANIC is on). The watchdog cannot be raised to
+  # cover a long scan, so the HTTP timeout below is lowered to fit under
+  # it instead: the client gives up first and the panel survives to say
+  # so, rather than being killed mid-request.
+  #
+  # The consequence is real and is documented where operators look: a
+  # profile whose scan takes longer than the timeout below cannot be
+  # started from the panel at all. Three of the four shipped profiles
+  # allow 180, 300 and 600 seconds. Reaching those needs the /jobs
+  # endpoints (Phase 1.4) -- fire the scan, poll for the result, never
+  # hold the loop. There is no async mode in ESPHome's http_request to
+  # use instead.
+  #
+  # An earlier draft set 60s here with a 120s timeout, and then tried
+  # 900s to cover the longest profile. The first is incoherent (the
+  # watchdog under the maximum block) and the second is not permitted.
+  # Review caught the first; the config validator caught the second.
+  #
+  # ESPHome's own option rather than a raw sdkconfig override:
+  # esp32/__init__.py writes CONFIG_ESP_TASK_WDT_TIMEOUT_S itself, so
+  # setting both would be two writers for one key with no defined
+  # winner.
   watchdog_timeout: 60s
   framework:
     type: arduino
     # The task watchdog defaults to 5s and the scan POST blocks the
     # main loop for the whole scan -- twenty seconds on the reference
-    # hardware. Every scan started from the panel therefore paniced the
+    # hardware. Every scan started from the panel therefore panicked the
     # device at the five-second mark and rebooted it, which from the
     # front looks like "the panel crashed while the scanner kept
     # going": the bridge already had the request, so the scan completed
@@ -297,14 +320,22 @@ http_request:
   # about twenty seconds, so POST /scan could never return in time --
   # the panel timed out on every scan it ever started, and would have
   # reported "Bridge unreachable" for a scan that was working, if it
-  # had survived long enough to report anything (see the watchdog note
-  # in esp32: above).
+  # had survived long enough to report anything.
   #
-  # 120s matches the profile's own timeout_seconds, which bounds the
-  # whole /scan call on the bridge side. Any answer the bridge can give
-  # arrives before this fires; anything slower has already failed
-  # there.
-  timeout: 120s
+  # 55s, and the ceiling is not the bridge -- it is the watchdog. See
+  # the note in esp32: above: ESPHome caps watchdog_timeout at 60s, this
+  # call blocks the main loop for its whole duration, and a loop that
+  # does not return within the watchdog window reboots the panel. So
+  # this has to stay UNDER 60s. Five seconds of margin for the rest of
+  # a loop iteration.
+  #
+  # What that means in practice: a scan that takes longer than this
+  # cannot be run from the panel. It will report "Bridge unreachable"
+  # -- the scan itself carries on and completes, because the bridge
+  # already has the request. Three of the four shipped profiles allow
+  # more than this (180 / 300 / 600) and are out of reach from the
+  # panel until /jobs lands.
+  timeout: 55s
   # Plain HTTP is intentional (LAN-only deployment) — see README.md
   # "Security model". If the bridge ever moves behind a TLS-terminating
   # proxy, set the Bridge URL text entity to https://... and remove this
@@ -1774,10 +1805,13 @@ interval:
   # anything was going to happen. Observed: boot at 19:41, profiles at
   # 19:46:03.
   #
-  # 15s while the grid is empty, nothing once it is not. The condition
-  # is on total_profile_count rather than on a "did boot succeed" flag
-  # because that is the state the operator is actually looking at: an
-  # empty grid is worth retrying for, whatever emptied it.
+  # The interval keeps running; what stops is the refresh. Once the grid
+  # has profiles the condition is false and this costs one integer
+  # comparison every 15s, which is not worth a second mechanism to
+  # cancel. The condition is on total_profile_count rather than on a
+  # "did boot succeed" flag because that is the state the operator is
+  # actually looking at: an empty grid is worth retrying for, whatever
+  # emptied it.
   - interval: 15s
     then:
       - if:

@@ -75,6 +75,26 @@ sich nach der Einrichtung verhält und was es weiterhin nicht kann.
 
 ## Bekannte Grenzen
 
+!!! warning "Scans über 55 Sekunden lassen sich vom Panel aus nicht starten"
+
+    `http_request` ist synchron: `POST /scan` hält die Hauptschleife des
+    Panels über den gesamten Scan, und eine Schleife, die nicht
+    innerhalb des Task-Watchdog-Fensters zurückkehrt, startet das Gerät
+    neu. ESPHome deckelt diesen Watchdog bei 60 Sekunden, deshalb liegt
+    der Client-Timeout des Panels bei 55 — bewusst darunter, damit der
+    Client zuerst aufgibt und das Panel überlebt, um einen Fehler zu
+    melden, statt mitten in der Anfrage getötet zu werden.
+
+    Ein längerer Scan meldet auf dem Panel **Bridge unreachable**. Der
+    Scan selbst läuft trotzdem durch: Die Bridge hat die Anfrage bereits
+    und stört sich nicht daran, dass der Aufrufer weg ist. Drei der vier
+    ausgelieferten Profile erlauben 180, 300 und 600 Sekunden und sind
+    vom Panel aus vorerst nicht erreichbar.
+
+    Die Lösung sind die `/jobs`-Endpunkte (Phase 1.4) — Scan auslösen,
+    Ergebnis pollen, Schleife nie halten. ESPHomes `http_request` hat
+    keinen asynchronen Modus als Alternative.
+
 Kein eigenes Hochformat-Layout (das Tastenraster passt sich zwar beiden
 Ausrichtungen an, Kopf- und Fußzeile sind aber weiterhin auf Querformat
 festgelegt — siehe „Display orientation" in der Firmware-README), keine
