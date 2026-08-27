@@ -41,7 +41,8 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 | [0020](0020-mqtt-home-assistant-integration.md) | `scan-bridge` is the Home Assistant/MQTT-facing component, via MQTT discovery | Proposed |
 | [0021](0021-destination-deliver-result.md) | `Destination.Deliver` returns `(DeliveryResult, error)`, not `error` alone | Accepted |
 | [0022](0022-panel-ble-management-surface.md) | Panel BLE stays Improv-only until an authorizer exists | Proposed |
-| [0023](0023-panel-self-update-manifest.md) | Panel self-updates from the hosted manifest; MD5 is the integrity guarantee | Proposed |
+| [0023](0023-panel-self-update-manifest.md) | Panel self-updates from the hosted manifest; MD5 is the integrity guarantee | Superseded by 0024 |
+| [0024](0024-panel-updates-from-the-bridge-over-http.md) | Panel updates from the bridge over plain HTTP; MD5 stays the integrity guarantee | Proposed |
 
 <!-- Backfill candidates still pending clarification (95% rule): ESP32 panel (#9) · profile storage
      YAML-vs-DB · scanbd hardware-button path (ARCHITECTURE vs #7) · secrets SOPS-vs-env · storage

@@ -70,34 +70,57 @@ Full walkthrough, the indicator's state table and the known limitations:
 
 ## Updating later
 
-Once a panel is flashed you do not need this page again. It checks
-`manifest.json` — the same file the button above uses — every six hours
-and reports a newer build as **Firmware Update** on its own dashboard at
-`http://<panel-ip>/`. Installing is one click there; no file picker, no
-cable.
+Once a panel is flashed you do not need this page again — or that is the
+plan. Read the box below before you rely on it.
 
-The upload form further down that dashboard still works and is the
-recovery path when the panel cannot reach the internet.
+The upload form on the panel's own dashboard at `http://<panel-ip>/`
+takes a `.bin` and works today. It keeps the panel's configuration:
+Wi-Fi, Bridge URL, Bridge Token and the grid size live in a separate
+flash partition that an update does not touch. Only a USB flash from
+this page wipes them, because the installer erases the whole chip.
 
-!!! warning "What protects an over-the-air update, and what does not"
+!!! warning "Self-update does not work on this hardware yet"
 
-    The manifest carries the firmware's MD5, and the panel verifies it
-    **while writing**. A truncated or altered download is discarded and
-    the running firmware survives — an interrupted update cannot brick
-    the panel.
+    The panel was built to poll `manifest.json` over HTTPS and report a
+    newer build as **Firmware Update** on its dashboard. Measured on the
+    reference unit, it has never once succeeded:
 
-    What is missing is TLS certificate verification: the firmware runs
-    with `verify_ssl` off. An attacker in an active person-in-the-middle
-    position on the network path could therefore serve both a forged
-    manifest and a matching binary, and the MD5 check would pass.
-    Whether verification can be switched on for this build is an open
-    question recorded in ADR 0023 — it needs testing against real
-    hardware, not just a configuration that validates.
+    ```text
+    E esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
+    E http_request.update: Failed to fetch manifest
+    ```
 
-    This is why the panel **reports** updates but never installs one on
-    its own: the window that matters is the moment you press install,
-    not every six hours. The reasoning, and the ESP-IDF migration that
-    would close the gap, are in ADR 0023 in the repository.
+    `-0x7F00` is `MBEDTLS_ERR_SSL_ALLOC_FAILED`. The TLS session cannot
+    be allocated — the panel already carries Wi-Fi, the Bluetooth stack,
+    LVGL and its own dashboard, and mbedTLS wants roughly 32 KB more on
+    top. This is a memory ceiling, not a certificate problem: embedding a
+    root CA would make it worse, because the failure happens before any
+    certificate is examined. The dashboard shows `Firmware Update:
+    UNKNOWN` and always has.
+
+    Use the upload form until this changes.
+
+!!! info "What will protect an update, once it works"
+
+    ADR 0024 moves the manifest and the firmware image to `scan-bridge`
+    itself, served over plain HTTP on your own network. That removes TLS
+    from the update path rather than working around its cost, and it
+    drops an internet dependency from a function that otherwise needs
+    nothing outside your LAN.
+
+    The integrity guarantee is unchanged: the manifest carries the
+    firmware's MD5 and the panel verifies it **while writing**, so a
+    truncated or altered download is discarded and the running firmware
+    survives. An interrupted update cannot brick the panel.
+
+    The residual risk moves with the source. Someone who can rewrite
+    traffic on your LAN can serve both a forged manifest and a matching
+    binary, and the MD5 check would pass — the same exposure the previous
+    design accepted on the public internet path, now limited to your own
+    network. This is why the panel **reports** updates but never installs
+    one by itself: the window that matters is the moment you press
+    install, not every six hours. The full reasoning is in ADR 0024 in
+    the repository.
 
 ## Requirements
 

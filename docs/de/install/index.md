@@ -74,35 +74,62 @@ bekannten Grenzen stehen in der englischen Doku:
 
 ## Später aktualisieren
 
-Nach dem Flashen brauchen Sie diese Seite nicht mehr. Das Panel prüft
-`manifest.json` — dieselbe Datei, die der Button oben nutzt — alle sechs
-Stunden und meldet einen neueren Build als **Firmware Update** auf seinem
-eigenen Dashboard unter `http://<panel-ip>/`. Installieren ist dort ein
-Klick; kein Dateidialog, kein Kabel.
+Nach dem Flashen brauchen Sie diese Seite eigentlich nicht mehr — lesen
+Sie vorher aber den Kasten unten.
 
-Das Upload-Formular weiter unten auf diesem Dashboard funktioniert
-weiterhin und ist der Rettungsweg, wenn das Panel das Internet nicht
-erreicht.
+Das Upload-Formular auf dem panel-eigenen Dashboard unter
+`http://<panel-ip>/` nimmt eine `.bin` entgegen und funktioniert heute.
+Die Konfiguration bleibt dabei erhalten: WLAN, Bridge URL, Bridge Token
+und die Rastergröße liegen in einer eigenen Flash-Partition, die ein
+Update nicht anfasst. Nur ein USB-Flash von dieser Seite löscht sie,
+weil der Installer den gesamten Chip leert.
 
-!!! warning "Was ein Over-the-Air-Update schützt — und was nicht"
+!!! warning "Das Selbst-Update funktioniert auf dieser Hardware noch nicht"
 
-    Das Manifest trägt die MD5-Summe der Firmware, und das Panel prüft
-    sie **beim Schreiben**. Ein abgebrochener oder veränderter Download
-    wird verworfen, die laufende Firmware bleibt — ein unterbrochenes
-    Update kann das Panel also nicht unbrauchbar machen.
+    Das Panel wurde dafür gebaut, `manifest.json` über HTTPS abzurufen
+    und einen neueren Build als **Firmware Update** auf seinem Dashboard
+    zu melden. Am Referenzgerät gemessen ist das kein einziges Mal
+    gelungen:
 
-    Was fehlt, ist die Prüfung des TLS-Zertifikats: Die Firmware läuft
-    mit abgeschaltetem `verify_ssl`. Wer sich aktiv in den Netzwerkpfad
-    schaltet, könnte deshalb ein gefälschtes Manifest **und** eine dazu
-    passende Binärdatei ausliefern, und die MD5-Prüfung ginge durch.
+    ```text
+    E esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
+    E http_request.update: Failed to fetch manifest
+    ```
 
-    Deshalb **meldet** das Panel Updates, installiert aber nie eines von
-    selbst: Das entscheidende Zeitfenster ist der Moment, in dem Sie auf
-    Installieren klicken — nicht alle sechs Stunden. Ob sich die
-    Zertifikatsprüfung für diesen Build einschalten lässt, ist eine offene
-    Frage; sie ist in ADR 0023 im Repository festgehalten und muss an
-    echter Hardware getestet werden, nicht an einer Konfiguration, die
-    bloß validiert.
+    `-0x7F00` ist `MBEDTLS_ERR_SSL_ALLOC_FAILED`. Die TLS-Sitzung lässt
+    sich nicht anlegen — das Panel trägt bereits WLAN, den
+    Bluetooth-Stack, LVGL und sein eigenes Dashboard, und mbedTLS will
+    noch einmal rund 32 KB obendrauf. Das ist eine Speichergrenze, kein
+    Zertifikatsproblem: Ein eingebettetes Root-Zertifikat würde es
+    verschlimmern, weil der Fehler auftritt, bevor überhaupt ein
+    Zertifikat betrachtet wird. Auf dem Dashboard steht
+    `Firmware Update: UNKNOWN`, und das war immer so.
+
+    Bis sich das ändert: Upload-Formular nutzen.
+
+!!! info "Was ein Update schützen wird, sobald es funktioniert"
+
+    ADR 0024 verlegt Manifest und Firmware-Image auf `scan-bridge`
+    selbst, ausgeliefert über Klartext-HTTP im eigenen Netz. Das nimmt
+    TLS aus dem Update-Pfad heraus, statt seine Kosten zu umgehen, und
+    es beseitigt eine Internet-Abhängigkeit für eine Funktion, die sonst
+    nichts außerhalb Ihres LAN braucht.
+
+    Die Integritätsgarantie bleibt unverändert: Das Manifest trägt die
+    MD5-Summe der Firmware, und das Panel prüft sie **beim Schreiben**.
+    Ein abgebrochener oder veränderter Download wird verworfen, die
+    laufende Firmware bleibt. Ein unterbrochenes Update kann das Panel
+    nicht unbrauchbar machen.
+
+    Das Restrisiko wandert mit der Quelle. Wer Verkehr in Ihrem LAN
+    umschreiben kann, kann ein gefälschtes Manifest **und** eine dazu
+    passende Binärdatei ausliefern, und die MD5-Prüfung ginge durch —
+    dieselbe Angriffsfläche, die der vorherige Entwurf auf dem
+    öffentlichen Internetpfad in Kauf nahm, nun auf Ihr eigenes Netz
+    begrenzt. Deshalb **meldet** das Panel Updates, installiert aber nie
+    eines von selbst: Das entscheidende Zeitfenster ist der Moment, in
+    dem Sie auf Installieren klicken — nicht alle sechs Stunden. Die
+    vollständige Begründung steht in ADR 0024 im Repository.
 
 ## Voraussetzungen
 
