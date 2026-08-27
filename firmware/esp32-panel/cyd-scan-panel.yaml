@@ -188,6 +188,11 @@ http_request:
   # proxy, set the Bridge URL text entity to https://... and remove this
   # (or point verify_ssl at a real CA).
   verify_ssl: false
+  # The update manifest is ~490 bytes and the default response buffer is
+  # 512. That is 20 bytes of headroom — one longer summary string and
+  # the update check fails silently, with the panel simply never
+  # noticing a new build. Raised with room to grow (ADR 0023).
+  buffer_size_rx: 2048
 
 json:
 

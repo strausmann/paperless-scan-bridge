@@ -29,12 +29,18 @@ Two facts decide how safe this is:
    documentation is explicit: if the MD5 in the manifest does not match what is
    computed while writing, the device keeps the original firmware and discards
    the download.
-2. **This firmware cannot verify TLS certificates.** `verify_ssl` is
-   "supported on ESP32 only; must be explicitly set to false on other
-   platforms" — meaning the ESP-IDF framework. This panel is built with
-   `framework: type: arduino`, so `verify_ssl: false` is not a preference here,
-   it is the only value that works. The firmware already sets it, for the
-   LAN-only bridge calls.
+2. **This firmware does not verify TLS certificates today, and whether it
+   could is unresolved.** `verify_ssl` is documented as "supported on ESP32
+   only; must be explicitly set to false on other platforms" — that exclusion
+   is about other *chips* (ESP8266, RP2040), not about the framework, and
+   `esphome config` accepts `verify_ssl: true` on this exact configuration.
+   What that does **not** establish is runtime behaviour: verification needs a
+   CA bundle compiled in, and the panel's own log shows the request going
+   through the ESP-IDF HTTP client (`http_request.idf`) even though the
+   framework is Arduino. Whether a certificate is actually validated there has
+   not been tested against the real device. The firmware currently sets
+   `verify_ssl: false`, chosen for the plain-HTTP LAN calls to the bridge, and
+   that value also governs the update download.
 
 That combination bounds the risk precisely. An attacker who can tamper with the
 firmware download alone achieves nothing — the MD5 from the manifest rejects it.
@@ -46,7 +52,8 @@ firmware on the panel.
 
 We will **ship self-update against the hosted manifest**, with the MD5 in that
 manifest as the integrity guarantee, and **without** TLS certificate
-verification, because the Arduino framework cannot provide it.
+verification, because it is not enabled on this build and enabling it has not
+been shown to work here (see the open question below).
 
 Three constraints make that defensible rather than merely convenient:
 
@@ -70,13 +77,14 @@ Three constraints make that defensible rather than merely convenient:
   manual, error-prone step, keeps installation deliberate, and states the
   residual risk plainly. Costs: an active attacker on the network path who can
   rewrite both manifest and binary can install firmware.
-- **Option B — migrate the firmware to the ESP-IDF framework to enable
-  `verify_ssl: true`:** the only way to close the gap properly. Rejected *for
-  now*, not on merit: it changes the framework under an LVGL display stack,
-  touchscreen calibration and BLE that are all currently working on real
-  hardware, and it would couple a security improvement to a large,
-  hard-to-bisect regression risk. Worth doing as its own change, with its own
-  hardware verification.
+- **Option B — turn on `verify_ssl: true` and confirm it works:** the way to
+  close the gap properly, and possibly cheaper than first assumed —
+  configuration validation already accepts it here. Deferred rather than
+  rejected, because accepting a value is not the same as enforcing it: this
+  needs a test against the real panel (a deliberately wrong certificate must
+  cause a failed update, not a successful one). Until that test exists,
+  claiming verification would be worse than admitting its absence. Tracked as
+  the follow-up below.
 - **Option C — keep manual upload only:** no new exposure, but leaves the
   surprise this ADR exists to remove, and keeps every update dependent on
   someone locating the right `.bin`.
@@ -94,8 +102,12 @@ Three constraints make that defensible rather than merely convenient:
   both the manifest and the binary can install arbitrary firmware at the moment
   an operator installs an update. This is accepted, documented, and bounded by
   the manual-install constraint above.
-- **Neutral / follow-ups:** an ESP-IDF migration (Option B) supersedes this
-  ADR's TLS reasoning; it should say so when it lands. The CI must keep the OTA
+- **Neutral / follow-ups:** the open question is whether `verify_ssl: true`
+  actually validates on this build. It must be answered by test — pointing the
+  panel at a host with an invalid certificate and confirming the update
+  **fails** — not by reading configuration output. A superseding ADR records
+  the result either way; if verification works, the manual-install constraint
+  above can be revisited. The CI must keep the OTA
   binary and its MD5 in step with the factory image — publishing a manifest
   whose MD5 does not match its own binary would make every update fail closed,
   which is safe but silently broken.
@@ -104,7 +116,9 @@ Three constraints make that defensible rather than merely convenient:
 
 - `firmware/esp32-panel/cyd-scan-panel.yaml` (`framework: type: arduino`,
   `http_request: verify_ssl: false`, `ota:`)
-- `.github/workflows/esphome-firmware.yml` (manifest generation)
+- `.github/workflows/esphome-firmware.yml` (manifest generation; the emitted
+  manifest is ~490 bytes, which is why `buffer_size_rx` is raised from its
+  512-byte default)
 - `docs/en/install/index.md` (where the residual risk is stated for operators)
 - ADR [0011](0011-no-latest-pinned-versions.md) (pinning posture),
   [0022](0022-panel-ble-management-surface.md) (the panel's other radio-facing
@@ -114,4 +128,4 @@ Three constraints make that defensible rather than merely convenient:
 - [ESPHome — OTA Update via HTTP Request](https://esphome.io/components/ota/http_request/)
   (mandatory MD5 verification)
 - [ESPHome — HTTP Request](https://esphome.io/components/http_request/)
-  (`verify_ssl` framework restriction)
+  (`verify_ssl`, `buffer_size_rx`)

@@ -86,11 +86,13 @@ recovery path when the panel cannot reach the internet.
     the running firmware survives — an interrupted update cannot brick
     the panel.
 
-    What is missing is TLS certificate verification. ESPHome can only
-    verify certificates on the ESP-IDF framework, and this firmware is
-    built with Arduino, so `verify_ssl` is off. An attacker in an active
-    person-in-the-middle position on the network path could serve both a
-    forged manifest and a matching binary, and the MD5 check would pass.
+    What is missing is TLS certificate verification: the firmware runs
+    with `verify_ssl` off. An attacker in an active person-in-the-middle
+    position on the network path could therefore serve both a forged
+    manifest and a matching binary, and the MD5 check would pass.
+    Whether verification can be switched on for this build is an open
+    question recorded in ADR 0023 — it needs testing against real
+    hardware, not just a configuration that validates.
 
     This is why the panel **reports** updates but never installs one on
     its own: the window that matters is the moment you press install,
