@@ -55,7 +55,7 @@ between releases as a running list.
   visible string in it is read from the page's own front matter with the
   English text as the fallback, so one template serves both builds rather
   than two copies that drift. Its CSS, JS and fonts are referenced with
-  absolute `/en/` paths, the same same-origin trade-off `panel-tools.js`
+  absolute `/en/` paths, the same-origin trade-off `panel-tools.js`
   already makes. The reference pages that change most often — scan
   profiles, profile schema, troubleshooting, API reference — stay English
   on purpose, and the homepage says so.

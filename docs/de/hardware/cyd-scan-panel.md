@@ -81,6 +81,23 @@ festgelegt — siehe „Display orientation" in der Firmware-README), keine
 Abfrage laufender Aufträge, kein Kalibrierungsassistent auf dem Gerät und
 kein LVGL-Speicherbudget gegen Hardware belegt.
 
+!!! warning "Zwei Punkte oben sind nur gegen die Konfiguration geprüft"
+
+    **Rastergröße über 2x3 hinaus und das Blättern** (Schritt 5) bestehen
+    `esphome config` und `esphome compile` — mehr nicht. Dass ein 3x3-Raster
+    auf dem Glas lesbar bleibt und die `<`/`>`-Schaltflächen sauber
+    umblättern, ist am Gerät nicht nachgewiesen.
+
+    **Die dreifarbige Bridge-Anzeige** (Schritt 4) ebenso: Die Farbwerte
+    lösen nachweislich wie beabsichtigt auf (grün `0x00A000`, blau
+    `0x0080FF`, rot `0xE00000`) und die Lambda, die den `/ready`-Körper
+    liest, ist schema-gültig. Ob die Anzeige tatsächlich blau wird, wenn
+    `sane-runtime` steht, und wieder grün, wenn es zurückkommt, hat
+    niemand ausprobiert.
+
+    Die Firmware-README führt beides unter „Scope and known limitations"
+    mit derselben Einschränkung.
+
 Dazu kommt eine Einschränkung, die Sie direkt betrifft: **Das
 Selbst-Update über das gehostete Manifest funktioniert auf dieser
 Hardware nicht.** Der TLS-Kontext lässt sich neben WLAN, Bluetooth-Stack,

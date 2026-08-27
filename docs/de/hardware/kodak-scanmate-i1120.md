@@ -88,7 +88,7 @@ Seiten hat diese Walze gesehen?" zu beantworten.
 
 ## Papierhandhabung und Wartung
 
-- Zuverlässig bei üblichen Bürograhmmaturen, 60–105 g/m².
+- Zuverlässig bei üblichen Bürogrammaturen, 60–105 g/m².
 - Schwereres Material — Karton, Hochglanzfotos — muss von Hand durch den
   vorderen Schlitz geführt werden.
 - Einzugskapazität: 50 Blatt nominal, 30 Blatt zuverlässig.
