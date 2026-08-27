@@ -187,14 +187,20 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   reads. Bounded, so an unreachable GitHub does not become a poll every
   five minutes forever.
 - **Neutral / follow-ups:** the panel's "Check for Update" runs the
-  check three times — at 8 s, 90 s and 660 s — because there are three
-  windows to cover: the bridge already held the release; the bridge was
-  free to ask GitHub and has finished the download; and the press landed
-  at the start of the five-minute floor *and* the deferred refresh then
-  took its full five-minute timeout. 660 s is the sum of both
-  bridge-side limits plus a minute. A single early check would read the
+  check four times — at 8 s, 90 s, 660 s and 960 s — because there are
+  four windows to cover: the bridge already held the release; it was
+  free to ask GitHub and has finished the download; the press landed at
+  the start of the five-minute floor *and* the deferred refresh took its
+  full five-minute timeout; and that refresh *failed* (routine during a
+  release) and the bounded retry, gated by the same floor, is the one
+  that succeeds. Each number is the sum of the bridge-side limits that
+  can precede it, plus a minute. A single early check would read the
   manifest before the deferred refresh ran, report no update, and leave
-  freshly published firmware waiting for the next six-hourly poll.
+  freshly published firmware waiting for the next six-hourly poll. The
+  ladder stops at 960 s deliberately: two or more consecutive
+  bridge-side failures push the answer beyond it, and chasing every case
+  would make the sequence unbounded — that is what the regular six-hourly
+  check is for.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the

@@ -700,13 +700,27 @@ func (m *Mirror) Run(ctx context.Context) {
 	}
 
 	for {
+		// A wake-up that came from the deferred timer continues
+		// whatever series armed it; anything else is a fresh event and
+		// starts the retry budget over. Without that, four consecutive
+		// failures pinned `failures` at maxRetries forever, so every
+		// later tick or press got a single attempt and no retry -- and
+		// a second pass through the release window would go unnoticed
+		// for five hours.
+		continuation := false
+
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		case <-deferred.C:
 			deferredPending = false
+			continuation = true
 		case <-m.trigger:
+		}
+
+		if !continuation {
+			failures = 0
 		}
 
 		// One rule for every wake-up, not just the button. A manual
@@ -873,7 +887,15 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	if err != nil {
 		return Release{}, fmt.Errorf("firmware: create staging dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(staging) }()
+	defer func() {
+		// Logged, not dropped: a staging directory holds up to
+		// maxAssetBytes, and a cleanup that keeps failing silently
+		// fills the volume one failed refresh at a time.
+		if err := os.RemoveAll(staging); err != nil {
+			m.logger.Warn("firmware staging cleanup failed",
+				slog.String("entry", filepath.Base(staging)), slog.Any("err", err))
+		}
+	}()
 
 	for _, name := range names {
 		url, ok := assets[name]
@@ -924,7 +946,9 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	// can never collide with a real generation.
 	//nolint:gocritic // the seam is deliberate; see renameFile
 	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-"+rel.Dir())
-	_ = os.RemoveAll(parked)
+	if err := os.RemoveAll(parked); err != nil {
+		return Release{}, fmt.Errorf("firmware: clear the parking slot %q: %w", parked, err)
+	}
 	hadOld := false
 	if _, err := os.Stat(dest); err == nil {
 		if err := renameFile(dest, parked); err != nil {

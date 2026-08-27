@@ -1751,3 +1751,38 @@ func TestRunStopsRetryingAfterAFewFailures(t *testing.T) {
 		t.Errorf("apiCalls grew from %d to %d; the retry is unbounded", settled, got)
 	}
 }
+
+// The retry budget belongs to one series, not to the process. Pinned at
+// maxRetries after an early run of failures, every later tick or press
+// would get a single attempt and no retry -- so a second pass through
+// the release window would go unnoticed until the next interval.
+func TestRunGivesAFreshTriggerAFreshRetryBudget(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.omitFromRelease = ChecksumsName
+
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		Interval:           time.Hour, // only presses may drive this
+		MinRefreshInterval: 100 * time.Millisecond,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.Run(ctx)
+
+	// Exhaust the budget: the startup attempt plus its retries.
+	waitFor(t, func() bool { return g.apiCalls.Load() >= 4 }, "the retry budget to be spent")
+	time.Sleep(400 * time.Millisecond)
+	spent := g.apiCalls.Load()
+
+	// A press much later. It must get its own budget, so a failure now
+	// is still retried.
+	m.TriggerRefresh()
+	waitFor(t, func() bool { return g.apiCalls.Load() >= spent+2 },
+		"a fresh press to be retried rather than tried once")
+}

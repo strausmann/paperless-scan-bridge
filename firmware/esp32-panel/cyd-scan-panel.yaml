@@ -1927,7 +1927,7 @@ script:
   # manifest, report "no update", and leave the newly published firmware
   # sitting there until the regular 6h poll.
   #
-  # There are three windows, so there are three checks:
+  # There are four windows, so there are four checks:
   #
   #   8s     the bridge already held the release and answered at once
   #   90s    the bridge was free to ask GitHub and has finished the
@@ -1935,11 +1935,20 @@ script:
   #   660s   the press landed at the START of the floor (up to 300s)
   #          AND the deferred refresh then took its full timeout
   #          (refreshTimeout, another 300s)
+  #   960s   that deferred refresh FAILED -- which is routine during a
+  #          release, because release.yml publishes the release before
+  #          the job that uploads the firmware -- and the bridge's
+  #          bounded retry, itself gated by the same 300s floor, is the
+  #          one that succeeds
   #
-  # 660 is the sum of both documented bridge-side limits plus a minute.
-  # Anything earlier can legitimately still read the old manifest, and
-  # then nothing would happen until the 6h poll -- which is the whole
-  # failure this button exists to avoid.
+  # Each number is the sum of the bridge-side limits that can precede
+  # it, plus a minute. Anything earlier can legitimately still read the
+  # old manifest, and then nothing would happen until the 6h poll --
+  # which is the whole failure this button exists to avoid.
+  #
+  # The ladder stops here on purpose. Two or more consecutive bridge-side
+  # failures push the answer past 960s, and chasing every case would
+  # make this unbounded; that is what the regular 6h check is for.
   #
   # `delay` is scheduler-based and does not block the main loop, and
   # `update.check` runs on its own FreeRTOS task, so none of the three
@@ -1984,12 +1993,14 @@ script:
             - delay: 8s
             - update.check: firmware_update
             - lvgl.label.update: { id: status_label, text: "idle" }
-            # Cumulative delays: 8s, then +82s = 90s, then +570s =
-            # 660s. mode: restart on this script means a second press
-            # starts the sequence over rather than stacking timers.
+            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s,
+            # +300s = 960s. mode: restart on this script means a second
+            # press starts the sequence over rather than stacking timers.
             - delay: 82s
             - update.check: firmware_update
             - delay: 570s
+            - update.check: firmware_update
+            - delay: 300s
             - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness
