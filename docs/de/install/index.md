@@ -84,6 +84,31 @@ und die Rastergröße liegen in einer eigenen Flash-Partition, die ein
 Update nicht anfasst. Nur ein USB-Flash von dieser Seite löscht sie,
 weil der Installer den gesamten Chip leert.
 
+### Woher die `.bin` kommt
+
+Zwei Quellen, und sie beantworten verschiedene Fragen.
+
+| | [Neuestes Release][releases] | [`/firmware/`](/firmware/manifest.json) |
+| --- | --- | --- |
+| Was es ist | der Build, der mit einem Versions-Tag ausgeliefert wurde | der zuletzt von `main` gebaute Stand |
+| Bezeichnet durch | `v1.2.3` | eine Commit-SHA |
+| Aufbewahrt | jedes Release, dauerhaft | ein Build; der nächste Deploy ersetzt ihn |
+| Prüfsummen | `SHA256SUMS` neben den Dateien | keine |
+| Nehmen Sie das, wenn | Sie eine bekannte Version wollen oder zu einer zurück müssen | Sie den neuesten Stand wollen |
+
+Ins Dashboard-Formular gehört **`cyd-scan-panel.ota.bin`**.
+`cyd-scan-panel.factory.bin` ist die andere Datei: ein vollständiges
+Flash-Image für USB — genau das, was die Schaltfläche oben auf dieser
+Seite schreibt, und es löscht die Konfiguration.
+
+Einen Download vor dem Flashen prüfen:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+  [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
+
 !!! warning "Das Selbst-Update funktioniert auf dieser Hardware noch nicht"
 
     Das Panel wurde dafür gebaut, `manifest.json` über HTTPS abzurufen

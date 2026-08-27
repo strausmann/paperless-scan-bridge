@@ -27,6 +27,17 @@ on:
   # this workflow as a job, so a firmware-touching PR would otherwise
   # compile twice (once here, once via the reusable call).
   workflow_call:
+    inputs:
+      version:
+        description: >-
+          Version string for the manifest and the compiled binary.
+          Defaults to the short commit SHA, which is right for a main
+          build. A release run passes its tag instead, so the firmware
+          attached to a GitHub Release identifies itself by that tag
+          rather than by a SHA nobody can map back to a release.
+        required: false
+        type: string
+        default: ''
     outputs:
       artifact-name:
         description: 'Name of the uploaded firmware + manifest.json artifact'
@@ -71,7 +82,10 @@ jobs:
           ESPHOME_PROJECT_VERSION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          version="${GITHUB_SHA:0:7}"
+          version="${{ inputs.version || '' }}"
+          # The short SHA stays the default: it is what a main build
+          # should report, and it is what the published site serves.
+          [ -n "$version" ] || version="${GITHUB_SHA:0:7}"
           esphome -s project_version "$version" compile "${{ env.FIRMWARE_NAME }}.yaml"
 
       # esphome's ESP-IDF-based build (the current default for esp32 +
@@ -146,8 +160,21 @@ jobs:
           cp "${{ steps.locate.outputs.image }}" "dist/${{ env.FIRMWARE_NAME }}.factory.bin"
           cp "${{ steps.locate.outputs.ota_image }}" "dist/${{ env.FIRMWARE_NAME }}.ota.bin"
 
-          version="${GITHUB_SHA:0:7}"
+          version="${{ inputs.version || '' }}"
+          [ -n "$version" ] || version="${GITHUB_SHA:0:7}"
           ota_md5="$(md5sum "dist/${{ env.FIRMWARE_NAME }}.ota.bin" | cut -d' ' -f1)"
+
+          # A tag build points at its release page; a main build points
+          # at the commit. The panel shows this URL next to an available
+          # update, so "what am I about to install" has to resolve to
+          # something a person can read.
+          if [ -n "${{ inputs.version || '' }}" ]; then
+            summary="Release ${version}"
+            release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${version}"
+          else
+            summary="Built from ${GITHUB_SHA}"
+            release_url="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          fi
 
           cat > dist/manifest.json <<EOF
           {
@@ -163,14 +190,20 @@ jobs:
                 "ota": {
                   "md5": "${ota_md5}",
                   "path": "${{ env.FIRMWARE_NAME }}.ota.bin",
-                  "summary": "Built from ${GITHUB_SHA}",
-                  "release_url": "https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+                  "summary": "${summary}",
+                  "release_url": "${release_url}"
                 }
               }
             ]
           }
           EOF
           python3 -m json.tool dist/manifest.json > /dev/null
+
+          # Checksums for anyone who downloads a binary rather than
+          # flashing it from the browser. The manifest's MD5 covers the
+          # OTA image only, and only for the panel's own verification --
+          # it is not a file a person can check a download against.
+          (cd dist && sha256sum ./*.bin ./manifest.json > SHA256SUMS)
 
       # A manifest whose md5 does not describe its own binary fails every
       # update on the device, silently and forever. Cheaper to catch here.

@@ -46,6 +46,16 @@ between releases as a running list.
 
 ### Added
 
+- Panel firmware is attached to every GitHub Release —
+  `cyd-scan-panel.factory.bin`, `cyd-scan-panel.ota.bin`, `manifest.json`
+  and a `SHA256SUMS` to check a download against. Until now the firmware
+  existed in exactly one place: the published docs site, holding whatever
+  came off `main` last and identified by a commit SHA. No copy of the
+  build that shipped with `v1.0.0` or `v1.1.0` existed anywhere, so
+  "roll back to the version that worked" had nothing to roll back to.
+  Both install pages now say where to download from, which file goes
+  into the dashboard's upload form, and how to verify it.
+
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
   Pi 5), pushed to GHCR on `main` and built-and-discarded on pull
@@ -285,6 +295,16 @@ between releases as a running list.
   the shipped config uses `!secret` anymore.
 
 ### Fixed
+
+- The image publish for a release tag now actually happens. The
+  `on: push: tags:` trigger added for it could never fire: semantic-
+  release pushes its tag with `GITHUB_TOKEN`, and GitHub documents that
+  "with the exception of `workflow_dispatch` and `repository_dispatch`,
+  other `GITHUB_TOKEN`-triggered events do not create workflow runs at
+  all". The trigger looked right and did nothing. `release.yml` now
+  dispatches the build at the tag — `workflow_dispatch` being one of the
+  two events exempt from that guard — so a `v1.2.3` release gets a
+  `ghcr.io/...:v1.2.3` image.
 
 - CI now actually builds, lints and tests the Go code. Every job in
   `ci.yml` was `echo "placeholder"`, and the `Makefile`'s `test-go`,

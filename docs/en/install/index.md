@@ -79,6 +79,31 @@ Wi-Fi, Bridge URL, Bridge Token and the grid size live in a separate
 flash partition that an update does not touch. Only a USB flash from
 this page wipes them, because the installer erases the whole chip.
 
+### Where to get the `.bin`
+
+Two sources, and they answer different questions.
+
+| | [Latest release][releases] | [`/firmware/`](/firmware/manifest.json) |
+| --- | --- | --- |
+| What it is | the build that shipped with a version tag | whatever came off `main` last |
+| Identified by | `v1.2.3` | a commit SHA |
+| Kept | every release, forever | one build; the next deploy replaces it |
+| Checksums | `SHA256SUMS` next to the files | none |
+| Use it when | you want a known version, or need to go back to one | you want the newest build |
+
+Upload **`cyd-scan-panel.ota.bin`** to the dashboard form.
+`cyd-scan-panel.factory.bin` is the other file: a full flash image for
+USB, which is what the button at the top of this page writes, and it
+erases the configuration.
+
+Verify a download before flashing it:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+  [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
+
 !!! warning "Self-update does not work on this hardware yet"
 
     The panel was built to poll `manifest.json` over HTTPS and report a
