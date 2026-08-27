@@ -13,7 +13,9 @@ Versions-String im Installer.
 Panel per USB an diesen Rechner anschließen, dann:
 
 <esp-web-install-button manifest="/firmware/manifest.json">
-  <button class="md-button md-button--primary" slot="activate">CYD-Scan-Panel-Firmware installieren</button>
+  <button class="md-button md-button--primary" slot="activate">
+    CYD-Scan-Panel-Firmware installieren
+  </button>
   <span slot="unsupported">
     Dieser Browser kann nicht flashen. Web Serial gibt es nur in Chrome
     oder Edge auf dem Desktop — Firefox und Safari implementieren es
@@ -25,7 +27,6 @@ Panel per USB an diesen Rechner anschließen, dann:
     etwas nicht.
   </span>
 </esp-web-install-button>
-
 
 Beim Nachfragen den seriellen Port auswählen. Der Installer löscht den
 Chip, schreibt das Factory-Image und bietet danach im selben Tab die

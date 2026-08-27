@@ -71,27 +71,61 @@ jobs:
       # used .pioenvs/<name>/), so this locates it by name instead of
       # hardcoding a path that the next ESPHome upgrade could silently
       # break.
-      - name: Locate factory image
+      # Two different binaries, for two different install paths:
+      #   *.factory.bin — the full flash image including bootloader and
+      #     partition table. This is what ESP Web Tools writes over USB
+      #     at offset 0 to a blank or unknown chip.
+      #   firmware.bin  — the application image alone. This is what OTA
+      #     installs into the inactive slot of an already-flashed panel;
+      #     writing the factory image over OTA would be wrong and much
+      #     larger.
+      # The exact subpath has moved between ESPHome releases, so both are
+      # located by name rather than by a hardcoded path.
+      - name: Locate firmware images
         id: locate
         working-directory: firmware/esp32-panel
         run: |
           set -euo pipefail
-          image="$(find ".esphome/build/${{ env.FIRMWARE_NAME }}" -name '*.factory.bin' -print -quit)"
-          if [ -z "$image" ]; then
-            echo "::error::no *.factory.bin found under .esphome/build/${{ env.FIRMWARE_NAME }}"
-            find ".esphome/build/${{ env.FIRMWARE_NAME }}" -maxdepth 5 -name '*.bin' || true
+          build_dir=".esphome/build/${{ env.FIRMWARE_NAME }}"
+
+          factory="$(find "$build_dir" -name '*.factory.bin' -print -quit)"
+          if [ -z "$factory" ]; then
+            echo "::error::no *.factory.bin found under $build_dir"
+            find "$build_dir" -maxdepth 5 -name '*.bin' || true
             exit 1
           fi
-          echo "Found: $image"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
 
-      - name: Assemble dist/ (binary + ESP Web Tools manifest)
+          # Anything ending in .factory.bin is excluded so this cannot
+          # accidentally pick the image we already have.
+          ota="$(find "$build_dir" -name '*.bin' ! -name '*.factory.bin' -print -quit)"
+          if [ -z "$ota" ]; then
+            echo "::error::no OTA image (*.bin without .factory) found under $build_dir"
+            find "$build_dir" -maxdepth 5 -name '*.bin' || true
+            exit 1
+          fi
+
+          echo "Factory: $factory"
+          echo "OTA:     $ota"
+          echo "image=$factory" >> "$GITHUB_OUTPUT"
+          echo "ota_image=$ota" >> "$GITHUB_OUTPUT"
+
+      # One manifest serves both paths (ADR 0023): ESP Web Tools reads
+      # `parts` for the USB install, ESPHome's update platform reads the
+      # `ota` block for self-update. The md5 there is not decoration —
+      # the device compares it against what it actually wrote and
+      # discards a mismatch, so a stale or wrong hash makes every update
+      # fail closed.
+      - name: Assemble dist/ (binaries + manifest)
         working-directory: firmware/esp32-panel
         run: |
           set -euo pipefail
           mkdir -p dist
           cp "${{ steps.locate.outputs.image }}" "dist/${{ env.FIRMWARE_NAME }}.factory.bin"
+          cp "${{ steps.locate.outputs.ota_image }}" "dist/${{ env.FIRMWARE_NAME }}.ota.bin"
+
           version="${GITHUB_SHA:0:7}"
+          ota_md5="$(md5sum "dist/${{ env.FIRMWARE_NAME }}.ota.bin" | cut -d' ' -f1)"
+
           cat > dist/manifest.json <<EOF
           {
             "name": "CYD Scan Panel",
@@ -102,12 +136,33 @@ jobs:
                 "chipFamily": "ESP32",
                 "parts": [
                   { "path": "${{ env.FIRMWARE_NAME }}.factory.bin", "offset": 0 }
-                ]
+                ],
+                "ota": {
+                  "md5": "${ota_md5}",
+                  "path": "${{ env.FIRMWARE_NAME }}.ota.bin",
+                  "summary": "Built from ${GITHUB_SHA}",
+                  "release_url": "https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+                }
               }
             ]
           }
           EOF
           python3 -m json.tool dist/manifest.json > /dev/null
+
+      # A manifest whose md5 does not describe its own binary fails every
+      # update on the device, silently and forever. Cheaper to catch here.
+      - name: Verify the manifest describes the shipped OTA image
+        working-directory: firmware/esp32-panel
+        run: |
+          set -euo pipefail
+          declared="$(python3 -c 'import json;print(json.load(open("dist/manifest.json"))["builds"][0]["ota"]["md5"])')"
+          path="$(python3 -c 'import json;print(json.load(open("dist/manifest.json"))["builds"][0]["ota"]["path"])')"
+          actual="$(md5sum "dist/${path}" | cut -d' ' -f1)"
+          if [ "$declared" != "$actual" ]; then
+            echo "::error::manifest md5 ${declared} does not match ${path} (${actual})"
+            exit 1
+          fi
+          echo "manifest md5 matches ${path}: ${actual}"
 
       - uses: actions/upload-artifact@v7
         with:

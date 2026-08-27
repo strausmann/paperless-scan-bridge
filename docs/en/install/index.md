@@ -13,7 +13,9 @@ commit you are about to flash.
 Plug the panel into this computer over USB, then:
 
 <esp-web-install-button manifest="/firmware/manifest.json">
-  <button class="md-button md-button--primary" slot="activate">Install CYD Scan Panel firmware</button>
+  <button class="md-button md-button--primary" slot="activate">
+    Install CYD Scan Panel firmware
+  </button>
   <span slot="unsupported">
     This browser can't flash. Web Serial needs Chrome or Edge on a
     desktop — Firefox and Safari do not implement it, and neither does
@@ -24,7 +26,6 @@ Plug the panel into this computer over USB, then:
     served over HTTPS, so if you see this, something is off.
   </span>
 </esp-web-install-button>
-
 
 Pick the serial port when the browser asks. The installer erases the
 chip and writes the factory image, then offers to set up Wi-Fi in the
@@ -66,6 +67,35 @@ the top bar turns green **"Bridge: OK"** as soon as the bridge answers
 
 Full walkthrough, the indicator's state table and the known limitations:
 [CYD scan-control panel](../hardware/cyd-scan-panel.md).
+
+## Updating later
+
+Once a panel is flashed you do not need this page again. It checks
+`manifest.json` — the same file the button above uses — every six hours
+and reports a newer build as **Firmware Update** on its own dashboard at
+`http://<panel-ip>/`. Installing is one click there; no file picker, no
+cable.
+
+The upload form further down that dashboard still works and is the
+recovery path when the panel cannot reach the internet.
+
+!!! warning "What protects an over-the-air update, and what does not"
+
+    The manifest carries the firmware's MD5, and the panel verifies it
+    **while writing**. A truncated or altered download is discarded and
+    the running firmware survives — an interrupted update cannot brick
+    the panel.
+
+    What is missing is TLS certificate verification. ESPHome can only
+    verify certificates on the ESP-IDF framework, and this firmware is
+    built with Arduino, so `verify_ssl` is off. An attacker in an active
+    person-in-the-middle position on the network path could serve both a
+    forged manifest and a matching binary, and the MD5 check would pass.
+
+    This is why the panel **reports** updates but never installs one on
+    its own: the window that matters is the moment you press install,
+    not every six hours. The reasoning, and the ESP-IDF migration that
+    would close the gap, are in ADR 0023 in the repository.
 
 ## Requirements
 

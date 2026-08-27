@@ -46,6 +46,18 @@ between releases as a running list.
 
 ### Added
 
+- The scan panel now checks for firmware updates on its own and reports
+  them on its dashboard, instead of requiring someone to locate a `.bin`
+  and upload it by hand (ADR 0023). It polls the same `manifest.json`
+  the browser installer uses — CI now publishes the OTA image alongside
+  the factory image and extends the manifest with the `ota` block
+  ESPHome's update platform reads, including the firmware's MD5. The
+  panel verifies that MD5 while writing, so an interrupted or altered
+  download is discarded and the running firmware survives. Checking is
+  automatic; **installing stays a deliberate click** — see the ADR for
+  why that constraint matters given that this framework cannot verify
+  TLS certificates.
+
 - Add the project homepage as a Zensical custom home template (Issue
   #60): landing page and documentation now live on one site, the same
   way zensical.org itself does it. Only `docs/en/index.md` opts in via

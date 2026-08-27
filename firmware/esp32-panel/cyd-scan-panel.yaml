@@ -99,7 +99,37 @@ logger:
 # README.md "Security model". Re-flashing over USB via the same
 # installer page is always available regardless.
 ota:
+  # Push OTA: the ESPHome dashboard, or a hand-picked .bin uploaded
+  # through web_server's own form. Kept as the recovery path — it works
+  # without the panel being able to reach the internet.
   - platform: esphome
+  # Pull OTA: downloads the image the update entity below points at and
+  # verifies its MD5 while writing. A mismatch discards the download and
+  # leaves the running firmware untouched, so a truncated or tampered
+  # transfer cannot brick the panel (ADR 0023).
+  - platform: http_request
+
+# Self-update (ADR 0023). Polls the same manifest.json the browser
+# installer uses — one file, two consumers: ESP Web Tools reads `parts`
+# for the USB install, this reads the `ota` block.
+#
+# This entity only *reports* that an update exists. Installing stays a
+# deliberate action from the dashboard; nothing here installs on its own.
+# That is the constraint that makes the missing TLS verification
+# acceptable: the exposure window is the moment an operator chooses to
+# update, not every six hours indefinitely. See ADR 0023 for why
+# `verify_ssl` cannot be enabled on this framework, and why the MD5 —
+# not TLS — is the integrity guarantee.
+#
+# The URL is a GitHub Pages one on purpose. ESPHome's docs warn that
+# GitHub *release* URLs redirect to long URLs that overflow the HTTP
+# client's response buffer; Pages URLs do not redirect.
+update:
+  - platform: http_request
+    name: "Firmware Update"
+    id: firmware_update
+    source: https://scan-bridge.strausmann.de/firmware/manifest.json
+    update_interval: 6h
 
 wifi:
   # No `ssid:`/`password:` here on purpose — this is the whole point of
