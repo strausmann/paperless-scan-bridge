@@ -22,7 +22,7 @@
 # for the privilege and transport decisions this image is built
 # against.
 
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.27
 ARG DEBIAN_VERSION=12
 
 # ---- Build stage ----

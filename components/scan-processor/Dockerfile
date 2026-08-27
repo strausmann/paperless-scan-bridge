@@ -27,7 +27,7 @@
 # context here is this module directory, not the repo root — this
 # module's own go.mod (`go 1.25.0`) is authoritative for the build.
 
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.27
 ARG DEBIAN_VERSION=12
 
 # ---- Build stage ----

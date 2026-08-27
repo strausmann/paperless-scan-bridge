@@ -1,15 +1,19 @@
 # syntax=docker/dockerfile:1.7
-# go.mod declares `go 1.25.0`; GO_VERSION here must stay at or above
+# go.mod declares `go 1.27.0`; GO_VERSION here must stay at or above
 # that or `go mod download`/`go build` fail with "go.mod requires go
-# >= 1.25.0" before a single source file is even compiled. Discovered
-# building this Dockerfile locally for the Task 15 compose stack — the
-# previous default (1.23) predates a go.mod bump that was never
-# mirrored here. Matches sane-runtime/Dockerfile's GO_VERSION=1.25.
-ARG GO_VERSION=1.25
-# golang:1.25-alpine3.19 and -alpine3.20 are not published upstream
-# (verified: `docker pull` 404s on both); -alpine3.21 is the oldest
-# Alpine base actually paired with a 1.25.x golang tag on Docker Hub.
-ARG ALPINE_VERSION=3.21
+# >= 1.27.0" before a single source file is even compiled. Discovered
+# building this Dockerfile locally for the Task 15 compose stack — an
+# earlier default predated a go.mod bump that was never mirrored here.
+# Matches sane-runtime/Dockerfile's GO_VERSION=1.27.
+ARG GO_VERSION=1.27
+# Alpine and Go are not independent here: upstream publishes only some
+# pairings, and the pairing is what a `docker pull` resolves. 3.21 was
+# the oldest Alpine paired with a 1.25.x golang tag; there is no
+# golang:1.27-alpine3.21 at all, so moving Go to 1.27 forced this up
+# too. Available 1.27 Alpine variants are 3.23 and 3.24 — verified
+# against Docker Hub's tag list, not guessed. When GO_VERSION moves,
+# check this pairing before assuming the build still resolves.
+ARG ALPINE_VERSION=3.24
 
 # ---- Build stage ----
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS build
