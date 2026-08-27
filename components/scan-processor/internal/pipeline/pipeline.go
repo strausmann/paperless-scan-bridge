@@ -81,6 +81,12 @@ const (
 	OutputFormatPDF  OutputFormat = "pdf"
 	OutputFormatJPEG OutputFormat = "jpeg"
 	OutputFormatTIFF OutputFormat = "tiff"
+	// PNG behaves like JPEG, not like PDF or TIFF: it holds exactly one
+	// image per file, so page_grouping=combined with more than one page
+	// is unsatisfiable rather than merely slow. Lossless, which is why
+	// it is worth having alongside JPEG -- a scanned form re-encoded as
+	// JPEG carries ringing artefacts around every letter.
+	OutputFormatPNG OutputFormat = "png"
 )
 
 // Page is one input page's raw bytes, already read out of the

@@ -286,6 +286,8 @@ func procOutputFormat(f profiles.Format) procclient.OutputFormat {
 		return procclient.OutputFormatJPEG
 	case profiles.FormatTIFF:
 		return procclient.OutputFormatTIFF
+	case profiles.FormatPNG:
+		return procclient.OutputFormatPNG
 	default:
 		return procclient.OutputFormatPDF
 	}

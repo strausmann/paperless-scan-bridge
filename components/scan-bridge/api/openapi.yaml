@@ -538,7 +538,14 @@ components:
           enum: [Color, Gray, Lineart]
         Format:
           type: string
-          enum: [pdf, jpeg, tiff]
+          enum: [pdf, jpeg, tiff, png]
+        MaxPages:
+          type: integer
+          minimum: 0
+          description: >-
+            Sheets one scan pulls through the feeder. 0 (the default)
+            drains the ADF. There is no separate single_sheet flag --
+            that is max_pages 1.
         TargetSubdir:
           type: string
         Deskew:

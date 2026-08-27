@@ -38,6 +38,32 @@ variable "TAG_LATEST" {
   default = "false"
 }
 
+// Tag cascade for a real release, matching the tagging convention used
+// across the other HomeLab image builds: the exact version plus floating
+// major and major.minor pointers, plus `latest`.
+//
+//     1.2.0   immutable, what a production compose pins
+//     1.2     moves with every patch of that minor
+//     1       moves with every release of that major
+//     latest  moves with every release
+//
+// The leading `v` from the git tag is stripped: the convention is
+// `1.2.0`, not `v1.2.0`. `VERSION` arrives from CI as `git describe`
+// output, so it carries the `v` on a release build.
+//
+// On a non-release build (`TAG_LATEST` false) `VERSION` is a commit SHA
+// or `dev` — neither can be split into semver parts, so that path
+// publishes the single raw tag and nothing else.
+function "image_tags" {
+  params = [image]
+  result = TAG_LATEST == "true" ? [
+    "${REGISTRY}/${image}:${trimprefix(VERSION, "v")}",
+    "${REGISTRY}/${image}:${join(".", slice(split(".", trimprefix(VERSION, "v")), 0, 2))}",
+    "${REGISTRY}/${image}:${split(".", trimprefix(VERSION, "v"))[0]}",
+    "${REGISTRY}/${image}:latest",
+  ] : ["${REGISTRY}/${image}:${VERSION}"]
+}
+
 group "default" {
   targets = ["scan-bridge", "sane-runtime", "scan-processor"]
 }
@@ -62,10 +88,7 @@ target "scan-bridge" {
   inherits   = ["_common"]
   context    = "components/scan-bridge"
   dockerfile = "Dockerfile"
-  tags = TAG_LATEST == "true" ? [
-    "${REGISTRY}/scan-bridge:${VERSION}",
-    "${REGISTRY}/scan-bridge:latest",
-  ] : ["${REGISTRY}/scan-bridge:${VERSION}"]
+  tags = image_tags("scan-bridge")
   labels = {
     "org.opencontainers.image.title"       = "scan-bridge"
     "org.opencontainers.image.description" = "REST API, profile dispatch and metrics for the scan pipeline"
@@ -76,10 +99,7 @@ target "sane-runtime" {
   inherits   = ["_common"]
   context    = "components/sane-runtime"
   dockerfile = "Dockerfile"
-  tags = TAG_LATEST == "true" ? [
-    "${REGISTRY}/sane-runtime:${VERSION}",
-    "${REGISTRY}/sane-runtime:latest",
-  ] : ["${REGISTRY}/sane-runtime:${VERSION}"]
+  tags = image_tags("sane-runtime")
   labels = {
     "org.opencontainers.image.title"       = "sane-runtime"
     "org.opencontainers.image.description" = "SANE drivers and USB integration; owns the physical scanner"
@@ -90,10 +110,7 @@ target "scan-processor" {
   inherits   = ["_common"]
   context    = "components/scan-processor"
   dockerfile = "Dockerfile"
-  tags = TAG_LATEST == "true" ? [
-    "${REGISTRY}/scan-processor:${VERSION}",
-    "${REGISTRY}/scan-processor:latest",
-  ] : ["${REGISTRY}/scan-processor:${VERSION}"]
+  tags = image_tags("scan-processor")
   labels = {
     "org.opencontainers.image.title"       = "scan-processor"
     "org.opencontainers.image.description" = "Deskew, blank-page removal, PDF assembly and atomic NFS write"

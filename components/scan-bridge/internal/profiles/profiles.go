@@ -73,6 +73,11 @@ const (
 	FormatPDF  Format = "pdf"
 	FormatJPEG Format = "jpeg"
 	FormatTIFF Format = "tiff"
+	// Lossless single-image output. Like JPEG it holds one page per
+	// file, so a profile combining it with assembly of several pages
+	// is rejected by scan-processor rather than silently producing a
+	// first page only.
+	FormatPNG Format = "png"
 )
 
 // PageSize controls the SANE page-size option and the post-processor
@@ -130,18 +135,28 @@ const defaultMinOCRConfidence = 80.0
 
 // Profile is a single named scan profile.
 type Profile struct {
-	Name           string    `yaml:"name"`
-	Description    string    `yaml:"description"`
-	Source         string    `yaml:"source"`
-	Resolution     int       `yaml:"resolution"`
-	Mode           ColorMode `yaml:"mode"`
-	Format         Format    `yaml:"format"`
-	TargetSubdir   string    `yaml:"target_subdir"`
-	Deskew         bool      `yaml:"deskew"`
-	RemoveBlank    bool      `yaml:"remove_blank"`
-	RotatePages    bool      `yaml:"rotate_pages"`
-	PageSize       PageSize  `yaml:"page_size"`
-	TimeoutSeconds int       `yaml:"timeout_seconds"`
+	Name        string    `yaml:"name"`
+	Description string    `yaml:"description"`
+	Source      string    `yaml:"source"`
+	Resolution  int       `yaml:"resolution"`
+	Mode        ColorMode `yaml:"mode"`
+	Format      Format    `yaml:"format"`
+	// MaxPages caps how many sheets one scan pulls through the feeder.
+	// 0 -- the default, and the behaviour every profile had before this
+	// field existed -- drains the ADF until it is empty.
+	//
+	// There is deliberately no separate `single_sheet: true`. It would
+	// mean exactly `max_pages: 1`, and two spellings of one setting
+	// only create a contradiction to validate, document a precedence
+	// for, and test. Set `max_pages: 1` for a profile that should take
+	// one sheet and stop.
+	MaxPages       int      `yaml:"max_pages"`
+	TargetSubdir   string   `yaml:"target_subdir"`
+	Deskew         bool     `yaml:"deskew"`
+	RemoveBlank    bool     `yaml:"remove_blank"`
+	RotatePages    bool     `yaml:"rotate_pages"`
+	PageSize       PageSize `yaml:"page_size"`
+	TimeoutSeconds int      `yaml:"timeout_seconds"`
 
 	// MetadataTemplate carries the original Paperless-only hint shape.
 	// Superseded by Destinations for any profile that adopts the
@@ -385,11 +400,20 @@ func validateProfile(p Profile) error {
 	}
 
 	switch p.Format {
-	case FormatPDF, FormatJPEG, FormatTIFF:
+	case FormatPDF, FormatJPEG, FormatTIFF, FormatPNG:
 	case "":
 		return errors.New("format is required")
 	default:
-		return fmt.Errorf("format %q: must be pdf, jpeg, or tiff", p.Format)
+		return fmt.Errorf("format %q: must be pdf, jpeg, tiff, or png", p.Format)
+	}
+
+	// Negative is the only nonsense value: 0 means "no cap" and any
+	// positive number is a cap sane-runtime passes to
+	// `scanimage --batch-count`. Rejected here rather than clamped, so
+	// a typo in a profile surfaces at load time instead of quietly
+	// scanning the whole stack.
+	if p.MaxPages < 0 {
+		return fmt.Errorf("max_pages %d: must not be negative (0 means no limit)", p.MaxPages)
 	}
 
 	switch p.PageSize {
