@@ -1181,6 +1181,20 @@ script:
                 id: status_label
                 text: !lambda 'return std::string("Scanning: ") + id(selected_profile) + "...";'
             - lvgl.widget.update: { id: scan_spinner, hidden: false }
+            # Hand the loop back before blocking on the scan.
+            #
+            # lvgl.label.update and lvgl.widget.update only write into
+            # LVGL's object tree; the pixels are pushed in the component
+            # loop. http_request.post is synchronous and holds that loop
+            # for the whole scan — twenty seconds on the reference
+            # hardware — so without this the "Scanning: ..." text and the
+            # spinner are set and then never drawn. The panel appeared to
+            # sit at "idle" for the entire scan and only came alive when
+            # the response arrived.
+            #
+            # A script `delay` yields (ESPHome scripts are state
+            # machines), which is exactly the render pass LVGL needs.
+            - delay: 100ms
             - lambda: |-
                 id(scan_url) = id(bridge_url).state + "/scan";
                 id(scan_auth) = std::string("Bearer ") + id(bridge_token).state;

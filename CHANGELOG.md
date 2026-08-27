@@ -199,6 +199,13 @@ between releases as a running list.
   Both axes are now mirrored via `transform`, putting that tap at
   `(4, 3)`. The far calibration endpoints are still the original
   placeholders and should be re-measured per unit.
+- Scan panel: the status line stayed on `idle` for the whole of a scan
+  instead of showing `Scanning: <profile>...`, and the progress spinner
+  never appeared. Both were set correctly — but `lvgl.label.update` only
+  writes into LVGL's object tree, and the pixels are pushed in the
+  component loop, which the synchronous scan request then held for the
+  next twenty seconds. `do_scan` now yields briefly after updating the
+  UI and before starting the request, so the render happens first.
 - Scan panel: tapping a profile often did nothing. `http_request` is
   synchronous, so every status poll blocked the main loop and LVGL
   processed no input while it ran — a panel on a slow link logged

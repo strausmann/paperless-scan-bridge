@@ -203,6 +203,15 @@ intervals are set with that in mind (`check_bridge_health` every 60s,
 theoretically change. Lowering them makes the panel feel worse, not
 fresher.
 
+The same property affects the display, not just input. `lvgl.label.update`
+writes into LVGL's object tree; the pixels are pushed in the component
+loop. So a label set immediately before a blocking request is never
+drawn — the panel showed `idle` for the whole of a twenty-second scan
+even though `do_scan` had already written "Scanning: ...". `do_scan`
+therefore yields with a short `delay` after updating the label and
+spinner, before it starts the request. Any future code that updates the
+UI and then blocks needs the same yield.
+
 ## Display orientation
 
 **A build-time choice, not a runtime setting** (unlike Grid Rows/Cols
