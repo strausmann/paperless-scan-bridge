@@ -59,8 +59,19 @@ esphome:
       # never touch a not-yet-created widget.
       - lambda: "id(ui_ready) = true;"
       - script.execute: relayout_grid
-      - script.execute: refresh_profiles
-      - script.execute: check_bridge_health
+      # NOT refresh_profiles / check_bridge_health here any more.
+      #
+      # on_boot at priority -100 runs after every component's setup(),
+      # but Wi-Fi association happens asynchronously in the main loop
+      # afterwards -- so at this point there is no network. Both
+      # requests therefore failed at the network layer on every boot,
+      # and the only thing that tried again was the 300s interval:
+      # measured on the device, boot at 19:46:30, profiles at 19:51:30,
+      # exactly 300 seconds later, with an empty grid in between.
+      #
+      # wifi.on_connect below is where they belong. It also fires again
+      # after a reconnect, which is the other moment the panel's view of
+      # the bridge is stale.
 
 esp32:
   board: esp32dev
@@ -242,6 +253,13 @@ wifi:
     - lvgl.label.update:
         id: wifi_status_label
         text: "WiFi: OK"
+    # Fetch profiles and the bridge state the moment there IS a network
+    # -- not at on_boot, which runs before Wi-Fi associates (see the
+    # note there), and not five minutes later when the interval next
+    # comes round. Fires on a reconnect too: a panel that dropped off
+    # the network comes back with a stale grid otherwise.
+    - script.execute: refresh_profiles
+    - script.execute: check_bridge_health
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -796,6 +814,19 @@ script:
       - if:
           condition:
             lambda: "return !id(bridge_url).state.empty() && !id(bridge_token).state.empty();"
+          else:
+            # This branch used to be absent, and that is why "the grid
+            # was empty for five minutes" could not be diagnosed from a
+            # log: the script skipped in total silence and the only
+            # evidence was the ABSENCE of a request. Naming which of
+            # the two values is missing turns the next occurrence into
+            # a one-line answer.
+            - lambda: |-
+                ESP_LOGW("panel",
+                         "profile refresh skipped: bridge_url is %s, bridge_token is %s "
+                         "-- set both on this dashboard; the grid stays empty until then",
+                         id(bridge_url).state.empty() ? "EMPTY" : "set",
+                         id(bridge_token).state.empty() ? "EMPTY" : "set");
           then:
             - lambda: |-
                 id(profiles_url) = id(bridge_url).state + "/profiles";
