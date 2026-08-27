@@ -15,7 +15,7 @@ func TestResolveMetadataNoConfigReturnsCallerTagsOnly(t *testing.T) {
 	profile := profiles.Profile{}
 	cfg := destinations.ProfileDestinationConfig{Target: "paperless", Config: nil}
 
-	got := resolveMetadata(profile, cfg, []int{5, 6}, tag.StrategyAdd)
+	got := resolveMetadata(profile, cfg, []int{5, 6}, tag.StrategyAdd, "test-scan", fixedTime)
 
 	if !slices.Equal(got.TagIDs, []int{5, 6}) {
 		t.Errorf("TagIDs = %v, want [5 6]", got.TagIDs)
@@ -42,7 +42,7 @@ func TestResolveMetadataMergesDestinationDefaultsWithCallerTags(t *testing.T) {
 		},
 	}
 
-	got := resolveMetadata(profile, cfg, []int{7}, "")
+	got := resolveMetadata(profile, cfg, []int{7}, "", "test-scan", fixedTime)
 
 	if !slices.Equal(got.TagIDs, []int{3, 7}) {
 		t.Errorf("TagIDs = %v, want [3 7] (destination default + caller, add-merged)", got.TagIDs)
@@ -84,7 +84,7 @@ func TestResolveMetadataDocumentTypeMapHit(t *testing.T) {
 		},
 	}
 
-	got := resolveMetadata(profile, cfg, nil, "")
+	got := resolveMetadata(profile, cfg, nil, "", "test-scan", fixedTime)
 
 	if got.DocumentType == nil || *got.DocumentType != 3 {
 		t.Fatalf("DocumentType = %v, want *3 (from the document_type_map entry, not the base 99)", got.DocumentType)
@@ -113,7 +113,7 @@ func TestResolveMetadataDocumentTypeMapMissFallsBackToBaseConfig(t *testing.T) {
 		},
 	}
 
-	got := resolveMetadata(profile, cfg, nil, "")
+	got := resolveMetadata(profile, cfg, nil, "", "test-scan", fixedTime)
 
 	if got.DocumentType == nil || *got.DocumentType != 99 {
 		t.Errorf("DocumentType = %v, want *99 (base config, unmapped type is not an error)", got.DocumentType)
@@ -135,7 +135,7 @@ func TestResolveMetadataCallerStrategyOverridesProfileStrategy(t *testing.T) {
 		},
 	}
 
-	got := resolveMetadata(profile, cfg, []int{7}, tag.StrategyOverride)
+	got := resolveMetadata(profile, cfg, []int{7}, tag.StrategyOverride, "test-scan", fixedTime)
 
 	if !slices.Equal(got.TagIDs, []int{7}) {
 		t.Errorf("TagIDs = %v, want [7] (caller's override strategy discards destination defaults)", got.TagIDs)

@@ -557,6 +557,37 @@ components:
             the job store lands) job execution.
         MetadataTemplate:
           $ref: "#/components/schemas/MetadataTemplate"
+        TitleTemplate:
+          type: string
+          description: >-
+            Optional pattern producing the document title a destination
+            receives. Empty (the default) means no title is sent and the
+            destination keeps its own behaviour. Placeholders:
+            `{profile}`, `{document_type}`, `{scan_id}`, `{date}`,
+            `{time}`, `{datetime}`.
+          example: "{profile} {date}"
+        DocumentType:
+          type: string
+          description: >-
+            Free-form profile-defined key (ADR 0017). Only has an effect
+            through a destination's own `document_type_map`.
+        OCR:
+          type: object
+          description: >-
+            `internal/profiles.OCRConfig`. Consumed by `scan-processor`;
+            see the profile-schema reference for the field list.
+        Assembly:
+          type: object
+          description: >-
+            `internal/profiles.AssemblyConfig`. Controls how pages are
+            grouped into documents; see the profile-schema reference.
+        Destinations:
+          type: array
+          description: >-
+            Where the assembled document is delivered (ADR 0016). See the
+            profile-schema reference for each target's config block.
+          items:
+            type: object
 
     MetadataTemplate:
       type: object

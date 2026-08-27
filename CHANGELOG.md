@@ -46,6 +46,14 @@ between releases as a running list.
 
 ### Added
 
+- Add `title_template` to scan profiles: an optional per-profile pattern
+  that produces the document title a destination receives, with
+  `{profile}`, `{document_type}`, `{scan_id}`, `{date}`, `{time}` and
+  `{datetime}` placeholders. Until now nothing ever populated the title
+  field, so Paperless-ngx fell back to the uploaded filename — the scan
+  ID — and every document arrived named like
+  `7cc2ba0a36df384ca12f977b2bc64ddc`. Opt-in: a profile without
+  `title_template` sends no title, exactly as before.
 - `sane-runtime` now logs one structured line per HTTP request, matching
   `scan-bridge`'s schema, so a scan reads as two corresponding lines
   across the two containers. Previously only failures were logged: a
