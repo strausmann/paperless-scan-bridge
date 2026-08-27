@@ -281,10 +281,19 @@ ota:
 # own SHA256SUMS, and serves it here. See
 # components/scan-bridge/internal/firmware.
 #
-# The manifest is mirrored verbatim, which is what makes this work with
-# no rewriting: its `ota.path` is relative, and ESPHome resolves a
-# relative path against the manifest's own URL, so the binary resolves
-# to <bridge>/firmware/cyd-scan-panel.ota.bin on its own.
+# The manifest the bridge serves points at a VERSIONED path --
+# /firmware/<tag>/cyd-scan-panel.ota.bin -- and the bridge keeps the
+# previous release cached. That is not decoration: perform() installs
+# with the md5 and firmware_url this entity collected at CHECK time, and
+# the install happens when a person presses the button, possibly hours
+# later. A bare /firmware/cyd-scan-panel.ota.bin would by then hand over
+# whatever release is newest, which the held md5 does not describe, and
+# the update would fail -- safely, but exactly in the days after a
+# release. The versioned path keeps the URL this panel remembered
+# pointing at the bytes it was told to expect.
+#
+# The md5 in the manifest is never rewritten by the bridge; only the
+# path is. It stays the digest CI computed from the binary it shipped.
 #
 # The check itself runs on its own FreeRTOS task (xTaskCreate in
 # ESPHome's http_request_update.cpp), not on the main loop — unlike the

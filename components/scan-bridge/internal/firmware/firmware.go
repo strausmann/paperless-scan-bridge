@@ -27,6 +27,13 @@
 // the cache and the published state only afterwards. A failed refresh
 // leaves the previous release serving unchanged.
 //
+// The one thing the mirror does not pass through untouched is the
+// manifest's `ota.path`, which Manifest() rewrites to a
+// version-qualified route so an install clicked hours after a check
+// still gets the binary that check's MD5 describes. The `md5` itself is
+// never rewritten — see Manifest() for why that distinction is the
+// whole of ADR 0024's constraint.
+//
 // # Trust
 //
 // SHA256SUMS is fetched over TLS from GitHub and is itself the trust
@@ -77,10 +84,12 @@ const (
 	DefaultRefreshInterval = 5 * time.Hour
 
 	// ManifestName is the ESP Web Tools / ESPHome update manifest. It
-	// is mirrored verbatim: its `ota.path` is relative, and ESPHome
-	// resolves a relative path against the manifest's own URL, so
-	// serving it from /firmware/ makes the binary resolve to
-	// /firmware/<name>.bin without any rewriting.
+	// is the one mirrored file the bridge does not serve byte-for-byte:
+	// Manifest() rewrites each build's `ota.path` to the
+	// version-qualified route, because ESPHome resolves a relative path
+	// against the manifest's own URL and would otherwise send every
+	// panel to the newest generation regardless of which manifest it
+	// read. The `md5` beside it is never touched. See Manifest().
 	ManifestName = "manifest.json"
 	// ChecksumsName is the release asset that lists every other file's
 	// SHA-256. It drives the whole download: the mirror fetches what
