@@ -3,18 +3,6 @@
 Ein Panel über **Bluetooth** ins WLAN bringen — für ein frisch
 geflashtes Panel oder eines, dessen Netz verschwunden ist, ohne Kabel.
 
-!!! important "Das Panel ist nur auffindbar, solange es kein WLAN hat"
-
-    ESPHome startet den Improv-BLE-Dienst erst `wifi_timeout` nach dem
-    Wegfall der WLAN-Verbindung — standardmäßig 90 Sekunden — und
-    beendet ihn wieder, sobald das Panel in einem Netz ist. Ein frisch
-    geflashtes Panel oder eines ohne erreichbares Netz taucht also in
-    der Geräteliste auf; ein normal verbundenes Panel **nicht**.
-
-    Um ein verbundenes Panel neu einzurichten, nutzen Sie entweder sein
-    eigenes Dashboard über das Netz (siehe unten), oder Sie nehmen ihm
-    das aktuelle Netz weg und warten den Timeout ab.
-
 ## Über Bluetooth verbinden
 
 !!! important "Das Panel ist nur auffindbar, solange es kein WLAN hat"

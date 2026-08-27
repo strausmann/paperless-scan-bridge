@@ -30,6 +30,14 @@ are amended by superseding, never by editing. Details: `adr.md`.
 ## R4 — Issue-driven
 Larger changes start as a GitHub issue (CONTRIBUTING). One issue → one branch → one PR.
 
+**Branch from `main`, and prove it.** Run `git checkout main && git pull`
+immediately before every `git checkout -b` — never branch from whatever is
+currently checked out. Before opening the PR, verify with
+`git log --oneline main..HEAD`: it must list only that PR's own commits. A
+foreign commit means the branch point is wrong; rebase onto `main` first. Two
+PRs sharing a commit merge without conflict and silently duplicate the shared
+change — see `docs/learnings/lessons-learned.md`, 2026-08-27.
+
 ## R5 — Conventional Commits
 `type(scope): subject`; scope mandatory, from `.github/SCOPES.md`. Versioning is automated
 (release-only semantic-release); the **manual `CHANGELOG.md` (Keep a Changelog) stays hand-curated**.
