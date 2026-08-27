@@ -168,6 +168,13 @@ type Release struct {
 	Tag         string    `json:"tag"`
 	Files       []string  `json:"files"`
 	RetrievedAt time.Time `json:"retrieved_at"`
+	// Sums is the SHA-256 of every file, as the release's own
+	// SHA256SUMS gave it. Kept so the cache can be re-verified later:
+	// without it, a file truncated or emptied after it was mirrored
+	// would be served forever. The panel would discard it on the MD5
+	// check every time, and the mirror would never notice, because the
+	// GitHub tag has not changed.
+	Sums map[string]string `json:"sums,omitempty"`
 	// ReleaseURL is the human-facing page for this tag, taken from the
 	// API response, so a log line or an operator's curl leads
 	// somewhere readable.
@@ -301,14 +308,16 @@ func (m *Mirror) Load() error {
 		return fmt.Errorf("firmware: cached release %s has no %s", rel.Tag, ManifestName)
 	}
 
-	dir := filepath.Join(m.cacheDir, rel.Tag)
 	for _, name := range rel.Files {
 		if err := validateAssetName(name); err != nil {
 			return err
 		}
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			return fmt.Errorf("firmware: cached release %s is incomplete: %w", rel.Tag, err)
-		}
+	}
+	// Content, not just presence. A file that is there but truncated
+	// would otherwise be adopted and served, and the panel would fail
+	// its MD5 check on every attempt with nothing here to explain it.
+	if err := m.verifyCached(rel); err != nil {
+		return fmt.Errorf("firmware: cached release %s is unusable: %w", rel.Tag, err)
 	}
 
 	m.publish(&rel)
@@ -501,6 +510,41 @@ func renderManifest(raw []byte, rel Release) ([]byte, error) {
 	return out, nil
 }
 
+// verifyCached re-hashes every file of rel against the checksums the
+// release shipped with. It is what makes "the tag has not changed" a
+// safe reason to skip a download.
+//
+// A release adopted from a state file written before Sums existed
+// carries none, and is treated as unverifiable rather than as fine —
+// the mirror then re-downloads once, which is the cheap and correct
+// direction to fail in.
+func (m *Mirror) verifyCached(rel Release) error {
+	if len(rel.Sums) == 0 {
+		return errors.New("firmware: cached release carries no checksums")
+	}
+	dir := filepath.Join(m.cacheDir, rel.Tag)
+	for _, name := range rel.Files {
+		want, ok := rel.Sums[name]
+		if !ok {
+			return fmt.Errorf("firmware: no checksum recorded for %q", name)
+		}
+		f, err := os.Open(filepath.Join(dir, name)) //nolint:gosec // both components validated on the way in
+		if err != nil {
+			return fmt.Errorf("firmware: open cached %q: %w", name, err)
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, f)
+		_ = f.Close()
+		if err != nil {
+			return fmt.Errorf("firmware: read cached %q: %w", name, err)
+		}
+		if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {
+			return fmt.Errorf("firmware: cached %q is %s, recorded as %s", name, got, want)
+		}
+	}
+	return nil
+}
+
 // throttleRemaining reports how much of the API-call floor is left,
 // or zero when a refresh may proceed.
 func (m *Mirror) throttleRemaining() time.Duration {
@@ -646,7 +690,18 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	if cur, ok := m.Current(); ok && cur.Tag == latest.TagName {
-		return cur, nil
+		// Same tag is not the same thing as "still intact". A file
+		// deleted or truncated after it was mirrored would otherwise
+		// be served until a new release happens to appear: the panel
+		// discards it on the MD5 check every single time, and the
+		// mirror short-circuits before it could ever notice. So the
+		// cheap path is only taken when the bytes still verify.
+		if err := m.verifyCached(cur); err == nil {
+			return cur, nil
+		} else { //nolint:revive // the else carries the explanation
+			m.logger.Warn("cached firmware failed verification, re-downloading",
+				slog.String("tag", cur.Tag), slog.Any("err", err))
+		}
 	}
 
 	assets := make(map[string]string, len(latest.Assets))
@@ -692,6 +747,7 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	rel := Release{
 		Tag:         latest.TagName,
 		Files:       names,
+		Sums:        sums,
 		RetrievedAt: time.Now().UTC(),
 		ReleaseURL:  latest.HTMLURL,
 	}

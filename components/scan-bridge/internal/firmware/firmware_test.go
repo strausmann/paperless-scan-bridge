@@ -1105,3 +1105,97 @@ func TestOpenIsAtomicAcrossARefresh(t *testing.T) {
 	cancel()
 	<-publishing
 }
+
+// "The tag has not changed" is not "the cache is still intact". A file
+// truncated or emptied after it was mirrored would otherwise be served
+// forever: the panel discards it on the MD5 check every time, and the
+// mirror short-circuits before it could notice, because GitHub still
+// reports the same tag.
+func TestRefreshRepairsACorruptedCacheAtTheSameTag(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	if err := os.WriteFile(victim, []byte("truncated"), 0o644); err != nil {
+		t.Fatalf("corrupt: %v", err)
+	}
+	before := g.downloads.Load()
+
+	// Same tag upstream, so the cheap path would normally be taken.
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+	if g.downloads.Load() == before {
+		t.Error("a corrupted cache was short-circuited past; nothing was re-downloaded")
+	}
+
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(g.assets["cyd-scan-panel.ota.bin"]) {
+		t.Errorf("file not repaired: %q", got)
+	}
+}
+
+// The same corruption must not be adopted across a restart either.
+func TestLoadRejectsACorruptedCache(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	if err := os.WriteFile(victim, []byte("truncated"), 0o644); err != nil {
+		t.Fatalf("corrupt: %v", err)
+	}
+
+	restarted, err := New(Options{CacheDir: m.cacheDir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := restarted.Load(); err == nil {
+		t.Fatal("Load adopted a cache whose contents do not match their checksums")
+	}
+	if _, ok := restarted.Current(); ok {
+		t.Error("a corrupted cache became current")
+	}
+}
+
+// A state file written before checksums were recorded cannot be
+// verified, so it must be treated as unusable rather than as fine.
+func TestLoadRejectsAStateFileWithoutChecksums(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	statePath := filepath.Join(m.cacheDir, stateFile)
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	var rel Release
+	if err := json.Unmarshal(raw, &rel); err != nil {
+		t.Fatalf("decode state: %v", err)
+	}
+	rel.Sums = nil
+	out, err := json.Marshal(rel)
+	if err != nil {
+		t.Fatalf("encode state: %v", err)
+	}
+	if err := os.WriteFile(statePath, out, 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	restarted, err := New(Options{CacheDir: m.cacheDir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := restarted.Load(); err == nil {
+		t.Fatal("Load adopted a release it has no way to verify")
+	}
+}

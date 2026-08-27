@@ -362,3 +362,26 @@ func TestFirmwareVersionedFileIOErrorIs500(t *testing.T) {
 		t.Errorf("error = %q, want firmware_unreadable", body.Error)
 	}
 }
+
+// Cold cache still answers 503 rather than 404: the resource exists in
+// principle and the panel should come back. The distinction is made
+// after Open fails, not before it is attempted -- probing first would
+// answer 503 for a request a refresh completing mid-flight could have
+// served, and one 503 costs the panel six hours.
+func TestFirmwareColdCacheIs503EvenAfterOpenFails(t *testing.T) {
+	h := newFirmwareServer(t, &fakeMirror{dir: t.TempDir()})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/firmware/cyd-scan-panel.ota.bin", nil))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	var body errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error != "firmware_not_cached" {
+		t.Errorf("error = %q, want firmware_not_cached", body.Error)
+	}
+}

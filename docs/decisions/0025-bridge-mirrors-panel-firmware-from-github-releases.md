@@ -94,11 +94,11 @@ out of a broken configuration before an operator has entered one, and the bytes
 are a public release asset anybody can fetch from GitHub with no credential —
 there is nothing here a token would protect.
 
-ADR 0024's follow-up constraint is satisfied structurally: the manifest is
-mirrored **verbatim** from the release. CI already asserts that the manifest's
-MD5 describes the `.bin` shipped beside it, and `SHA256SUMS` covers both, so the
-pair the bridge serves is the pair CI verified. The bridge never computes or
-rewrites a digest.
+ADR 0024's follow-up constraint is satisfied structurally: the bridge **never
+computes or rewrites a digest**. CI already asserts that the manifest's MD5
+describes the `.bin` shipped beside it, and `SHA256SUMS` covers both, so the
+pair the bridge serves is the pair CI verified. The only field the bridge
+changes anywhere in the manifest is `ota.path`, per rule 3 above.
 
 ## Options considered
 
@@ -144,6 +144,20 @@ rewrites a digest.
   `api.github.com` every five hours. Deployments that must not talk to the
   public internet set `firmware.enabled = false`, and the three routes then
   answer the project's uniform `501` envelope.
+- **Neutral / follow-ups:** the mirror re-verifies the cached release
+  against the checksums it recorded before skipping a download on an
+  unchanged tag, and again when adopting a cache at startup. Without
+  that, a file truncated or emptied after it was mirrored would be
+  served indefinitely — the panel discarding it on the MD5 check every
+  time, the mirror never noticing, because GitHub still reports the same
+  tag. That is a permanently broken update path repaired only by a new
+  release or by deleting the cache by hand.
+- **Neutral / follow-ups:** the panel's "Check for Update" runs the
+  check twice, at 8 seconds and at 5½ minutes. The second one exists
+  because a press landing inside the API-call floor is honoured *late*:
+  a single early check would read the manifest before the deferred
+  refresh ran, report no update, and leave freshly published firmware
+  waiting for the next six-hourly poll.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the
@@ -173,6 +187,7 @@ rewrites a digest.
 - `firmware/esp32-panel/cyd-scan-panel.yaml` (`update:`, `button:`,
   `apply_update_source`, `check_for_update`)
 - ESPHome `http_request_update.cpp`: the manifest check runs on its own
-  FreeRTOS task (`xTaskCreate`), and a relative `ota.path` is resolved against
-  the manifest's own URL — which is why the mirrored manifest needs no
-  rewriting
+  FreeRTOS task (`xTaskCreate`); a relative `ota.path` is resolved against the
+  manifest's own URL, while an absolute one is resolved against the host alone
+  — which is exactly why the bridge rewrites the path to an absolute,
+  version-qualified one, and why nothing else in the manifest has to change

@@ -75,7 +75,10 @@ between releases as a running list.
   The manifest points at version-qualified paths and the previous
   release stays cached, so an install clicked hours after the check
   still downloads the binary that check's MD5 describes rather than
-  whatever landed since. And because the refresh route is
+  whatever landed since. The cache is re-verified against its recorded
+  checksums before a refresh skips a download and when it is adopted at
+  startup, so a file damaged after it was mirrored is repaired rather
+  than served forever behind an unchanged release tag. And because the refresh route is
   unauthenticated, outbound GitHub calls carry a five-minute floor —
   otherwise a caller in a loop could exhaust the anonymous quota and
   stop real updates arriving.

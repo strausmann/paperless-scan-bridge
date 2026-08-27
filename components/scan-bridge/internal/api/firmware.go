@@ -113,18 +113,22 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	if _, ok := s.Firmware.Current(); !ok {
-		s.writeFirmwareNotCached(w, r)
-		return
-	}
-
-	// rel comes back from Open, not from the Current() above: those are
-	// two separate reads of the published pointer, and a refresh
-	// landing between them would put one generation's tag on another
-	// generation's bytes.
+	// Open first, ask questions afterwards. Probing Current() up front
+	// would answer 503 for a request that a refresh completing
+	// mid-flight could have served, and a 503 costs the panel six hours
+	// until its next check. Open also returns the release it read, from
+	// one lock acquisition, so a refresh landing mid-request cannot put
+	// one generation's tag on another generation's bytes.
 	f, rel, modTime, err := s.Firmware.Open(name)
 	if err != nil {
 		if errors.Is(err, firmware.ErrNotCached) {
+			// Now the distinction matters: nothing mirrored at all is
+			// "come back later", a name this release does not carry is
+			// "that does not exist".
+			if _, cached := s.Firmware.Current(); !cached {
+				s.writeFirmwareNotCached(w, r)
+				return
+			}
 			s.writeFirmwareFileNotFound(w, r)
 			return
 		}

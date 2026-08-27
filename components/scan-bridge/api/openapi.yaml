@@ -580,6 +580,11 @@ paths:
         route above, which does not shift underneath it.
 
 
+        `manifest.json` never reaches this handler: the literal pattern
+        `GET /firmware/manifest.json` is more specific and wins in the
+        router, so the manifest is always the rewritten one.
+
+
         Deliberately unauthenticated. The panel fetches the manifest
         before an operator has entered a bearer token, and would
         otherwise be unable to update its way out of a broken
@@ -616,12 +621,6 @@ paths:
                 type: string
                 example: v1.2.0
           content:
-            application/json:
-              schema:
-                type: object
-                description: >-
-                  The ESP Web Tools / ESPHome update manifest, mirrored
-                  verbatim from the release.
             application/octet-stream:
               schema:
                 type: string

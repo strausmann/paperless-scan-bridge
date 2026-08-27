@@ -1909,13 +1909,24 @@ script:
   # reboot the panel on the button press. So the bridge answers at once
   # and does the work behind it.
   #
-  # The delay then gives the bridge time to finish before update.check
-  # reads the manifest. `delay` is scheduler-based and does not block
-  # the loop. If the bridge is still downloading when the check lands,
-  # nothing breaks: the manifest still describes the previous release
-  # (the mirror only swaps it once the binary is downloaded and its
-  # checksum verified), so the panel simply sees no update yet and the
-  # regular 6h check picks it up.
+  # Then TWO checks, and the second one is not belt-and-braces.
+  #
+  # The bridge holds a five-minute floor between outbound GitHub calls,
+  # so that a caller in a loop on the LAN cannot burn the anonymous API
+  # quota. A press that lands inside that floor is honoured -- the bridge
+  # defers the refresh to the moment the floor expires -- but it is
+  # honoured LATE. A single check eight seconds later would read the old
+  # manifest, report "no update", and leave the newly published firmware
+  # sitting there until the regular 6h poll.
+  #
+  # So: 8s covers the ordinary case where the bridge was free to ask
+  # immediately, and 5min30 covers the deferred one. `delay` is
+  # scheduler-based and does not block the main loop, and `update.check`
+  # runs on its own FreeRTOS task, so neither costs responsiveness.
+  #
+  # A check that lands while the bridge is still downloading is harmless:
+  # the mirror only swaps the manifest once the binary is on disk and its
+  # checksum verified, so the panel just sees the previous release.
   - id: check_for_update
     mode: restart
     then:
@@ -1952,6 +1963,11 @@ script:
             - delay: 8s
             - update.check: firmware_update
             - lvgl.label.update: { id: status_label, text: "idle" }
+            # The deferred case. mode: restart on this script means a
+            # second press simply starts the sequence over rather than
+            # stacking timers.
+            - delay: 330s
+            - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness
 # one. ESPHome's http_request is synchronous: while a poll is in flight
