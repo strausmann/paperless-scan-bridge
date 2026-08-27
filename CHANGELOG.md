@@ -255,6 +255,15 @@ between releases as a running list.
 
 ### Fixed
 
+- A long scan-profile name no longer draws outside its button on the
+  panel. The name label had neither a width nor a `long_mode`, and an
+  LVGL label with no width grows to fit its text — so a long name spilled
+  past both edges and across its neighbours, which reads as the name
+  repeating over itself. Both labels are now bounded to the button and
+  ellipsize the overflow. The width is a percentage rather than the fixed
+  96px the description label used, so it follows the configurable grid
+  (1–3 columns) on its own.
+
 - The scan panel no longer starts a scan when a finger merely travels
   across the display. Its buttons used `on_press`, which ESPHome maps to
   LVGL's `LV_EVENT_PRESSED` — fired the instant a finger lands on a
