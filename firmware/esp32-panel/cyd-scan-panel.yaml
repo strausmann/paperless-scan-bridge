@@ -31,7 +31,12 @@
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
-  comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free, ${orientation})"
+  # ${project_version} is in here because this comment is the line the
+  # dashboard prints under the device name -- it is what someone
+  # actually reads when asking "which build is this?". The project
+  # version below is authoritative and drives the update comparison,
+  # but nothing rendered it anywhere a person looks.
+  comment: "paperless-scan-bridge CYD scan-control panel (${project_version}, ${orientation})"
   min_version: "2024.5.0"
   # The update platform compares the manifest's `version` against this.
   # Without it the panel cannot recognise a build as installed and keeps
@@ -57,7 +62,15 @@ esphome:
       # component setup-priority ordering. `relayout_grid` checks
       # `ui_ready` first and no-ops otherwise, so that early call can
       # never touch a not-yet-created widget.
-      - lambda: "id(ui_ready) = true;"
+      - lambda: |-
+          id(ui_ready) = true;
+          // First line in the log after a boot. When someone pastes a
+          // log excerpt to ask why the panel misbehaves, this is what
+          // makes "which build is that?" answerable from the excerpt
+          // itself rather than by asking.
+          ESP_LOGI("panel", "paperless-scan-bridge panel, firmware version %s",
+                   "${project_version}");
+      - component.update: firmware_version
       - script.execute: relayout_grid
       - script.execute: refresh_profiles
       - script.execute: check_bridge_health
@@ -314,6 +327,32 @@ text_sensor:
   - platform: debug
     reset_reason:
       name: "Reset Reason"
+
+  # Which build is on this panel. The header comment above shows it too,
+  # but an entity is what a browser can read without a human squinting
+  # at a subtitle -- and what the /manage/ page could query later.
+  #
+  # A local `esphome compile` leaves this at "dev". CI overrides
+  # project_version with the short commit SHA it also writes into the
+  # manifest, so a published build's value maps straight onto a commit:
+  #   github.com/strausmann/paperless-scan-bridge/commit/<value>
+  - platform: template
+    name: "Firmware Version"
+    id: firmware_version
+    icon: mdi:tag-outline
+    # Once at boot, not on a timer: a compile-time constant cannot
+    # change while the device runs, and polling it would only add log
+    # lines.
+    update_interval: never
+    lambda: 'return {"${project_version}"};'
+
+  # The ESPHome release this was built with. Separate from the project
+  # version on purpose: a firmware bug is frequently an ESPHome
+  # regression, and the first question in that case is which release
+  # produced the binary -- which the project version cannot answer.
+  - platform: version
+    name: "ESPHome Version"
+    hide_timestamp: true
 
 
 # ---------------------------------------------------------------------

@@ -46,6 +46,19 @@ between releases as a running list.
 
 ### Added
 
+- The panel now says which build it is running. Its dashboard header
+  read `paperless-scan-bridge CYD scan-control panel (v2, Issue #9,
+  secret-free, landscape)` — a description of the design, not of the
+  binary — and nothing anywhere exposed the version. The build already
+  carried one: CI stamps `project.version` with the short commit SHA it
+  also writes into the manifest, and the update platform compares
+  against it, but it was never rendered. The header now shows it, two
+  entities carry it (**Firmware Version** and, separately, **ESPHome
+  Version** — a firmware bug is often an upstream regression, and the
+  project version cannot answer which release built the binary), and it
+  is logged once at boot so a pasted log excerpt identifies its own
+  build.
+
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
   Pi 5), pushed to GHCR on `main` and built-and-discarded on pull
