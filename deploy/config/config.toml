@@ -35,7 +35,9 @@ sigterm_timeout_seconds = 30
 sigint_timeout_seconds = 5
 hard_timeout_seconds = 60
 
-# The panel-firmware mirror (ADR 0024, issue #111). The bridge fetches
+# The panel-firmware mirror (ADR 0024 decides that updates come from
+# the bridge; ADR 0025 decides where the bridge gets them -- GitHub
+# Releases, verified against the release's own SHA256SUMS. Issue #111). The bridge fetches
 # the CYD panel's firmware from GitHub Releases, verifies it against the
 # release's own SHA256SUMS, and serves it over plain HTTP on the LAN at
 # /firmware/manifest.json -- because the panel's ESP32 has no heap left

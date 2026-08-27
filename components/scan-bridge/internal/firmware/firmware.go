@@ -657,16 +657,47 @@ func (m *Mirror) TriggerRefresh() bool {
 // did nothing at all until the next five-hourly tick, while the route
 // had already answered 202 — late is a delay, never is a bug.
 func (m *Mirror) Run(ctx context.Context) {
-	m.refreshLogged(ctx)
-
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
-	// Created stopped; only ever armed from the trigger branch below.
+	// Created stopped; armed below when a wake-up has to happen later
+	// than now -- either because the API-call floor is still running or
+	// because the attempt failed and deserves a prompt retry.
 	deferred := time.NewTimer(time.Hour)
 	deferred.Stop()
 	defer deferred.Stop()
 	deferredPending := false
+
+	arm := func(wait time.Duration, msg string) {
+		if deferredPending {
+			return
+		}
+		deferredPending = true
+		deferred.Reset(wait)
+		m.logger.Info(msg, slog.Duration("retry_in", wait.Round(time.Second)))
+	}
+
+	// A failed refresh is retried a few times before falling back to
+	// the ordinary interval. The window that motivates it is routine:
+	// release.yml creates the release first and uploads the firmware in
+	// a following job, so a refresh landing in between finds no
+	// SHA256SUMS and fails. Waiting five hours for the next tick would
+	// mean a "Check for Update" pressed during a release sees the old
+	// build despite all three of its manifest reads. Bounded, so a
+	// genuinely unreachable GitHub does not turn into a poll every five
+	// minutes forever.
+	const maxRetries = 3
+	failures := 0
+
+	// The refresh at startup. Its failure is handled exactly like any
+	// other -- an earlier version ran it before the retry machinery
+	// existed, so a daemon started during a release waited a full
+	// interval before trying again, which is the very window the retry
+	// was added for.
+	if err := m.refreshLogged(ctx); err != nil {
+		failures++
+		arm(m.retryDelay(), "firmware refresh failed, retrying")
+	}
 
 	for {
 		select {
@@ -684,29 +715,32 @@ func (m *Mirror) Run(ctx context.Context) {
 		// be dropped -- so a release published in between would go
 		// unnoticed for another five hours, despite a check having
 		// been due.
+		//
+		// arm() ignores a second call while one is pending, and only
+		// for redundancy's sake -- not for correctness.
+		// throttleRemaining counts down from lastAttempt, which does
+		// not move while the floor runs, so re-arming would land on
+		// the same instant anyway; a caller in a loop cannot push the
+		// refresh out.
 		if wait := m.throttleRemaining(); wait > 0 {
-			// Arm once per floor, and only for redundancy's sake --
-			// not for correctness. throttleRemaining counts down from
-			// lastAttempt, which does not move while the floor runs,
-			// so re-arming would land on the same instant anyway; a
-			// caller in a loop cannot push the refresh out. The guard
-			// just avoids a Reset and a log line per wake-up.
-			// (Verified by mutation: removing it breaks no test, which
-			// is why this comment does not claim it prevents
-			// starvation.)
-			if !deferredPending {
-				deferredPending = true
-				deferred.Reset(wait)
-				m.logger.Info("firmware refresh deferred by the API-call floor",
-					slog.Duration("retry_in", wait.Round(time.Second)))
+			arm(wait, "firmware refresh deferred by the API-call floor")
+			continue
+		}
+
+		if err := m.refreshLogged(ctx); err != nil {
+			if failures < maxRetries {
+				failures++
+				arm(m.retryDelay(), "firmware refresh failed, retrying")
 			}
 			continue
 		}
-		m.refreshLogged(ctx)
+		failures = 0
 	}
 }
 
-func (m *Mirror) refreshLogged(ctx context.Context) {
+// refreshLogged runs one attempt and reports whether it failed, so Run
+// can decide to retry. A throttled attempt is not a failure.
+func (m *Mirror) refreshLogged(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
 
@@ -714,21 +748,35 @@ func (m *Mirror) refreshLogged(ctx context.Context) {
 	if err != nil {
 		var throttled *ThrottledError
 		if errors.As(err, &throttled) {
-			// Not a failure. Run re-arms these; anything reaching here
-			// came from a direct Refresh call.
+			// Run checks the floor before calling this, so anything
+			// reaching here came from a direct Refresh call.
 			m.logger.Debug("firmware refresh throttled",
 				slog.Duration("retry_in", throttled.RetryAfter.Round(time.Second)))
-			return
+			return nil
 		}
 		// Warn, not Error: an unreachable GitHub is an ordinary
 		// condition for a home-lab box, and the mirror keeps serving
 		// whatever it already has.
 		m.logger.Warn("firmware refresh failed", slog.Any("err", err))
-		return
+		return err
 	}
 	m.logger.Info("firmware mirror current",
 		slog.String("tag", rel.Tag),
 		slog.Int("files", len(rel.Files)))
+	return nil
+}
+
+// retryDelay is how long Run waits before retrying a failed refresh:
+// the earliest the API-call floor allows, and never zero, so a mirror
+// configured without a floor still cannot spin.
+func (m *Mirror) retryDelay() time.Duration {
+	if wait := m.throttleRemaining(); wait > 0 {
+		return wait
+	}
+	if m.minInterval > 0 {
+		return m.minInterval
+	}
+	return time.Second
 }
 
 // Refresh brings the cache up to date with the repository's latest

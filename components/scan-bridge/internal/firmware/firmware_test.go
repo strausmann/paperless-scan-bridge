@@ -117,9 +117,11 @@ func (g *fakeGitHub) handleLatest(w http.ResponseWriter, _ *http.Request) {
 			Name: name, URL: g.srv.URL + "/download/" + name,
 		})
 	}
-	payload.Assets = append(payload.Assets, asset{
-		Name: ChecksumsName, URL: g.srv.URL + "/download/" + ChecksumsName,
-	})
+	if g.omitFromRelease != ChecksumsName {
+		payload.Assets = append(payload.Assets, asset{
+			Name: ChecksumsName, URL: g.srv.URL + "/download/" + ChecksumsName,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
@@ -1610,20 +1612,29 @@ func TestRefreshPublishesEvenIfTheStateFileCannotBeWritten(t *testing.T) {
 }
 
 // The floor applies to the scheduled tick as well, and a tick it
-// refuses must be re-armed like a button press. A manual refresh shortly
-// before the tick would otherwise leave that tick to be dropped, and a
-// release published in between would go unseen for another full
-// interval despite a check having been due.
+// refuses must be re-armed like a button press. Without that, a manual
+// refresh shortly before the tick leaves the tick to be dropped, and a
+// release published in between goes unseen for another full interval
+// despite a check having been due.
 //
-// Asserted on the API-call count rather than on "does the new tag turn
-// up eventually": a repeating ticker gets a second chance on its own, so
-// eventual success proves nothing. The timings put exactly one tick
-// inside the floor and check the call it should produce arrives before
-// the following tick could rescue it.
+// Asserted on WHEN the second API call arrives, not on whether the new
+// tag turns up: a repeating ticker gets another chance on its own, so
+// eventual success proves nothing. The interval sits just under the
+// floor, which puts exactly one tick inside it and the next one far
+// afterwards:
+//
+//	call 1   t=0      Run's initial refresh; the floor runs to t=2000ms
+//	tick 1   t=1800   inside the floor -> deferred to t=2000
+//	call 2   t=2000   if the tick was re-armed
+//	tick 2   t=3600   when it was dropped instead
+//
+// The deadline sits between the two, 800ms clear of each. An earlier
+// draft put it exactly on the expected time and went flaky in CI.
 func TestRunReArmsAScheduledTickThatHitsTheFloor(t *testing.T) {
 	const (
-		floor    = 1500 * time.Millisecond
-		interval = 2 * time.Second
+		floor    = 2000 * time.Millisecond
+		interval = 1800 * time.Millisecond
+		deadline = 2800 * time.Millisecond
 	)
 
 	g := newFakeGitHub(t)
@@ -1642,25 +1653,101 @@ func TestRunReArmsAScheduledTickThatHitsTheFloor(t *testing.T) {
 	defer cancel()
 	go m.Run(ctx)
 
-	// t≈0: Run's initial refresh. Call 1; the floor now runs to 1500ms.
 	waitFor(t, func() bool { return g.apiCalls.Load() >= 1 }, "the initial refresh")
+	start := time.Now()
 
-	// t≈1400ms: a press just inside the floor. Deferred to 1500ms,
-	// where it becomes call 2 and restarts the floor to 3000ms.
-	time.Sleep(1400 * time.Millisecond)
-	m.TriggerRefresh()
-	waitFor(t, func() bool { return g.apiCalls.Load() >= 2 }, "the deferred press")
-
-	// t≈2000ms: the scheduled tick, squarely inside the new floor. It
-	// must be deferred to 3000ms and become call 3 -- well before the
-	// next tick at 4000ms, which is what would mask a dropped one.
-	deadline := time.Now().Add(1500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if g.apiCalls.Load() >= 3 {
+	for time.Since(start) < deadline {
+		if g.apiCalls.Load() >= 2 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("apiCalls = %d; the throttled tick was dropped instead of re-armed",
-		g.apiCalls.Load())
+	t.Fatalf("only %d API calls after %v; the throttled tick was dropped instead of re-armed",
+		g.apiCalls.Load(), deadline)
+}
+
+// A failed refresh must be retried promptly, not five hours later.
+//
+// The window is routine rather than exotic: release.yml creates the
+// release first and uploads the firmware in a following job, so a
+// refresh landing in between finds no SHA256SUMS and fails. Waiting for
+// the next tick would mean a "Check for Update" pressed during a
+// release sees the old build despite all three of its manifest reads.
+func TestRunRetriesAFailedRefreshBeforeTheNextTick(t *testing.T) {
+	g := newFakeGitHub(t)
+	// The release exists but its assets do not yet -- exactly the gap
+	// between the release job and the attach job.
+	g.omitFromRelease = ChecksumsName
+
+	m, err := New(Options{
+		CacheDir: t.TempDir(),
+		APIBase:  g.srv.URL,
+		// An interval far beyond the test: only the retry may fire.
+		Interval:           time.Hour,
+		MinRefreshInterval: 200 * time.Millisecond,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.Run(ctx)
+
+	// Three failing attempts: the one at startup plus two retries. Two
+	// matters -- one would also happen if only the startup attempt were
+	// retried, which would leave the loop's retry path untested.
+	waitFor(t, func() bool { return g.apiCalls.Load() >= 3 }, "the failure to be retried twice")
+	if _, ok := m.Current(); ok {
+		t.Fatal("a release with no SHA256SUMS became current")
+	}
+
+	// The attach job finishes.
+	g.mu.Lock()
+	g.omitFromRelease = ""
+	g.mu.Unlock()
+
+	waitFor(t, func() bool {
+		cur, ok := m.Current()
+		return ok && cur.Tag == "v1.0.0"
+	}, "the retry to pick the release up")
+}
+
+// The retry is bounded, so an upstream that stays broken does not turn
+// into a poll every floor-length forever.
+func TestRunStopsRetryingAfterAFewFailures(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.omitFromRelease = ChecksumsName
+
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		Interval:           time.Hour,
+		MinRefreshInterval: 100 * time.Millisecond,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.Run(ctx)
+
+	// One initial attempt plus at most three retries. Give it well over
+	// the time four attempts need, then check it has stopped.
+	time.Sleep(1200 * time.Millisecond)
+	settled := g.apiCalls.Load()
+	if settled > 4 {
+		t.Fatalf("apiCalls = %d after the retries should have stopped, want at most 4", settled)
+	}
+	if settled < 2 {
+		t.Fatalf("apiCalls = %d; the failure was not retried at all", settled)
+	}
+
+	time.Sleep(600 * time.Millisecond)
+	if got := g.apiCalls.Load(); got != settled {
+		t.Errorf("apiCalls grew from %d to %d; the retry is unbounded", settled, got)
+	}
 }

@@ -32,8 +32,11 @@ func (s *Server) Router() http.Handler {
 	// the implementation brief) — the rest of the surface stays open.
 	mux.Handle("POST /scan", s.requireBearer(http.HandlerFunc(s.handleScan)))
 
-	// Panel firmware, mirrored from GitHub Releases (ADR 0024, issue
-	// #111). Deliberately NOT behind requireBearer, for two reasons:
+	// Panel firmware, mirrored from GitHub Releases (ADR 0024 decides
+	// that updates come from the bridge, ADR 0025 that the bridge
+	// mirrors them from GitHub Releases; issue #111).
+	//
+	// Deliberately NOT behind requireBearer, for two reasons:
 	// the panel fetches the manifest before an operator has entered a
 	// token (and would otherwise be unable to update its way out of a
 	// broken configuration), and the content is a public release

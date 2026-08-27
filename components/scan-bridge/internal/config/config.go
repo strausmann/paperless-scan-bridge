@@ -44,10 +44,10 @@ type Config struct {
 }
 
 // FirmwareConfig configures the panel-firmware mirror (internal/
-// firmware, ADR 0024, issue #111): the bridge fetches the panel's
-// firmware from GitHub Releases and serves it over plain HTTP on the
-// LAN, because the ESP32 has no heap left for a TLS session and cannot
-// reach GitHub itself.
+// firmware, ADR 0024 and 0025, issue #111): the bridge fetches the
+// panel's firmware from GitHub Releases and serves it over plain HTTP
+// on the LAN, because the ESP32 has no heap left for a TLS session and
+// cannot reach GitHub itself.
 type FirmwareConfig struct {
 	// Enabled turns the mirror and its /firmware routes on. Default
 	// true: a deployment that runs the panel is the normal case, and a
