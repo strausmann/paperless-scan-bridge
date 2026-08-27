@@ -345,6 +345,8 @@ func contentTypeForFormat(format OutputFormat) string {
 		return "image/jpeg"
 	case OutputFormatTIFF:
 		return "image/tiff"
+	case OutputFormatPNG:
+		return "image/png"
 	default:
 		return "application/pdf"
 	}
@@ -358,6 +360,8 @@ func fileExtensionForFormat(format OutputFormat) string {
 		return "jpg"
 	case OutputFormatTIFF:
 		return "tiff"
+	case OutputFormatPNG:
+		return "png"
 	default:
 		return "pdf"
 	}

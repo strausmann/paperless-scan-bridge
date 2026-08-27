@@ -46,6 +46,19 @@ between releases as a running list.
 
 ### Added
 
+- Scan profiles gain `png` as a fourth output format (roadmap Epic A3)
+  and `max_pages` to cap how many sheets one scan pulls through the
+  feeder (Epic A5). `png` is lossless where `jpeg` is not — a scanned
+  form re-encoded as JPEG carries ringing around every letter — and like
+  `jpeg` it holds one page per file, so `page_grouping: combined` with
+  several pages is rejected rather than silently truncated. `max_pages:
+  0` is the default and drains the ADF, exactly as before; `max_pages:
+  1` is the single-sheet case. There is deliberately **no** separate
+  `single_sheet` flag: it would mean the same thing and only create a
+  contradiction to resolve. Everything below the profile already
+  supported the cap — `sane-runtime` turns it into `scanimage
+  --batch-count` — the bridge was simply sending a hardcoded `0`.
+
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
   Pi 5), pushed to GHCR on `main` and built-and-discarded on pull
