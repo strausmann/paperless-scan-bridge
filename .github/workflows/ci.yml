@@ -212,7 +212,7 @@ jobs:
       # overrides VERSION from the environment and builds a different
       # set than intended.
       - name: Bake
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           files: docker-bake.hcl
           targets: default
