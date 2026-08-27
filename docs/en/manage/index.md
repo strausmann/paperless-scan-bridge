@@ -4,6 +4,18 @@ Connect to a panel over **Bluetooth** to get it onto Wi-Fi — for a
 freshly flashed panel, or one whose network has disappeared, without
 plugging in a cable.
 
+!!! important "The panel is only findable while it has no Wi-Fi"
+
+    ESPHome starts the Improv BLE service `wifi_timeout` after the Wi-Fi
+    connection drops — 90 seconds by default — and stops it again once
+    the panel is back on a network. A freshly flashed panel, or one whose
+    network is gone, will therefore appear in the browser's device list;
+    a panel that is happily connected will **not**.
+
+    To re-provision a connected panel, either use its own dashboard over
+    the network (below), or take its current network away and wait out
+    the timeout.
+
 ## Connect over Bluetooth
 
 !!! important "The panel is only findable while it has no Wi-Fi"

@@ -133,6 +133,25 @@ substitutions:
 
 logger:
   baud_rate: 115200
+  # The default log is dominated by two components that say nothing
+  # about what the panel is doing. `xpt2046` prints a line per touch
+  # sample (several per second while a finger rests on the glass) and
+  # `http_request.idf` prints one per received response header, so a
+  # single poll costs two lines that carry only "content-length: 19".
+  # Between them they bury every line that identifies an action, its
+  # data or its outcome. Both are raised to INFO -- still reachable by
+  # lowering this if the touch driver itself is ever under suspicion.
+  #
+  # `component` deliberately stays: its "took a long time" warnings are
+  # how a blocked loop announces itself, and this firmware blocks the
+  # loop on every HTTP call.
+  level: DEBUG
+  logs:
+    xpt2046: INFO
+    http_request.idf: INFO
+  # Response bodies are logged below (truncated to 200 characters). The
+  # default 512-byte line buffer would clip those lines mid-JSON.
+  tx_buffer_size: 1024
 
 # No `api:` block. This build carries no fixed native-API encryption key
 # (a public binary cannot embed a per-device secret), and the panel does
@@ -243,6 +262,59 @@ http_request:
   buffer_size_rx: 2048
 
 json:
+
+# ---------------------------------------------------------------------
+# Crash diagnostics.
+#
+# The operator reports the panel "crashing" under heavy tapping and
+# dragging: the profile buttons vanish, the Wi-Fi and Bridge indicators
+# both go bad, and everything repairs itself a few seconds later. That
+# is precisely the panel's own boot sequence seen from the outside --
+# `on_boot` re-runs `refresh_profiles` and `check_bridge_health`, and
+# the grid is empty until the first answers arrive -- so a reboot is the
+# obvious reading. Obvious is not verified, and the plausible causes
+# want opposite fixes:
+#
+#   - a task/interrupt watchdog (the loop was held too long),
+#   - a panic from a bad memory access,
+#   - a brownout, which on a CYD fed from a weak USB supply is a real
+#     possibility the moment Wi-Fi transmits,
+#   - or no reset at all, and the UI merely repaints wrongly.
+#
+# `reset_reason` tells these apart in one reading, so it is measured
+# rather than guessed. `uptime` proves whether a reset happened at all;
+# `loop_time` shows how long the loop is actually held (the watchdog
+# case); the heap sensors show exhaustion or fragmentation (the panic
+# case). All of it lands on the panel's own dashboard, so whoever is
+# holding the panel can read it without a cable or a toolchain.
+#
+# Kept after diagnosis: these are ESPHome's standard diagnostics and
+# cost a few hundred bytes of flash. The next unexplained restart should
+# not need this commit written a second time.
+# ---------------------------------------------------------------------
+debug:
+  update_interval: 30s
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    id: panel_uptime
+    update_interval: 30s
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Largest Block"
+    fragmentation:
+      name: "Heap Fragmentation"
+    loop_time:
+      name: "Loop Time"
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+
 
 # ---------------------------------------------------------------------
 # Runtime configuration. Replaces the v1 build-time `substitutions:` /
@@ -481,6 +553,14 @@ light:
 # ---------------------------------------------------------------------
 
 globals:
+  # Set immediately before each outgoing request; the on_response /
+  # on_error lambda subtracts it to report duration_ms. One global is
+  # enough because http_request is synchronous -- two requests can
+  # never be in flight at once.
+  - id: request_started_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
   - id: ui_ready
     type: bool
     restore_value: false
@@ -682,7 +762,12 @@ script:
           then:
             - lambda: |-
                 id(profiles_url) = id(bridge_url).state + "/profiles";
+                // Never logged. The Authorization header is the bridge
+                // bearer token; the log is readable by anyone who can
+                // reach the panel's dashboard.
                 id(profiles_auth) = std::string("Bearer ") + id(bridge_token).state;
+                id(request_started_ms) = millis();
+                ESP_LOGI("panel", "-> GET %s", id(profiles_url).c_str());
             - http_request.get:
                 url: !lambda 'return id(profiles_url).c_str();'
                 request_headers:
@@ -691,16 +776,28 @@ script:
                 on_response:
                   then:
                     - lambda: |-
+                        uint32_t took = millis() - id(request_started_ms);
                         if (response->status_code != 200) {
-                          ESP_LOGW("panel", "GET /profiles failed: %d", response->status_code);
+                          ESP_LOGE("panel",
+                                   "<- GET /profiles status=%d duration_ms=%u -- profile grid keeps its previous contents",
+                                   response->status_code, took);
+                          ESP_LOGE("panel", "   body: %s", body.substr(0, 200).c_str());
                           return;
                         }
+                        ESP_LOGI("panel", "<- GET /profiles status=200 bytes=%u duration_ms=%u",
+                                 (unsigned) body.length(), took);
+                        ESP_LOGD("panel", "   body: %s", body.substr(0, 200).c_str());
                         json::parse_json(body, [](JsonObject root) -> bool {
                           if (!root["profiles"].is<JsonArray>()) {
                             ESP_LOGW("panel", "GET /profiles: unexpected body shape");
                             return false;
                           }
                           JsonArray arr = root["profiles"];
+                          if (arr.size() == 0) {
+                            ESP_LOGW("panel",
+                                     "GET /profiles returned an empty list -- the grid will be blank, "
+                                     "and a tap cannot start anything");
+                          }
                           // Cap defensively — the 9 static button slots
                           // can only ever show one page's worth at a
                           // time (up to 3x3), but `render_page` walks
@@ -718,7 +815,13 @@ script:
                             JsonObject p = arr[i];
                             id(all_profile_names).push_back(p["name"] | std::string(""));
                             id(all_profile_descs).push_back(p["description"] | std::string(""));
+                            ESP_LOGD("panel", "   profile[%u] name='%s' description='%s'",
+                                     (unsigned) i,
+                                     id(all_profile_names)[i].c_str(),
+                                     id(all_profile_descs)[i].c_str());
                           }
+                          ESP_LOGI("panel", "profiles loaded: %u (of %u sent)",
+                                   (unsigned) count, (unsigned) arr.size());
                           return true;
                         });
                     # Apply the just-parsed profile list to the grid.
@@ -742,7 +845,12 @@ script:
                     - script.execute: render_page
                 on_error:
                   then:
-                    - lambda: 'ESP_LOGW("panel", "GET /profiles: request failed");'
+                    - lambda: |-
+                        ESP_LOGE("panel",
+                                 "<- GET %s FAILED after %u ms: no HTTP response at all. "
+                                 "The bridge did not answer -- wrong URL, bridge down, or the panel "
+                                 "is not on the same network. Profile grid keeps its previous contents.",
+                                 id(profiles_url).c_str(), millis() - id(request_started_ms));
 
   # Repositions/resizes the 9 static button slots for the current
   # `grid_rows`x`grid_cols` (B1). Triggered from `grid_rows_cfg`'s and
@@ -995,7 +1103,10 @@ script:
           condition:
             lambda: "return !id(bridge_url).state.empty();"
           then:
-            - lambda: 'id(ready_url) = id(bridge_url).state + "/ready";'
+            - lambda: |-
+                id(ready_url) = id(bridge_url).state + "/ready";
+                id(request_started_ms) = millis();
+                ESP_LOGD("panel", "-> GET %s", id(ready_url).c_str());
             - http_request.get:
                 url: !lambda 'return id(ready_url).c_str();'
                 capture_response: true
@@ -1009,6 +1120,7 @@ script:
                     # root["error"], guarded by is<const char *>() so a
                     # missing/malformed field never throws.
                     - lambda: |-
+                        uint32_t took = millis() - id(request_started_ms);
                         id(bridge_reachable) = true;
                         id(ready_http_status) = response->status_code;
                         id(ready_error_code) = "";
@@ -1019,6 +1131,27 @@ script:
                             }
                             return true;
                           });
+                        }
+                        // Logged at INFO only when the answer is not the
+                        // expected 200: this runs on a timer, and a
+                        // healthy bridge would otherwise produce one
+                        // INFO line per poll forever.
+                        if (response->status_code == 200) {
+                          ESP_LOGD("panel", "<- GET /ready status=200 duration_ms=%u -- bridge ready", took);
+                        } else if (id(ready_error_code) == "sane_runtime_unreachable") {
+                          ESP_LOGW("panel",
+                                   "<- GET /ready status=%d error=%s duration_ms=%u -- the bridge is up but "
+                                   "the scanner backend is not; a scan would fail. Restart sane-runtime.",
+                                   response->status_code, id(ready_error_code).c_str(), took);
+                        } else if (id(ready_error_code) == "no_profiles_loaded") {
+                          ESP_LOGW("panel",
+                                   "<- GET /ready status=%d error=%s duration_ms=%u -- the bridge is up but "
+                                   "loaded no profiles; check its profile file and mount.",
+                                   response->status_code, id(ready_error_code).c_str(), took);
+                        } else {
+                          ESP_LOGE("panel", "<- GET /ready status=%d error='%s' duration_ms=%u",
+                                   response->status_code, id(ready_error_code).c_str(), took);
+                          ESP_LOGE("panel", "   body: %s", body.substr(0, 200).c_str());
                         }
                     - if:
                         condition:
@@ -1051,12 +1184,19 @@ script:
                               text_color: 0xE00000
                 on_error:
                   then:
-                    - lambda: "id(bridge_reachable) = false;"
+                    - lambda: |-
+                        id(bridge_reachable) = false;
+                        ESP_LOGE("panel",
+                                 "<- GET %s FAILED after %u ms: no HTTP response at all -- wrong Bridge URL, "
+                                 "bridge down, or no route from the panel to it.",
+                                 id(ready_url).c_str(), millis() - id(request_started_ms));
                     - lvgl.label.update:
                         id: bridge_status_label
                         text: "Bridge: --"
                         text_color: 0xE00000
           else:
+            - lambda: |-
+                ESP_LOGW("panel", "health check skipped: no Bridge URL set on the panel yet");
             # Not one of the three /ready-driven states — no URL is
             # configured yet, so no request was even attempted. Colored
             # the same RED as the network-unreachable case above: from a
@@ -1123,6 +1263,25 @@ script:
       # visible count (which the geometry lambdas in relayout_grid
       # already positioned correctly for the current grid_rows/
       # grid_cols, whether or not they end up hidden here).
+              # Both labels are bounded to the button and ellipsize what does
+              # not fit. The name label used to carry neither a width nor a
+              # long_mode: an LVGL label with no width grows to fit its text,
+              # so a long profile name spilled past both edges of its button
+              # and drew across its neighbours -- which reads as the name
+              # repeating over itself. `long_mode: DOT` needs a bounded width
+              # to have anything to truncate against, which is why the two go
+              # together.
+              #
+              # The width is a percentage, not the 96px the sub-label used to
+              # hardcode. Button width follows grid_cols (1-3 columns, so 320
+              # down to ~106px) and relayout_grid resizes the buttons at
+              # runtime; a percentage follows the parent on its own, whereas a
+              # fixed 96 was already wrong at one column and would need nine
+              # more widget updates in relayout_grid to stay right.
+              #
+              # text_align: CENTER because align: TOP_MID only centres the
+              # label box. Now that the box spans the button, the text inside
+              # it would otherwise sit left.
       - lvgl.label.update:
           id: slot0_label
           text: !lambda "return id(slot_name_0);"
@@ -1279,7 +1438,11 @@ script:
             - delay: 100ms
             - lambda: |-
                 id(scan_url) = id(bridge_url).state + "/scan";
+                // Never logged -- see the same note in refresh_profiles.
                 id(scan_auth) = std::string("Bearer ") + id(bridge_token).state;
+                id(request_started_ms) = millis();
+                ESP_LOGI("panel", "-> POST %s body={\"profile\":\"%s\"}",
+                         id(scan_url).c_str(), id(selected_profile).c_str());
             - http_request.post:
                 url: !lambda 'return id(scan_url).c_str();'
                 request_headers:
@@ -1290,15 +1453,109 @@ script:
                 on_response:
                   then:
                     - lambda: |-
+                        uint32_t took = millis() - id(request_started_ms);
                         id(scan_http_status) = response->status_code;
                         id(scan_error_code) = "";
+
                         if (response->status_code != 200) {
-                          json::parse_json(body, [](JsonObject root) -> bool {
+                          ESP_LOGE("panel", "<- POST /scan status=%d duration_ms=%u profile='%s'",
+                                   response->status_code, took, id(selected_profile).c_str());
+                          ESP_LOGE("panel", "   body: %s", body.substr(0, 300).c_str());
+                          bool parsed = json::parse_json(body, [](JsonObject root) -> bool {
                             if (root["error"].is<const char *>()) {
                               id(scan_error_code) = root["error"].as<std::string>();
                             }
                             return true;
                           });
+                          if (!parsed) {
+                            ESP_LOGE("panel", "   the error body is not parseable JSON (see above)");
+                          } else if (id(scan_error_code).empty()) {
+                            ESP_LOGE("panel", "   the bridge sent no \"error\" field to explain it");
+                          } else {
+                            ESP_LOGE("panel", "   error=%s", id(scan_error_code).c_str());
+                          }
+                          return;
+                        }
+
+                        ESP_LOGI("panel", "<- POST /scan status=200 bytes=%u duration_ms=%u (panel-side)",
+                                 (unsigned) body.length(), took);
+                        ESP_LOGD("panel", "   body: %s", body.substr(0, 400).c_str());
+
+                        // A 200 does NOT mean the document arrived. Per
+                        // the bridge's contract a per-destination
+                        // failure is not a scan failure, so a document
+                        // can be scanned perfectly and still never reach
+                        // Paperless-ngx -- and the panel shows a green
+                        // "Done" either way. Walking the result here is
+                        // the only place that difference is visible.
+                        bool parsed = json::parse_json(body, [](JsonObject root) -> bool {
+                          ESP_LOGI("panel", "   scan_id=%s profile=%s bridge_duration_ms=%d",
+                                   (root["scan_id"] | std::string("?")).c_str(),
+                                   (root["profile"] | std::string("?")).c_str(),
+                                   (int) (root["duration_ms"] | 0));
+
+                          if (!root["documents"].is<JsonArray>()) {
+                            ESP_LOGW("panel", "   response carries no \"documents\" array");
+                            return true;
+                          }
+                          JsonArray docs = root["documents"];
+                          if (docs.size() == 0) {
+                            ESP_LOGW("panel", "   0 documents -- the scan produced nothing to deliver");
+                            return true;
+                          }
+
+                          int failures = 0;
+                          for (size_t d = 0; d < docs.size(); d++) {
+                            JsonObject doc = docs[d];
+                            ESP_LOGI("panel", "   document[%u] filename='%s' pages=%d",
+                                     (unsigned) d,
+                                     (doc["filename"] | std::string("?")).c_str(),
+                                     (int) (doc["page_count"] | 0));
+                            if (doc["low_confidence"] | false) {
+                              ESP_LOGW("panel", "     OCR confidence %.1f is below the profile threshold",
+                                       (double) (doc["ocr_confidence"] | 0.0));
+                            }
+                            if (doc["warnings"].is<JsonArray>()) {
+                              JsonArray warns = doc["warnings"];
+                              for (size_t w = 0; w < warns.size(); w++) {
+                                ESP_LOGW("panel", "     warning: %s",
+                                         (warns[w] | std::string("?")).c_str());
+                              }
+                            }
+                            if (!doc["destinations"].is<JsonArray>()) {
+                              continue;
+                            }
+                            JsonArray dests = doc["destinations"];
+                            for (size_t k = 0; k < dests.size(); k++) {
+                              JsonObject dst = dests[k];
+                              std::string st = dst["status"] | std::string("?");
+                              if (st == "submitted") {
+                                ESP_LOGI("panel", "     -> %s: submitted (task_id=%s)",
+                                         (dst["name"] | std::string("?")).c_str(),
+                                         (dst["task_id"] | std::string("-")).c_str());
+                              } else {
+                                failures++;
+                                ESP_LOGE("panel", "     -> %s: %s -- %s",
+                                         (dst["name"] | std::string("?")).c_str(),
+                                         st.c_str(),
+                                         (dst["error"] | std::string("no reason given")).c_str());
+                              }
+                            }
+                          }
+                          if (failures > 0) {
+                            ESP_LOGE("panel",
+                                     "   %d destination delivery/deliveries FAILED. The scan itself "
+                                     "succeeded and the panel will still show \"Done\" -- but the "
+                                     "document did not arrive everywhere it should have.",
+                                     failures);
+                          }
+                          return true;
+                        });
+                        if (!parsed) {
+                          ESP_LOGE("panel",
+                                   "   could not parse the 200 body. If it is longer than the %d-byte "
+                                   "response buffer it arrived truncated -- raise http_request.buffer_size_rx.",
+                                   2048);
                         }
                     # Every branch below resets the LED and status label
                     # back to idle after a delay — not just the 200
@@ -1385,6 +1642,15 @@ script:
                     - script.execute: render_page
                 on_error:
                   then:
+                    - lambda: |-
+                        ESP_LOGE("panel",
+                                 "<- POST %s FAILED after %u ms: no HTTP response at all. profile='%s'. "
+                                 "Nothing was scanned. Causes: bridge down, wrong Bridge URL, no route "
+                                 "from the panel, or the request outlived http_request.timeout (8s) -- "
+                                 "note a real scan takes about twenty seconds, so a timeout here means "
+                                 "the bridge never sent its headers.",
+                                 id(scan_url).c_str(), millis() - id(request_started_ms),
+                                 id(selected_profile).c_str());
                     - light.turn_on: { id: status_led, red: 100%, green: 0%, blue: 0% }
                     - lvgl.label.update: { id: status_label, text: "Bridge unreachable" }
                     - delay: 4s
@@ -1477,6 +1743,22 @@ lvgl:
                   y: 2
                   text: "Bridge: --"
 
+
+        # Every button below reacts to `on_click`, never `on_press`.
+        #
+        # ESPHome maps `on_press` to LV_EVENT_PRESSED, which LVGL fires
+        # the instant a finger lands on a widget -- no release needed,
+        # and again each time a still-pressed finger re-enters it. A
+        # finger dragged across this grid therefore fired a scan under
+        # every button it crossed. `on_click` is LV_EVENT_CLICKED:
+        # pressed and released on the same widget, i.e. an actual tap.
+        #
+        # This matters more here than the usual button-widget nitpick.
+        # A scan is not a screen transition that can be undone by
+        # tapping back -- it pulls a sheet through the feeder, runs for
+        # about twenty seconds and uploads a document. It must be the
+        # result of a deliberate tap, never of a finger travelling
+        # across the display.
         - button:
             id: slot0_btn
             x: *slot0_x
@@ -1489,15 +1771,19 @@ lvgl:
                   id: slot0_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot0_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1518,15 +1804,19 @@ lvgl:
                   id: slot1_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot1_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1547,15 +1837,19 @@ lvgl:
                   id: slot2_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot2_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1576,15 +1870,19 @@ lvgl:
                   id: slot3_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot3_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1605,15 +1903,19 @@ lvgl:
                   id: slot4_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot4_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1634,15 +1936,19 @@ lvgl:
                   id: slot5_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot5_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1663,15 +1969,19 @@ lvgl:
                   id: slot6_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot6_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1692,15 +2002,19 @@ lvgl:
                   id: slot7_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot7_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1721,15 +2035,19 @@ lvgl:
                   id: slot8_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot8_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1753,7 +2071,7 @@ lvgl:
                   id: prev_page_label
                   align: CENTER
                   text: "<"
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1782,7 +2100,7 @@ lvgl:
                   id: next_page_label
                   align: CENTER
                   text: ">"
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
