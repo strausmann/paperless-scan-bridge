@@ -33,6 +33,16 @@ esphome:
   friendly_name: "${friendly_name}"
   comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free, ${orientation})"
   min_version: "2024.5.0"
+  # The update platform compares the manifest's `version` against this.
+  # Without it the panel cannot recognise a build as installed and keeps
+  # reporting the same update forever, even straight after applying it.
+  # CI overrides `project_version` with the short commit SHA it also
+  # writes into the manifest; a local build without that override says
+  # "dev", which will never match a published manifest — deliberately,
+  # so a hand-built panel is not told it is out of date.
+  project:
+    name: strausmann.paperless-scan-bridge
+    version: "${project_version}"
   on_boot:
     priority: -100
     then:
@@ -60,6 +70,9 @@ esp32:
 substitutions:
   name: cyd-scan-panel
   friendly_name: "Scan Panel"
+  # Overridden by CI with the short commit SHA so it matches the
+  # manifest's `version` — see esphome.project above.
+  project_version: "dev"
   # Display orientation (Issue #9 item B4). `orientation` is informational
   # only (surfaced in `esphome.comment` above so the merged config
   # documents which build this is); the eight substitutions below are the
@@ -115,7 +128,37 @@ logger:
 # README.md "Security model". Re-flashing over USB via the same
 # installer page is always available regardless.
 ota:
+  # Push OTA: the ESPHome dashboard, or a hand-picked .bin uploaded
+  # through web_server's own form. Kept as the recovery path — it works
+  # without the panel being able to reach the internet.
   - platform: esphome
+  # Pull OTA: downloads the image the update entity below points at and
+  # verifies its MD5 while writing. A mismatch discards the download and
+  # leaves the running firmware untouched, so a truncated or tampered
+  # transfer cannot brick the panel (ADR 0023).
+  - platform: http_request
+
+# Self-update (ADR 0023). Polls the same manifest.json the browser
+# installer uses — one file, two consumers: ESP Web Tools reads `parts`
+# for the USB install, this reads the `ota` block.
+#
+# This entity only *reports* that an update exists. Installing stays a
+# deliberate action from the dashboard; nothing here installs on its own.
+# That is the constraint that makes the missing TLS verification
+# acceptable: the exposure window is the moment an operator chooses to
+# update, not every six hours indefinitely. See ADR 0023 for why
+# `verify_ssl` cannot be enabled on this framework, and why the MD5 —
+# not TLS — is the integrity guarantee.
+#
+# The URL is a GitHub Pages one on purpose. ESPHome's docs warn that
+# GitHub *release* URLs redirect to long URLs that overflow the HTTP
+# client's response buffer; Pages URLs do not redirect.
+update:
+  - platform: http_request
+    name: "Firmware Update"
+    id: firmware_update
+    source: https://scan-bridge.strausmann.de/firmware/manifest.json
+    update_interval: 6h
 
 wifi:
   # No `ssid:`/`password:` here on purpose — this is the whole point of
@@ -174,6 +217,11 @@ http_request:
   # proxy, set the Bridge URL text entity to https://... and remove this
   # (or point verify_ssl at a real CA).
   verify_ssl: false
+  # The update manifest is ~490 bytes and the default response buffer is
+  # 512. That is 20 bytes of headroom — one longer summary string and
+  # the update check fails silently, with the panel simply never
+  # noticing a new build. Raised with room to grow (ADR 0023).
+  buffer_size_rx: 2048
 
 json:
 

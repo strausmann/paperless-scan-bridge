@@ -46,6 +46,35 @@ between releases as a running list.
 
 ### Added
 
+- Add `title_template` to scan profiles: an optional per-profile pattern
+  that produces the document title a destination receives, with
+  `{profile}`, `{document_type}`, `{scan_id}`, `{date}`, `{time}` and
+  `{datetime}` placeholders. Until now nothing ever populated the title
+  field, so Paperless-ngx fell back to the uploaded filename — the scan
+  ID — and every document arrived named like
+  `7cc2ba0a36df384ca12f977b2bc64ddc`. Opt-in: a profile without
+  `title_template` sends no title, exactly as before.
+- `sane-runtime` now logs one structured line per HTTP request, matching
+  `scan-bridge`'s schema, so a scan reads as two corresponding lines
+  across the two containers. Previously only failures were logged: a
+  successful request produced nothing, and the container's log after a
+  completed scan showed only its startup line — leaving no way to tell
+  "the request never arrived" (socket or permissions) from "it arrived
+  and the scanner is slow". `duration_ms` covers the full multipart
+  response, so `POST /scan` reports the real scan time rather than the
+  time to the first header.
+- The scan panel now checks for firmware updates on its own and reports
+  them on its dashboard, instead of requiring someone to locate a `.bin`
+  and upload it by hand (ADR 0023). It polls the same `manifest.json`
+  the browser installer uses — CI now publishes the OTA image alongside
+  the factory image and extends the manifest with the `ota` block
+  ESPHome's update platform reads, including the firmware's MD5. The
+  panel verifies that MD5 while writing, so an interrupted or altered
+  download is discarded and the running firmware survives. Checking is
+  automatic; **installing stays a deliberate click** — see the ADR for
+  why that constraint matters while TLS certificate verification is off
+  on this build.
+
 - Add the project homepage as a Zensical custom home template (Issue
   #60): landing page and documentation now live on one site, the same
   way zensical.org itself does it. Only `docs/en/index.md` opts in via
@@ -168,7 +197,7 @@ between releases as a running list.
   handlers actually implemented in `internal/api/` rather than the
   aspirational surface `CONTAINER_SUITE.md` §4.4 used to reference,
   rendered as an interactive [API
-  reference](https://scan-bridge.strausmann.de/api-reference/) page
+  reference](https://scan-bridge.strausmann.de/en/api-reference/) page
   via a self-hosted [Scalar](https://github.com/scalar/scalar)
   bundle (`.github/scripts/vendor-scalar.sh`, same
   pinned-and-digest-verified vendoring pattern as Mermaid and ESP Web

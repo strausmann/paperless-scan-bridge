@@ -19,7 +19,7 @@ itself:
 
 <div id="scalar-mount"></div>
 
-<script src="/javascripts/scalar/standalone.js"></script>
+<script src="/en/javascripts/scalar/standalone.js"></script>
 <script>
   Scalar.createApiReference('#scalar-mount', {
     url: 'openapi.yaml',

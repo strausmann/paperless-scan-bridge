@@ -194,6 +194,39 @@ documents from this profile.
 `document_type_map` (see below) — `scan-processor` never sees this
 field at all.
 
+## `title_template`
+
+Optional. Produces the document title a destination receives.
+
+Without it **no title is sent at all**, and the destination falls back to
+whatever it does by default — Paperless-ngx derives one from the uploaded
+filename, which is the scan ID, so documents arrive named
+`7cc2ba0a36df384ca12f977b2bc64ddc`. That is the reason this field exists.
+
+```yaml
+title_template: "{profile} {document_type} {date}"
+# -> "receipts kassenbon 2026-03-14"
+```
+
+| Placeholder | Expands to |
+| --- | --- |
+| `{profile}` | The profile's `name` |
+| `{document_type}` | The profile's `document_type`, empty if unset |
+| `{scan_id}` | The scan's ID — the one field guaranteed unique |
+| `{date}` | `2026-03-14` |
+| `{time}` | `09-05` (hyphen, not a colon: colons are illegal in Windows filenames) |
+| `{datetime}` | `2026-03-14 09-05` |
+
+Substitution is literal, not a Go template. A placeholder that does not
+exist is left in the output as written — a typo shows up as
+`{documnet_type}` in the title rather than failing a scan or silently
+vanishing. Runs of whitespace are collapsed, so an unset
+`{document_type}` does not leave a double space in the middle.
+
+Titles are not deduplicated. If several scans render the same title,
+Paperless-ngx will hold several documents with that title; include
+`{scan_id}` or `{datetime}` if that matters to you.
+
 ## `destinations`
 
 A list of delivery targets. Each entry:
@@ -241,11 +274,11 @@ simply has nothing configured to deliver assembled documents to yet.
     "replace" semantics instead, say so before relying on this.
 
 What `paperless` does **not** support yet, even though the field
-exists on `Metadata`: `Title`, `Created`, `Labels`, `ASN`, and `Extra`
-are all resolvable from `Document`/`Metadata` internally, but no
-profile field or destination-config key sets `Title`/`Labels`/`ASN`
-today — only `TagIDs`, `Correspondent`, and `DocumentType` are wired
-from `resolveMetadata`.
+exists on `Metadata`: `Created`, `Labels`, `ASN`, and `Extra` are all
+resolvable from `Document`/`Metadata` internally, but no profile field
+or destination-config key sets `Labels`/`ASN` today. `resolveMetadata`
+wires `Title` (from [`title_template`](#title_template)), `TagIDs`,
+`Correspondent`, and `DocumentType`.
 
 ### Response shape
 

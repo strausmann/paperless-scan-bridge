@@ -81,7 +81,7 @@ dem Host. Keine Sprach-Runtimes auf dem Host.
   Browser auf das ESP32-Panel flashen
 - [Erste Schritte](getting-started/index.md) — was der Stack tut und was
   man dafür braucht
-- [Englische Dokumentation](/) — vollständig, inklusive Referenz
+- [Englische Dokumentation](/en/) — vollständig, inklusive Referenz
 - [Repository auf GitHub](https://github.com/strausmann/paperless-scan-bridge)
 - [Roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
 
