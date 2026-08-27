@@ -85,7 +85,7 @@ backup yet. Just the core path from trigger to document.
    which it did not until 2026-08-27
 - `[x]` Renovate configuration for dependency updates (`renovate.json`; the
    split with Dependabot is documented in it)
-- `[ ]` First blog post published, announcing the launch
+- `[x]` First blog post published, announcing the launch
 
 **Definition of done for Phase 1:** A user with a fresh Pi, a Synology
 NAS, and a Paperless-ngx instance can run the bootstrap script, send a
@@ -108,12 +108,16 @@ the full spec and open questions on each `(vision)` item.
 - `[x]` `(vision)` Feeder behaviour: `max_pages` caps how many sheets one
    scan pulls; `0` drains the ADF, `1` is the single-sheet case (Epic A5).
    No separate `single_sheet` field — it would mean exactly `max_pages: 1`.
-- `[ ]` `(vision)` Multi-page result shape: one combined object vs. one
-   object per page, with destination-specific defaults — **Needs
+- `[~]` `(vision)` Multi-page result shape: `page_grouping` is a real
+   profile field and `combined`/`per_page` both work end to end. What is
+   still open is the *destination-specific default* — which shape a
+   destination should get when a profile does not say. **Needs
    clarification**, see vision doc Epic A6
-- `[ ]` `(vision)` Document type/kind → destination-specific labels and
-   actions (e.g. "Eingangsrechnung", "Post", "Verträge") — **Needs
-   clarification**, see vision doc Epic A7
+- `[~]` `(vision)` Document type/kind: `document_type` is a real profile
+   field and reaches every destination, and `title_template` consumes it.
+   What is still open is the destination-specific *labels and actions*
+   half — what a destination should do with "Eingangsrechnung" beyond
+   putting it in a title. **Needs clarification**, see vision doc Epic A7
 
 ### Phase 1.4 — Web UI, profile management, remaining API surface
 
@@ -135,6 +139,12 @@ the full spec and open questions on each `(vision)` item.
    the Phase 1.4 UI should close.
 
 !!! note "Phase 2 was started before Phase 1 finished"
+
+    The panel items below carry their real state rather than a blanket
+    "not started": grid size, paging, the scan-status display and the
+    three-colour indicator are built; display rotation is `[~]` because
+    the grid geometry follows the orientation but the header and footer
+    rows are still landscape-only.
 
     The CYD scan-control panel, its browser installer, the BLE
     management surface and firmware OTA are all built — they are listed
@@ -173,20 +183,20 @@ this phase — a fixed 6-button landscape-only grid is running firmware
 today (`firmware/esp32-panel/cyd-scan-panel.yaml`). The items below are
 v3 additions from the 2026-08-13 vision, all firmware-side unless noted.
 
-- `[ ]` `(vision)` Configurable grid size (replacing the hard-coded 6
+- `[x]` `(vision)` Configurable grid size (replacing the hard-coded 6
    slots) — **Ready to dev**, see vision doc Epic B1
-- `[ ]` `(vision)` Paging buttons when more profiles exist than fit the
+- `[x]` `(vision)` Paging buttons when more profiles exist than fit the
    grid — **Ready to dev**, see vision doc Epic B2
 - `[ ]` `(vision)` Sorting: alphabetical / manual / usage-frequency /
    mixed (static-pinned + frequency-sorted) — **Needs clarification**, see
    vision doc Epic B3 (depends on the Phase 1.4 profile-database work)
-- `[ ]` `(vision)` Display rotation (portrait 240×320 in addition to the
+- `[~]` `(vision)` Display rotation (portrait 240×320 in addition to the
    current landscape 320×240 — already called out as a known gap in the
    firmware's own README) — **Ready to dev**, see vision doc Epic B4
-- `[ ]` `(vision)` Scan-status shown prominently until completion
+- `[x]` `(vision)` Scan-status shown prominently until completion
    (extends the existing tap → LED/status-label behaviour) — **Ready to
    dev**, see vision doc Epic B5
-- `[ ]` `(vision)` Chain-status indicator (green/red/blue) wired to
+- `[x]` `(vision)` Chain-status indicator (green/red/blue) wired to
    `GET /ready` once that endpoint's dispatch dependency lands (currently
    `501`) — **Ready to dev, blocked on the already-planned `/ready`
    endpoint**, see vision doc Epic B6

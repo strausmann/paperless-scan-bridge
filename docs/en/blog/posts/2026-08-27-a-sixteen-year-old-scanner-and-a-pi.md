@@ -62,7 +62,9 @@ Losing the hardware trigger forced a better question: what should
 actually start a scan?
 
 The answer is a single trigger-agnostic endpoint. `POST /scan` takes a
-profile name and nothing else, and it does not care who is calling.
+profile name — plus, optionally, `tag_ids` and a `tag_strategy` to
+override what the profile would have tagged — and it does not care who
+is calling.
 A phone shortcut, a Home Assistant automation, an n8n workflow, `curl`,
 or — the one that made the difference in daily use — a small touch panel
 on the wall.
