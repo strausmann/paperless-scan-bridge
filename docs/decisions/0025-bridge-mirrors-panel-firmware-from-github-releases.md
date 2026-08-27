@@ -163,12 +163,29 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   binaries under the same tag. The mirror therefore re-verifies the
   cached files against the checksums it recorded **and** compares those
   against the release's current `SHA256SUMS` before it skips a
-  download. Without
-  that, a file truncated or emptied after it was mirrored would be
-  served indefinitely — the panel discarding it on the MD5 check every
-  time, the mirror never noticing, because GitHub still reports the same
-  tag. That is a permanently broken update path repaired only by a new
-  release or by deleting the cache by hand.
+  download. Without the first check, a file truncated after it was
+  mirrored would be served indefinitely — the panel discarding it on the
+  MD5 check every time, the mirror never noticing, because GitHub still
+  reports the same tag. Without the second, the same is true of a
+  replaced asset. Either is a permanently broken update path, repaired
+  only by a new release or by deleting the cache by hand.
+- **Neutral / follow-ups:** a generation is therefore identified by its
+  **content** — the release tag plus a digest of that release's own
+  checksums — not by the tag alone. Detecting a replaced asset is not
+  enough on its own: writing the replacement into the same directory
+  would still overwrite bytes a panel had already been told to expect,
+  and its saved URL would return something its MD5 does not describe.
+  Content-addressed, the two generations simply coexist until the older
+  one ages out.
+- **Neutral / follow-ups:** a failed refresh is retried a few times
+  before falling back to the ordinary interval. The window that
+  motivates it is routine rather than exotic: `release.yml` creates the
+  release first and uploads the firmware in a following job, so a
+  refresh landing in between finds no `SHA256SUMS` and fails. Waiting
+  five hours for the next tick would mean a "Check for Update" pressed
+  during a release sees the old build despite all three of its manifest
+  reads. Bounded, so an unreachable GitHub does not become a poll every
+  five minutes forever.
 - **Neutral / follow-ups:** the panel's "Check for Update" runs the
   check three times — at 8 s, 90 s and 660 s — because there are three
   windows to cover: the bridge already held the release; the bridge was
