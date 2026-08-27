@@ -1,0 +1,309 @@
+# Deployment compose — pulls published images, never builds.
+#
+# The compose.yaml at the repository root builds from source; it is the
+# development and smoke-test stack. THIS file is what a deployment runs:
+# it references the images published by the release pipeline and never
+# carries a "build:" section.
+#
+# Images are pinned to the major line ("1"). ADR 0011 forbids "latest" in
+# production compose files; a floating major pointer keeps patch and minor
+# releases flowing on redeploy while a major bump stays a deliberate edit.
+#
+# Override PSB_VERSION to pin harder — for a rollback or a test:
+#   PSB_VERSION=1.2.0 docker compose up -d
+#
+# Requires the tag cascade from PR #108: without it the registry has no
+# "1" tag and this file cannot resolve.
+# Phase 1.2 (Task 15) compose stack: scan-bridge + sane-runtime, wired
+# over the ADR 0009 shared Unix socket, deployed on the reference host
+# hardware smoke test explicitly anticipated in
+# components/sane-runtime/Dockerfile's root-tradeoff comment ("the
+# Task 13 hardware smoke test").
+#
+# Lives at the repo root, NOT under deploy/compose/ as originally
+# sketched in docs/superpowers/plans/2026-04-30-phase-1.2-plan-
+# zusammenfassung-de.md ("deploy/compose/scan-stack.compose.yml").
+# Moved here after the first real deploy attempt via Dockhand's
+# `POST /api/git/stacks` failed with "unable to prepare context: path
+# '/docker/components/sane-runtime' not found" — the upward-escaping
+# `build.context: ../../components/sane-runtime` a nested composePath
+# would have required could not be resolved against the git-stack's
+# checkout root on the Hawser-edge agent. Every other git-stack
+# already running in this Dockhand instance (25+, spanning 6+
+# environments) uses `composePath: "compose.yaml"` at the repo root
+# with zero exceptions — no nested composePath + upward-escaping
+# build context exists anywhere in the fleet to compare against.
+# Rather than debug closed-source Hawser path resolution blind, this
+# stays at the empirically-proven location: build contexts and the
+# config/profile mounts below are root-relative (components/...,
+# deploy/...), no `../` needed anywhere.
+#
+# Data placement follows the HomeLab bind-mount convention (data lives
+# under /docker/stacks/<stack>/<service>/ on the host, one subdirectory
+# per container — NO named Docker volumes). This intentionally departs
+# from the CONTAINER_SUITE.md sec. 7.1/8.1 sketch, which predates that
+# convention and shows a named `sane-socket` volume; the Unix-socket
+# *transport* it specifies (ADR 0009) is unchanged, only the volume
+# backing it is a bind mount instead of a named volume.
+#
+# uid/gid coordination (main.go's "finalized in Task 13/15 (brief D3)"
+# TODO): sane-runtime still runs as root (documented, temporary
+# exception in its own Dockerfile — USB access, no udev/non-root wiring
+# on the host yet). scan-bridge runs as the distroless base image's
+# built-in `nonroot` user (UID/GID 65532 — GoogleContainerTools/
+# distroless convention). The socket sane-runtime creates is therefore
+# owned by root:root, mode 0660 (cmd/sane-runtime/main.go
+# newUnixListener) — a UID-65532 process cannot open it. Rather than
+# widening sane-runtime's own hardening further, scan-bridge is given
+# `group_add: ["0"]`: a supplementary GID (root's) added at container
+# creation, honored by the kernel for the socket's group permission
+# check without changing scan-bridge's own UID or requiring a shell
+# inside its distroless image. The one-shot `init-permissions` service
+# below does the equivalent for the bind-mounted state/output
+# directory, which Docker would otherwise auto-create as root:root
+# 0755 (bind-mounts-statt-named-volumes.md's "neu angelegte
+# Bind-Mount-Verzeichnisse gehoeren root" pitfall) — UID 65532 cannot
+# write job output into a directory it does not own. This is the
+# interim wiring for this smoke test, not a claim that ADR 0008/0013
+# (non-root sane-runtime) are satisfied.
+#
+# No named `volumes:` top-level block — see
+# .claude/rules/bind-mounts-statt-named-volumes.md in the
+# homelab-management repo.
+#
+# scan-processor wiring (design doc
+# docs/superpowers/specs/2026-08-13-scan-paperless-pipeline-design.md
+# sec. 4.2/9 Task 8; the same gap the roadmap doc calls out as
+# "(Phase 1.2 Task 8) has not landed"): a second bind-mounted socket
+# directory, mirroring the sane-socket one above but with different
+# ownership, because scan-processor runs as its own fixed
+# scansvc:scansvc UID/GID (10010:10010, components/scan-processor/
+# Dockerfile) rather than root (sane-runtime) or the distroless
+# nonroot UID (scan-bridge, 65532). scan-processor's own
+# newUnixListener (cmd/scan-processor/main.go) creates the socket
+# file mode 0660, group-owned by whatever GID the process runs as —
+# i.e. group 10010, not group 0 like sane-runtime's root-owned
+# socket. scan-bridge therefore needs a *second* supplementary group
+# (10010, not the existing 0) to satisfy the group-read+write file
+# permission check unix(7) requires to connect() to that socket —
+# `group_add` below carries both. The directory itself is
+# init-permissions-chowned to 10010:10010 (owner+group rwx) so
+# scan-processor can create/remove the socket file on its own
+# read-only rootfs' one writable path.
+#
+# scan-processor also gets ADR 0013's hardening actually turned on
+# (read_only rootfs, cap_drop: [ALL], no-new-privileges, fixed
+# non-root user) -- unlike sane-runtime/scan-bridge above, which
+# predate this compose file having any ADR-0013 flags wired in at
+# all (ADR 0013 is still Proposed) and are therefore left alone here
+# rather than hardened as a drive-by change outside this task's
+# scope. scan-processor's own Dockerfile comment already anticipated
+# exactly this ("Compose is expected to add cap_drop: [ALL] (Task 8,
+# deployment-only, not built here)"). Its pipeline scratch directory
+# (internal/pipeline/exec_pipeline.go's os.MkdirTemp("", ...), which
+# resolves under /tmp) needs a tmpfs mount because read_only rootfs
+# would otherwise make /tmp unwritable too.
+#
+# paperless_api_token is a Docker Compose file-based secret (works
+# without Swarm — the file's bytes are bind-mounted read-only into
+# the container at /run/secrets/paperless_api_token), matching
+# config.SecretResolver's default secrets directory
+# (cmd/scan-bridge/main.go's secretsDir constant) and the exact name
+# internal/destinations/paperless/paperless.go's
+# defaultTokenSecretName expects -- no new secret-loading mechanism,
+# per design doc sec. 11 item 5. The referenced file
+# (deploy/secrets/paperless_api_token) is gitignored; only a
+# CHANGE_ME placeholder (deploy/secrets/paperless_api_token.example)
+# is committed, mirroring this repo's existing .env/.env.example
+# convention -- the operator copies it and swaps in the real token
+# before deploying, the value never touches git history.
+
+# Image version stamping: every service is built with
+# VERSION=${PSB_VERSION:-dev}, surfaced by scan-bridge on GET /version.
+# It used to be a hardcoded task label ("phase-1.2-task-15") that stayed
+# frozen while the code moved on, which made /version useless for
+# telling an old deployment from a new one -- and produced a deploy
+# success criterion that would have failed a good deploy
+# (docs/learnings/lessons-learned.md, 2026-08-26). Set PSB_VERSION in
+# the deploy environment (a git describe/short SHA is the obvious
+# choice) to make /version answer "which build is actually running".
+# `make stamp` does that for you: it writes PSB_VERSION=$(git describe)
+# into .env, which Compose reads automatically, so even a plain
+# `docker compose up --build` stamps a real value. Unstamped builds
+# report "dev" -- honest about being unstamped, but it cannot tell two
+# deployments apart, so stamp anything you intend to verify later.
+
+services:
+  # One-shot: fixes ownership of the two host bind-mount directories
+  # before either real service starts, so a fresh (Docker-auto-created)
+  # directory does not leave scan-bridge unable to write its own output
+  # or read/write the shared socket. See the uid/gid note above.
+  init-permissions:
+    image: busybox:1.36
+    user: "0:0"
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /data/scan-bridge /data/socket /data/scan-processor-socket
+        chown -R 65532:0 /data/scan-bridge
+        chmod -R 0770 /data/scan-bridge
+        chown -R 0:0 /data/socket
+        chmod 0770 /data/socket
+        chown -R 10010:10010 /data/scan-processor-socket
+        chmod 0770 /data/scan-processor-socket
+    volumes:
+      - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/data/scan-bridge
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/data/socket
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/data/scan-processor-socket
+
+  sane-runtime:
+    # Pinned to the major line (ADR 0011: never "latest" in production).
+    # "1" moves with every release of major 1 — a patch or minor release
+    # is picked up by a redeploy, a major bump is not and needs a
+    # deliberate edit here.
+    image: ghcr.io/strausmann/paperless-scan-bridge/sane-runtime:${PSB_VERSION:-1}
+    pull_policy: always
+    container_name: paperless-scan-bridge-sane-runtime
+    restart: unless-stopped
+    # USB passthrough (ADR 0008: device-cgroup permissions, never
+    # --privileged). On the reference host the scanner enumerates as
+    # avision:libusb:001:004; the whole bus is passed through because
+    # deploy/udev/ (stable per-device symlink) is still empty
+    # (.gitkeep only, per repo-root CLAUDE.md) — narrowing this to the
+    # specific device node is tracked, not this task's scope.
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    environment:
+      SANE_RUNTIME_SOCKET: /run/sane-runtime/sane.sock
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/run/sane-runtime
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+
+  scan-processor:
+    # Pinned to the major line (ADR 0011: never "latest" in production).
+    # "1" moves with every release of major 1 — a patch or minor release
+    # is picked up by a redeploy, a major bump is not and needs a
+    # deliberate edit here.
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-processor:${PSB_VERSION:-1}
+    pull_policy: always
+    container_name: paperless-scan-bridge-scan-processor
+    restart: unless-stopped
+    # ADR 0013 hardening, actually turned on here — see the header
+    # comment above for why this component (and not sane-runtime/
+    # scan-bridge) is the first to get it.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Matches the Dockerfile's own `USER scansvc:scansvc` (fixed UID/
+    # GID 10010); set explicitly here too so the hardening is legible
+    # from the compose file alone, not only from the image.
+    user: "10010:10010"
+    tmpfs:
+      # internal/pipeline/exec_pipeline.go's os.MkdirTemp("", ...)
+      # scratch directory needs a writable /tmp; read_only above
+      # would otherwise make it unwritable. Explicit size (previously
+      # unset, i.e. unbounded up to the host's tmpfs default -- itself
+      # a DoS vector once a request-body size limit exists on the
+      # other side of this same pipeline, issue #47): 1 GiB, sized
+      # with headroom above internal/procapi's
+      # defaultMaxRequestBytes (512 MiB, cmd/scan-processor/main.go's
+      # copy of the same constant) -- ExecPipeline.Process writes
+      # every input page PLUS at least one intermediate file per
+      # per-page stage it runs (deskew/rotate/OCR/format-convert,
+      # exec_pipeline.go) into this directory before assembly, so one
+      # request's real peak scratch usage is a multiple of the raw
+      # input size, not equal to it. Matches the sizing rationale
+      # CONTAINER_SUITE.md sec. 8.1 documents for the (superseded,
+      # never-built) shared raw-page tmpfs it sketches.
+      - /tmp:size=1g
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/run/scan-processor
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+
+  scan-bridge:
+    # Pinned to the major line (ADR 0011: never "latest" in production).
+    # "1" moves with every release of major 1 — a patch or minor release
+    # is picked up by a redeploy, a major bump is not and needs a
+    # deliberate edit here.
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-bridge:${PSB_VERSION:-1}
+    pull_policy: always
+    container_name: paperless-scan-bridge-scan-bridge
+    restart: unless-stopped
+    # See the uid/gid note above — scan-bridge keeps the image's
+    # built-in nonroot UID (65532) and gains two supplementary GIDs:
+    # 0 to dial sane-runtime's root-owned socket, 10010 to dial
+    # scan-processor's scansvc-owned one.
+    group_add:
+      - "0"
+      - "10010"
+    ports:
+      - "18080:8080"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/sane-socket:/run/sane-runtime:ro
+      - /docker/stacks/paperless-scan-bridge/shared/scan-processor-socket:/run/scan-processor:ro
+      - /docker/stacks/paperless-scan-bridge/scan-bridge/data:/var/lib/scan-bridge
+      # Config/profiles are read straight out of the git-stack's own
+      # checkout (relative to this compose file), not
+      # /docker/stacks/paperless-scan-bridge/ — they are versioned
+      # inputs, not runtime state, so there is nothing host-side to
+      # pre-create or own-fix for them (read-only, world-readable in
+      # the checkout).
+      - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
+      # deploy/profiles/default.yaml is gitignored and site-specific:
+      # copy deploy/profiles/default.yaml.example to it and set your
+      # own Paperless base_url before the first deploy. Long syntax with
+      # create_host_path: false on purpose -- the short syntax would
+      # silently create a DIRECTORY at this path when the file is
+      # missing, and scan-bridge would then fail its profile load with a
+      # confusing "is a directory" error. This way `docker compose up`
+      # fails immediately, naming the missing file.
+      - type: bind
+        source: ./deploy/profiles/default.yaml
+        target: /etc/scan-bridge/profiles.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - paperless_api_token
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+      sane-runtime:
+        condition: service_started
+      scan-processor:
+        condition: service_started
+
+secrets:
+  paperless_api_token:
+    # PERMISSIONS MATTER. Compose bind-mounts this file into the
+    # container with the host's own ownership and mode, and scan-bridge
+    # reads it as the distroless image's nonroot user (UID 65532), not
+    # as root. A file left at the obvious `chmod 600` (root-only) is
+    # therefore unreadable inside the container, and the failure is
+    # late and quiet: the scan succeeds, the PDF is assembled, and only
+    # the upload fails with
+    #   paperless: resolve token secret "paperless_api_token":
+    #   ... open /run/secrets/paperless_api_token: permission denied
+    #
+    # scan-bridge already carries supplementary group 0 (see group_add
+    # above, added so it can dial sane-runtime's root-owned socket), so
+    # the smallest thing that works is root-owned and group-readable:
+    #
+    #   chown root:root deploy/secrets/paperless_api_token
+    #   chmod 0640      deploy/secrets/paperless_api_token
+    #
+    # Do NOT use 0644 — that makes the API token world-readable on the
+    # host for no benefit.
+    file: ./deploy/secrets/paperless_api_token
