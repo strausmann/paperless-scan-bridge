@@ -33,6 +33,16 @@ esphome:
   friendly_name: "${friendly_name}"
   comment: "paperless-scan-bridge CYD scan-control panel (v2, Issue #9, secret-free, ${orientation})"
   min_version: "2024.5.0"
+  # The update platform compares the manifest's `version` against this.
+  # Without it the panel cannot recognise a build as installed and keeps
+  # reporting the same update forever, even straight after applying it.
+  # CI overrides `project_version` with the short commit SHA it also
+  # writes into the manifest; a local build without that override says
+  # "dev", which will never match a published manifest — deliberately,
+  # so a hand-built panel is not told it is out of date.
+  project:
+    name: strausmann.paperless-scan-bridge
+    version: "${project_version}"
   on_boot:
     priority: -100
     then:
@@ -60,6 +70,9 @@ esp32:
 substitutions:
   name: cyd-scan-panel
   friendly_name: "Scan Panel"
+  # Overridden by CI with the short commit SHA so it matches the
+  # manifest's `version` — see esphome.project above.
+  project_version: "dev"
   # Display orientation (Issue #9 item B4). `orientation` is informational
   # only (surfaced in `esphome.comment` above so the merged config
   # documents which build this is); the eight substitutions below are the

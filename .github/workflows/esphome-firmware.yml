@@ -60,9 +60,19 @@ jobs:
       - name: Install ESPHome
         run: pip install "esphome==${{ env.ESPHOME_VERSION }}"
 
+      # project_version must equal the manifest's `version`, or the panel
+      # can never recognise a build as installed and keeps offering the
+      # update it just applied. Both are the short SHA; the substitution
+      # is overridden here rather than committed so a local build stays
+      # "dev" and is never told it is out of date.
       - name: Compile firmware
         working-directory: firmware/esp32-panel
-        run: esphome compile "${{ env.FIRMWARE_NAME }}.yaml"
+        env:
+          ESPHOME_PROJECT_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_SHA:0:7}"
+          esphome -s project_version "$version" compile "${{ env.FIRMWARE_NAME }}.yaml"
 
       # esphome's ESP-IDF-based build (the current default for esp32 +
       # arduino framework) writes the merged, flash-ready factory image
@@ -95,14 +105,29 @@ jobs:
             exit 1
           fi
 
-          # Anything ending in .factory.bin is excluded so this cannot
-          # accidentally pick the image we already have.
-          ota="$(find "$build_dir" -name '*.bin' ! -name '*.factory.bin' -print -quit)"
+          # Select the application image BY NAME. "any .bin that is not
+          # the factory image" is not good enough: the build tree also
+          # holds bootloader.bin and partitions.bin, and `find -print
+          # -quit` returns whichever the traversal reaches first. Picking
+          # one of those would publish a manifest pointing at a
+          # bootloader — and the md5 check below would happily confirm
+          # it, because it hashes whatever was selected. The device would
+          # then install a bootloader as an application.
+          ota="$(find "$build_dir" -name 'firmware.bin' -print -quit)"
           if [ -z "$ota" ]; then
-            echo "::error::no OTA image (*.bin without .factory) found under $build_dir"
+            echo "::error::no firmware.bin found under $build_dir"
             find "$build_dir" -maxdepth 5 -name '*.bin' || true
             exit 1
           fi
+          # Belt and braces: if a future ESPHome release renames the
+          # application image, fail loudly rather than shipping a helper
+          # artifact that happens to match.
+          case "$(basename "$ota")" in
+            bootloader.bin|partitions.bin|boot_app0.bin)
+              echo "::error::selected $ota, which is a build helper, not the application image"
+              exit 1
+              ;;
+          esac
 
           echo "Factory: $factory"
           echo "OTA:     $ota"
