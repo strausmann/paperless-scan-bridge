@@ -431,6 +431,7 @@ func TestContentTypeForFormat(t *testing.T) {
 		{OutputFormatPDF, "application/pdf"},
 		{OutputFormatJPEG, "image/jpeg"},
 		{OutputFormatTIFF, "image/tiff"},
+		{OutputFormatPNG, "image/png"},
 	}
 	for _, tc := range cases {
 		if got := contentTypeForFormat(tc.format); got != tc.want {
@@ -448,6 +449,7 @@ func TestFileExtensionForFormat(t *testing.T) {
 	}{
 		{OutputFormatPDF, "pdf"},
 		{OutputFormatJPEG, "jpg"},
+		{OutputFormatPNG, "png"},
 		{OutputFormatTIFF, "tiff"},
 	}
 	for _, tc := range cases {

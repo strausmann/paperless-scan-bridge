@@ -81,7 +81,7 @@ const (
 )
 
 // OutputFormat is the container scan-processor assembles pages into.
-// The values mirror profiles.Format ("pdf"/"jpeg"/"tiff"), but this
+// The values mirror profiles.Format ("pdf"/"jpeg"/"tiff"/"png"), but this
 // type is declared independently: scan-processor (and this client)
 // must not depend on the profiles package, per the design's "everything
 // scan-processor needs to act without knowing about profiles as a
@@ -92,6 +92,7 @@ const (
 	OutputFormatPDF  OutputFormat = "pdf"
 	OutputFormatJPEG OutputFormat = "jpeg"
 	OutputFormatTIFF OutputFormat = "tiff"
+	OutputFormatPNG  OutputFormat = "png"
 )
 
 // ProcessRequest is a single /process dispatch sent to scan-processor.

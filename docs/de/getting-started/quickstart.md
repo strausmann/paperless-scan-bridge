@@ -1,23 +1,51 @@
 # Schnellstart
 
-!!! warning "Noch nicht schlüsselfertig"
+!!! info "Das Werkzeug auf dieser Seite existiert jetzt"
 
-    Das Bootstrap-Skript (`deploy/bootstrap/install.sh`) und die
-    Compose-Stacks (`deploy/compose/`), auf die diese Seite verweist,
-    sind Phase-1-Lieferungen und liegen noch nicht im Repository. Die
-    Seite dokumentiert den vorgesehenen Ablauf, damit die Form des
-    Setups überprüfbar ist, bevor der Code da ist.
+    `deploy/bootstrap/install.sh` und `deploy/compose/scan-bridge.yml`
+    liegen im Repository. Was **noch nicht** passiert ist: ein
+    Durchlauf dieser Seite von vorn bis hinten auf einem frischen Pi.
+    Die Pipeline selbst ist gegen die Referenz-Hardware belegt, und das
+    Bootstrap-Skript durch seinen eigenen `--dry-run` und durch
+    `docker compose config` — aber niemand hat bislang eine
+    unvorbereitete Maschine anhand dieser sechs Schritte bis zum Scan
+    gebracht. Rechnen Sie damit, irgendwo anzuecken. Bitte melden.
 
 ## Voraussetzungen
 
-- Raspberry Pi 4 oder 5 mit Ubuntu Server 24.04 LTS (arm64)
+- **Ein Linux-Host mit Docker, in USB-Reichweite des Scanners.** Jede
+  amd64- oder arm64-Maschine. Ein Raspberry Pi 4 oder 5 mit Ubuntu
+  Server 24.04 ist die Referenz und der günstige Weg, einen Host genau
+  dorthin zu stellen, wo der Scanner stehen soll — aber er ist **eine
+  Möglichkeit, keine Voraussetzung**. Wer ohnehin einen Docker-Host in
+  Kabelreichweite betreibt, nimmt den und lässt den Pi weg.
 - Ein SANE-kompatibler USB-Scanner — siehe
   [Hardware-Übersicht](../hardware/index.md)
 - Eine Synology-NAS mit aktiviertem NFS
 - Ein Docker-Host für Paperless-ngx (darf die NAS selbst sein)
 
-Der Pi braucht nur Docker, einen NFS-Mount und USB-Berechtigungen. Alles
+Der Host braucht Docker, einen NFS-Mount und USB-Berechtigungen. Alles
 andere läuft in Containern.
+
+!!! info "Gescannte Seiten landen nie auf der Platte des Hosts"
+
+    Jeder Scan schreibt rohe TIFF-Seiten, lässt sie von
+    `scan-processor` zurücklesen und löscht sie wieder, bevor die
+    HTTP-Antwort rausgeht — sie existieren für die Dauer einer Anfrage
+    und keine Sekunde länger. Der Referenz-Stack legt diesen
+    Zwischenspeicher auf **tmpfs**, er liegt also im RAM und erreicht
+    dauerhaften Speicher nie.
+
+    Am wichtigsten ist das auf einem Pi, der von SD-Karte bootet: ein
+    Schreib-Lösch-Zyklus pro Scan ist genau das Zugriffsmuster, das
+    diese Karten am schlechtesten vertragen. Es ist aber überall die
+    richtige Vorgabe, denn die Daten haben keinen Grund, auf eine Platte
+    geschrieben zu werden, von der sie gleich wieder verschwinden.
+    Größen: `SCAN_BRIDGE_SCRATCH_SIZE` und `SCAN_PROCESSOR_TMPFS_SIZE`
+    in der `.env`; beide fassen je einen Auftrag, und ein Überlauf
+    scheitert laut, statt ein zu kurzes Dokument zu erzeugen.
+
+    Fertige Dokumente gehen auf die NFS-Freigabe, nicht auf den Host.
 
 ## 1. Synology-Freigabe vorbereiten
 
@@ -34,15 +62,12 @@ und `/etc/udev/rules.d/` als root — es direkt in eine Shell zu pipen ist
 die Bequemlichkeit nicht wert: Ein abgebrochener Download würde als
 halbes Skript ausgeführt.
 
-```bash title="Noch nicht — deploy/bootstrap/install.sh existiert nicht"
+```bash
 ssh pi@ihr-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # lesen, was gleich passiert
 sudo bash install.sh
 ```
-
-    Die URL liefert heute 404. Sie steht hier, damit die Form des
-    Schritts überprüfbar ist — nicht zum Ausführen.
 
 Das Skript installiert Docker samt Compose-Plugin, trägt den NFS-Mount
 in `/etc/fstab` ein, legt die udev-Regel an, die dem Container stabilen
@@ -72,7 +97,7 @@ NFS-Mountpunkt.
 
 ## 4. Bridge starten
 
-```bash title="Noch nicht — deploy/compose/ existiert nicht"
+```bash
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
 
@@ -82,9 +107,9 @@ Projekt veröffentlicht und verwendet keine `latest`-Tags.
 ## 5. Prüfen
 
 ```bash
-curl -s http://ihr-pi-host:8080/health
-curl -s http://ihr-pi-host:8080/ready
-curl -s http://ihr-pi-host:8080/profiles
+curl -s http://ihr-host:18080/health
+curl -s http://ihr-host:18080/ready
+curl -s http://ihr-host:18080/profiles
 ```
 
 `/health` meldet, dass der Prozess lebt. `/ready` liefert `200`, sobald
@@ -94,7 +119,7 @@ listet die konfigurierten Scan-Profile.
 ## 6. Erster Scan
 
 ```bash
-curl -X POST http://ihr-pi-host:8080/scan \
+curl -X POST http://ihr-host:18080/scan \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"profile": "default"}'

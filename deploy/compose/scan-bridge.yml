@@ -1,0 +1,222 @@
+# paperless-scan-bridge — reference stack, storage Topology B.
+#
+# The published deployment: pulls pinned images from GHCR, reads its
+# settings from a sibling .env, and writes documents straight to the
+# Synology NFS share the bootstrap script mounted.
+#
+# This is NOT the repository-root compose.yaml. That one builds the
+# three images from source and hardcodes the maintainer's host paths;
+# it is a development stack. This file is what someone with a Pi, a NAS
+# and a Paperless-ngx instance runs.
+#
+# The host is any Linux machine that runs Docker and can see the
+# scanner over USB. A Raspberry Pi is the cheap way to put one next to
+# the scanner wherever the scanner needs to stand; it is not a
+# requirement, and if you already run a Docker host within cable reach,
+# use that instead. Nothing here is Pi-specific except the arm64 half
+# of the image build, which an x86 host simply ignores.
+#
+# What IS specific to a Pi: scanned pages never touch its SD card. The
+# scratch mount below is tmpfs for that reason -- see the note on it.
+#
+# Topology B (NFS direct) because it is the simplest of the three:
+# one storage tier, backup implicit via Synology snapshots. The cost is
+# that inotify does not work over NFS, so Paperless-ngx has to poll —
+# roughly ten seconds of latency at the scanner. See the Storage
+# topologies page for A and C, which trade setup effort for that
+# latency.
+#
+#   cp .env.example .env && $EDITOR .env
+#   docker compose -f scan-bridge.yml up -d
+#   curl -s http://localhost:${SCAN_BRIDGE_PORT:-18080}/ready
+#
+# No `latest` anywhere (ADR 0011). PSB_VERSION in .env pins all three
+# images to one release; Renovate proposes the bumps.
+
+name: paperless-scan-bridge
+
+x-common: &common
+  restart: unless-stopped
+  # Every service reads the host clock rather than guessing UTC: a
+  # document's date comes out of the scan timestamp, and a container an
+  # hour off files last night's post under tomorrow.
+  volumes:
+    - /etc/localtime:/etc/localtime:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # A fresh named volume is created root-owned, and scan-bridge runs as
+  # UID 65532. Without this one-shot the daemon starts and then cannot
+  # write a single scan -- the failure surfaces mid-scan rather than at
+  # startup, which is the worst place for it. busybox because it is the
+  # smallest thing that can chown, and it exits immediately.
+  init-permissions:
+    image: busybox:1.37
+    user: "0:0"
+    command: >-
+      sh -c "mkdir -p /data && chown -R 65532:65532 /data && chmod 0755 /data"
+    volumes:
+      - scan-bridge-data:/data
+    restart: "no"
+
+  # The three services talk over Unix sockets in a shared volume rather
+  # than TCP (ADR 0009). A named volume, not a bind mount: nothing on
+  # the host needs to read these, and a named volume avoids the
+  # ownership dance a bind mount needs on a fresh machine.
+  sane-runtime:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/sane-runtime:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-sane-runtime
+    # USB passthrough by device-cgroup permission, never --privileged
+    # (ADR 0008). The whole bus is passed through because the scanner's
+    # bus/device numbers change on every replug; the udev rule from
+    # deploy/udev/ is what keeps the node readable without root.
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    environment:
+      SANE_RUNTIME_SOCKET: /run/sane-runtime/sane.sock
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - sane-socket:/run/sane-runtime
+
+  scan-processor:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-processor:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-scan-processor
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # No SCAN_PROCESSOR_SOCKET override. An earlier draft set
+    # /run/scan-processor/proc.sock here, which is a filename this
+    # project uses nowhere: both scan-processor and the bridge's client
+    # default to /run/scan-processor/scan-processor.sock, so the
+    # processor listened on one path while the bridge dialled another
+    # and every scan failed on connect. Two defaults that already agree
+    # need no third opinion.
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - scan-processor-socket:/run/scan-processor
+      # read_only above makes the whole filesystem immutable, so the
+      # scratch space ImageMagick and tesseract need has to be declared.
+      # tmpfs, not a volume: these are intermediate TIFFs for one job,
+      # and writing them to the SD card wears it out for nothing.
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: ${SCAN_PROCESSOR_TMPFS_SIZE:-512m}
+
+  scan-bridge:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-bridge:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-scan-bridge
+    # The image runs as nonroot (65532). These two supplementary groups
+    # are what let it dial the other two services' sockets, which are
+    # owned by their own users. Without them the bridge starts fine and
+    # every scan fails with "permission denied" on connect.
+    group_add:
+      - "0"
+      - "10010"
+    ports:
+      - "${SCAN_BRIDGE_PORT:-18080}:8080"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - sane-socket:/run/sane-runtime:ro
+      - scan-processor-socket:/run/scan-processor:ro
+      # Persistent state only -- small, and it has to survive a
+      # restart. The job store (Phase 1.4) lands here.
+      - scan-bridge-data:/var/lib/scan-bridge
+      # Scan scratch on tmpfs, i.e. RAM. This is the one mount that
+      # decides whether the host's disk survives.
+      #
+      # Every scan writes its raw TIFF pages here, scan-processor reads
+      # them back, and scan-bridge deletes the directory when the
+      # request finishes (`keep_scan_output = false`, the default). So
+      # nothing accumulates -- but on a named volume, every one of those
+      # pages would be written to the host's disk and erased again. On a
+      # Raspberry Pi booting from an SD card that is exactly the write
+      # pattern SD cards handle worst, and the data has no reason to be
+      # on durable storage at all: it is deleted before the HTTP
+      # response is sent.
+      #
+      # Sizing: this holds one job's uncompressed pages at once. Raise
+      # it for high-resolution duplex batches; a scan that overruns it
+      # fails with "no space left on device" rather than silently
+      # producing a short document.
+      - type: tmpfs
+        target: /var/lib/scan-bridge/scans
+        tmpfs:
+          size: ${SCAN_BRIDGE_SCRATCH_SIZE:-1g}
+      # The NFS share the bootstrap script mounted. Documents land here
+      # and Paperless-ngx picks them up from its consume folder.
+      - ${NFS_MOUNT_POINT:?set NFS_MOUNT_POINT in .env}:/mnt/documents
+      # Long syntax with create_host_path: false on purpose. The short
+      # syntax silently creates a DIRECTORY when the file is missing,
+      # and the daemon then fails with "is a directory" -- which reads
+      # like a bug rather than "you forgot to copy the example".
+      - type: bind
+        source: ${PSB_CONFIG_FILE:-../config/config.toml}
+        target: /etc/scan-bridge/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PSB_PROFILES_FILE:-../profiles/default.yaml}
+        target: /etc/scan-bridge/profiles.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - paperless_api_token
+      - bridge_token
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+      sane-runtime:
+        condition: service_started
+      scan-processor:
+        condition: service_started
+    healthcheck:
+      # /ready, not /health: health only says the process is up, ready
+      # says profiles loaded AND sane-runtime answered. A container
+      # reporting healthy while no scan can succeed is worse than none.
+      test: ["CMD", "/usr/local/bin/scan-bridge", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+secrets:
+  # File-based, not environment: an env var is visible in `docker
+  # inspect` and in the process list of anything that can read /proc.
+  #
+  # Ownership AND mode matter, and this has cost this project an
+  # afternoon already. Compose passes the host file's uid/gid and mode
+  # straight into the container, and scan-bridge runs as UID 65532 with
+  # supplementary groups 0 and 10010 only. So a file owned by your host
+  # user at 0600 is unreadable inside: the daemon starts, and every
+  # request that needs the secret fails with a permission error that
+  # names neither the file nor the reason.
+  #
+  # 0644 is what actually works without owning the files as 65532 --
+  # world-readable, which for a file that only exists inside your own
+  # host's docker directory is the pragmatic trade. If you would rather
+  # not, `sudo chown 65532:65532` them and use 0400.
+  #
+  # bridge_token is the plaintext bearer token, not its hash. The
+  # daemon hashes it on load and never keeps the plaintext; the panel
+  # and any other client send the same plaintext.
+  paperless_api_token:
+    file: ${PAPERLESS_API_TOKEN_FILE:-../secrets/paperless_api_token}
+  bridge_token:
+    file: ${BRIDGE_TOKEN_FILE:-../secrets/bridge_token}
+
+volumes:
+  sane-socket:
+  scan-processor-socket:
+  scan-bridge-data:

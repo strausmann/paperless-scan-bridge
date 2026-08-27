@@ -71,6 +71,25 @@ how it behaves once configured, and what it still cannot do.
 
 ## Known limitations
 
+!!! warning "Scans longer than 55 seconds cannot be started from the panel"
+
+    `http_request` is synchronous, so `POST /scan` holds the panel's main
+    loop for the whole scan, and a loop that does not return within the
+    task watchdog window reboots the device. ESPHome caps that watchdog
+    at 60 seconds, so the panel's client timeout sits at 55 — under it,
+    deliberately, so the client gives up first and the panel survives to
+    report an error instead of being killed mid-request.
+
+    A longer scan reports **Bridge unreachable** on the panel. The scan
+    itself still completes: the bridge already has the request and does
+    not care that the caller left. Three of the four shipped profiles
+    allow 180, 300 and 600 seconds and are out of reach from the panel
+    for now.
+
+    The fix is the `/jobs` endpoints (Phase 1.4) — fire the scan, poll
+    for the result, never hold the loop. ESPHome's `http_request` has no
+    async mode to use instead.
+
 No dedicated portrait page layout (the button grid itself resizes for
 either orientation, but the header/footer rows are still landscape-only
 — see the firmware README's "Display orientation"), no job polling, no

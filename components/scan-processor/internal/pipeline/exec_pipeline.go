@@ -106,7 +106,7 @@ func (p *ExecPipeline) Process(ctx context.Context, req Request) (Result, error)
 		return Result{}, fmt.Errorf("pipeline: unsupported page_grouping %q: %w", req.PageGrouping, ErrUnsupportedFormat)
 	}
 	switch req.OutputFormat {
-	case OutputFormatPDF, OutputFormatJPEG, OutputFormatTIFF:
+	case OutputFormatPDF, OutputFormatJPEG, OutputFormatTIFF, OutputFormatPNG:
 	default:
 		return Result{}, fmt.Errorf("pipeline: unsupported output_format %q: %w", req.OutputFormat, ErrUnsupportedFormat)
 	}
@@ -611,13 +611,14 @@ func (p *ExecPipeline) assemble(ctx context.Context, params assembleParams) ([]D
 		return []Document{doc}, nil
 
 	default:
-		// JPEG cannot hold more than one page per file — a
-		// multi-page "combined" JPEG request is a request the
-		// pipeline cannot satisfy, not a transient processing
-		// failure.
+		// JPEG and PNG hold exactly one image per file — a multi-page
+		// "combined" request in either is a request the pipeline
+		// cannot satisfy, not a transient processing failure. The
+		// format is named in the message because "combined" is the
+		// caller's word and the profile is where they would fix it.
 		return nil, fmt.Errorf(
-			"pipeline: page_grouping=combined with output_format=jpeg and %d pages: JPEG does not support multiple pages per file: %w",
-			len(params.pagePaths), ErrUnsupportedFormat)
+			"pipeline: page_grouping=combined with output_format=%s and %d pages: %s does not support multiple pages per file: %w",
+			params.format, len(params.pagePaths), strings.ToUpper(string(params.format)), ErrUnsupportedFormat)
 	}
 }
 
