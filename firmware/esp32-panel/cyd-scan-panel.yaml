@@ -78,10 +78,26 @@ substitutions:
   screen_height: "240"
   panel_rotation: "0"
   touch_swap_xy: "true"
+  # Measured, not guessed: a tap on the physical top-left corner of the
+  # reference unit reads raw [3820, 3820], near the ADC maximum on both
+  # axes. Unmirrored, that same tap mapped to (316, 237) — the opposite
+  # corner — so every press on the profile button landed on empty
+  # screen and did nothing. Mirroring both axes maps it to (4, 3).
+  #
+  # Still a starting point, not a finished calibration: the far
+  # endpoints (280 / 340) are the original placeholders and have not
+  # been measured on this unit. Re-measure per panel — README.md
+  # "Touch calibration" has the procedure.
   touch_x_min: "280"
   touch_x_max: "3860"
   touch_y_min: "340"
   touch_y_max: "3860"
+  # Both axes read inverted on the reference unit, so both are mirrored
+  # below. ESPHome refuses a descending calibration range ("x_min must
+  # be smaller than x_max. To mirror the direction use the 'transform'
+  # options"), which is why this is a transform and not swapped bounds.
+  touch_mirror_x: "true"
+  touch_mirror_y: "true"
 
 logger:
   baud_rate: 115200
@@ -311,6 +327,8 @@ touchscreen:
       y_max: ${touch_y_max}
     transform:
       swap_xy: ${touch_swap_xy}
+      mirror_x: ${touch_mirror_x}
+      mirror_y: ${touch_mirror_y}
 
 output:
   # Backlight: GPIO21, active-HIGH. Wrapped in a monochromatic light

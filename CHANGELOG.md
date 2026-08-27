@@ -192,6 +192,13 @@ between releases as a running list.
 
 ### Fixed
 
+- Scan panel: the touchscreen was inverted on both axes, so a tap on the
+  profile button landed on the opposite corner and did nothing. Measured
+  on the reference unit: the physical top-left corner reads raw
+  `[3820, 3820]`, which the previous calibration mapped to `(316, 237)`.
+  Both axes are now mirrored via `transform`, putting that tap at
+  `(4, 3)`. The far calibration endpoints are still the original
+  placeholders and should be re-measured per unit.
 - Scan panel: tapping a profile often did nothing. `http_request` is
   synchronous, so every status poll blocked the main loop and LVGL
   processed no input while it ran — a panel on a slow link logged

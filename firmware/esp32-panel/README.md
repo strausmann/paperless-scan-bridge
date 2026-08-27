@@ -150,10 +150,18 @@ screen_x = (raw_y - x_min) / (x_max - x_min) * screen_width
 screen_y = (raw_x - y_min) / (y_max - y_min) * screen_height
 ```
 
-With the shipped values (`x_min 280`, `x_max 3860`, `y_min 340`,
-`y_max 3860`, 320x240) the sample above lands at **(265, 167)** — the
-lower-right corner. If that is not where you touched, the calibration is
-wrong for your unit.
+Then apply `mirror_x` / `mirror_y` if set: a mirrored axis becomes
+`screen - value`.
+
+This is how the reference unit's inversion was found. A tap on the
+physical **top-left** corner read `[3820, 3820]` — near the ADC maximum
+on both axes. Unmirrored that maps to **(316, 237)**, the opposite
+corner, so every press on the profile button landed on empty screen and
+nothing happened. Both axes are mirrored in `substitutions:` for that
+reason; the same tap now maps to **(4, 3)**.
+
+If your computed point does not match where you touched, the calibration
+is wrong for your unit.
 
 If the computed point *does* match where you tapped and the button still
 did not fire, the tap was dropped rather than mislocated — see
@@ -163,8 +171,20 @@ did not fire, the tap was dropped rather than mislocated — see
 
 Tap each corner of the screen in turn and note the raw pairs. The
 smallest and largest `raw_y` you see become `x_min`/`x_max`; the
-smallest and largest `raw_x` become `y_min`/`y_max`. Put them in the
-`substitutions:` block and re-flash — over USB or OTA, both work.
+smallest and largest `raw_x` become `y_min`/`y_max`.
+
+If a corner reads near the **maximum** where you expected the minimum,
+that axis is inverted — set `touch_mirror_x` / `touch_mirror_y`. Do not
+try to express it by putting `x_min` above `x_max`: ESPHome rejects a
+descending range with *"x_min must be smaller than x_max. To mirror the
+direction use the 'transform' options"*.
+
+Two corners on the **same diagonal** (top-left and bottom-right) cannot
+tell you whether `swap_xy` is right — both axes move together. Use an
+off-diagonal pair (top-right, bottom-left) to check that.
+
+Put the values in the `substitutions:` block and re-flash — over USB or
+OTA, both work.
 
 ## Responsiveness
 
