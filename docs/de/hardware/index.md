@@ -19,7 +19,7 @@ besonders gerätespezifisch — oft fehlt sie ganz.
 
 | Modell | USB-ID | SANE-Backend | Stufe | Anmerkungen |
 | --- | --- | --- | --- | --- |
-| [Kodak ScanMate i1120](/en/hardware/kodak-scanmate-i1120/) *(englisch)* | `040a:6013` | `avision` | A | Referenzgerät. ADF + Duplex, 75–600 DPI. Hardware-Tasten nur teilweise nutzbar. |
+| [Kodak ScanMate i1120](kodak-scanmate-i1120.md) | `040a:6013` | `avision` | A | Referenzgerät. ADF + Duplex, 75–600 DPI. Hardware-Tasten nur teilweise nutzbar. |
 
 Die vollständige Liste — inklusive bekannt inkompatibler Geräte,
 ungetesteter Kandidaten, Auslöse-Hardware und Speicher-Backends — steht
@@ -32,6 +32,8 @@ Kein Scanner, sondern ein Begleitgerät: Das CYD-Scan-Panel ist ein
 Touchscreen, der Scan-Profile auflistet und einen Scan über HTTP
 auslöst — direkt aus dem Browser flashbar.
 
+- [CYD-Scan-Panel](cyd-scan-panel.md) — Hardware-Referenz, Einrichtung
+  Schritt für Schritt und bekannte Grenzen
 - [Panel installieren](../install/index.md) — Firmware flashen
 - [Panel verwalten](../manage/index.md) — WLAN über Bluetooth
   einrichten

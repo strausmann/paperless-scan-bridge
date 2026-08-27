@@ -46,6 +46,20 @@ between releases as a running list.
 
 ### Added
 
+- The German site grows from six pages to eleven and finally gets the
+  landing page. Until now `/de/` opened on the plain docs template while
+  `/en/` had the hardware-chain hero, and Architecture, Storage
+  topologies, No third-party requests, Kodak ScanMate i1120 and CYD
+  scan-control panel existed in English only. All five are translated and
+  the German homepage now uses the **same** `home.html` template — every
+  visible string in it is read from the page's own front matter with the
+  English text as the fallback, so one template serves both builds rather
+  than two copies that drift. Its CSS, JS and fonts are referenced with
+  absolute `/en/` paths, the same-origin trade-off `panel-tools.js`
+  already makes. The reference pages that change most often — scan
+  profiles, profile schema, troubleshooting, API reference — stay English
+  on purpose, and the homepage says so.
+
 - The scan panel now logs what it is actually doing. Its log used to be
   dominated by two framework components — `xpt2046` printing a line per
   touch sample and `http_request.idf` one per response header — so a

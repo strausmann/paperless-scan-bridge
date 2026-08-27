@@ -1,13 +1,94 @@
-# paperless-scan-bridge
+---
+template: home.html
+title: "paperless-scan-bridge — die freihändige Scanner-Pipeline für Paperless-ngx"
+hide:
+  - navigation
+  - toc
+hero_title: "Ein Scanner, ein Pi und ein NAS, dem Sie längst vertrauen."
+hero_lede: >-
+  Vier Geräte, einmal verkabelt. Dokument einlegen, Knopf drücken, rund
+  dreißig Sekunden später ist es in Paperless-ngx durchsuchbar.
+hero_cta_primary: "Worum es geht"
+hero_cta_primary_href: "#worum-es-geht"
+hero_cta_start: "Erste Schritte"
+hero_cta_install: "Panel installieren"
+hero_diagram_alt: >-
+  Der Scanner hängt per USB am Raspberry Pi; der Pi schreibt über NFS auf
+  ein Synology-NAS; Paperless-ngx liest vom NAS.
+hero_label_scanner: "USB-Scanner (ADF)"
+hero_chip_consume: "Consume-Ordner"
+---
 
-Dokument einlegen. Knopf drücken. Dreißig Sekunden später ist es in
-Paperless-ngx durchsuchbar.
+## Worum es geht
 
-`paperless-scan-bridge` ist ein Container-First-Stack, der einen per USB
-an einen Raspberry Pi angeschlossenen Dokumentenscanner mit einer
-Paperless-ngx-Instanz irgendwo im Netz verbindet. Die Dokumente landen
-auf einer Synology-NAS — die vorhandene Backup-, Snapshot- und
-Off-Site-Strategie gilt damit für alles, was das System produziert.
+Paperless-ngx bringt keine Scanner-Anbindung mit. Für Teile dieses Stacks
+gibt es Dutzende bruchstückhafte Anleitungen — SANE auf dem Pi,
+Paperless-ngx mit NFS, Scanner-Tasten über scanbd, Zigbee-Automatisierung
+in Home Assistant. Was fehlt, ist ein einzelnes Repository, das vom
+frischen Pi-Image bis zur produktionsreifen Scan-Pipeline mit Backup,
+Monitoring und Härtung durchführt.
+
+Diese Lücke füllt dieses Projekt. Nebenbei ist es die Chronik davon, wie
+ein **Kodak ScanMate i1120** — ein sechzehn Jahre alter Tischscanner ohne
+moderne Linux-Treiber — zum freihändigen Teil eines Homelabs wird. Was
+hier funktioniert, funktioniert für die meisten SANE-fähigen
+Einzugsscanner auch.
+
+## Drei Container. Nichts auf dem Host
+
+Die Aufgabe des Pi sind Docker, ein NFS-Mount und udev-Regeln — mehr
+nicht. Jede echte Arbeit passiert in einem dieser drei Images, die an
+Ihre vorhandene Paperless-ngx-Instanz übergeben.
+
+<div class="mdx-grid" markdown="1">
+- **`scan-bridge`** *(Go)* — REST-API, Profil-Dispatch,
+  Prometheus-Metriken. Nimmt den Auslöser entgegen — Hardware-Taste,
+  Zigbee oder Webhook — und startet den Auftrag.
+- **`sane-runtime`** *(Bash + Go)* — SANE-Treiber und udev-Anbindung für
+  stabile USB-Gerätepfade. Steuert den physischen Scanner.
+- **`scan-processor`** *(Go)* — richtet gerade, filtert leere Seiten,
+  montiert das PDF und schreibt es atomar über NFS in das
+  Consume-Verzeichnis.
+- **`paperless-ngx`** *(upstream)* — holt das PDF aus seinem
+  Consume-Ordner, führt OCR aus und verschlagwortet nach Profil. Läuft
+  dort, wo es bei Ihnen ohnehin schon läuft.
+</div>
+
+## Drei Wege, „scanne das" zu sagen
+
+Der Auslösepfad ist vollständig von der räumlichen Nähe entkoppelt.
+Derselbe Mechanismus bedient jemanden, der vor dem Scanner steht, und
+jemanden, der zwei Etagen entfernt am Telefon sitzt.
+
+<div class="mdx-grid" markdown="1">
+- **Hardware-Taste** *(geplant)* — scanbd fragt die Tasten des Scanners
+  selbst ab. Die README von `sane-runtime` führt scanbd bislang
+  ausdrücklich als außerhalb des Moduls; dieser Weg ist entworfen, nicht
+  gebaut.
+- **Zigbee-Fernbedienung** *(geplant)* — ein STYRBAR-Taster über Home
+  Assistant, ein Tastenereignis je Scan-Profil.
+  `homeassistant/blueprints/` ist bislang nur Gerüst, es gibt noch keine
+  Blueprint-Datei.
+- **HTTP-Webhook** — heute ein echter, per Bearer-Token geschützter
+  `POST /scan` auf dem `scan-bridge`-Daemon: reicht an `sane-runtime`
+  weiter, dann an `scan-processor`, dann an die Zustellung — aus einer
+  Telefon-Kurzbefehl-Aktion, einem Skript oder jedem anderen System im
+  Netz.
+</div>
+
+## Die eine nicht verhandelbare Regel
+
+**Container-First, dünner Host.** Am Pi sind ausschließlich drei
+Eingriffe erlaubt: Docker samt Compose-Plugin installieren, die
+Synology-NFS-Freigabe über `/etc/fstab` einhängen und udev-Regeln unter
+`/etc/udev/rules.d/` ablegen. Kein SANE auf dem Host. Kein scanbd auf dem
+Host. Keine Sprach-Runtimes auf dem Host.
+
+Die Dokumente landen auf Ihrem eigenen Synology-NAS, Ihre vorhandene
+Backup- und Snapshot-Strategie deckt sie also bereits ab. MIT-lizenziert,
+keine Cloud-Abhängigkeit, keine Telemetrie.
+
+## Wie der Stand wirklich ist
 
 !!! warning "Projektstand: Der Kern von Phase 1 läuft, das Deployment-Werkzeug fehlt"
 
@@ -27,23 +108,44 @@ Off-Site-Strategie gilt damit für alles, was das System produziert.
     Referenz-Hardware gelungen: `POST /scan` hat einen Duplex-Scan
     ausgelöst, das Ergebnis als zweiseitiges PDF montiert und in
     Paperless-ngx hochgeladen. Was fehlt, ist das Drumherum —
-    Bootstrap-Skript, veröffentlichter Compose-Stack, Monitoring,
+    Bootstrap-Skript, veröffentlichter Compose-Stack, scanbd, der
+    Home-Assistant-Blueprint, der asynchrone Job-Store, Monitoring und
     Backup.
 
-!!! info "Deutsche Übersetzung: der Einstieg, nicht die Referenz"
+<div class="mdx-status" markdown="1">
+| Phase | Umfang | Stand |
+| ----- | ------ | ----- |
+| **0** | Repository, MIT-Lizenz, Doku-Site, Hardware-Tabelle | abgeschlossen |
+| **1** | Kern-Pipeline verdrahtet, gegen echte Hardware belegt | läuft |
+| **2** | Hardware-Tasten, Zigbee-Blueprints, n8n-Exporte | nicht begonnen |
+| **3** | restic-Backup, Prometheus/Grafana, Härtung | nicht begonnen |
+| **4** | Reife des Ökosystems — community-getrieben | nicht begonnen |
+</div>
 
-    Übersetzt sind die Seiten, die man zum Anfangen braucht: diese
-    Startseite, [Erste Schritte](getting-started/index.md), der
-    [Schnellstart](getting-started/quickstart.md), die
-    [Hardware-Übersicht](hardware/index.md) sowie
-    [Panel installieren](install/index.md) und
-    [Panel verwalten](manage/index.md).
+Direkt gegen das Repository geprüft — die
+[Roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
+ist der Plan, nicht immer der Stand auf den Commit genau. Wo beide
+auseinandergehen, gilt hier, was tatsächlich im Repository steht.
 
-    **Die Referenzdokumentation bleibt vorerst englisch** — Profil-Schema,
-    Architektur, Troubleshooting und API-Referenz. Das ist Absicht: Diese
-    Seiten ändern sich am häufigsten, und eine Übersetzung, die
-    hinterherhinkt, ist schlechter als gar keine. Jede deutsche Seite
-    verlinkt an den passenden Stellen ins Englische.
+!!! info "Deutsche Übersetzung: der Einstieg und die stabile Referenz"
+
+    Übersetzt sind diese Startseite,
+    [Erste Schritte](getting-started/index.md), der
+    [Schnellstart](getting-started/quickstart.md),
+    [Panel installieren](install/index.md),
+    [Panel verwalten](manage/index.md), die
+    [Architektur](architecture/index.md) samt
+    [Speichertopologien](architecture/storage-topologies.md) und
+    [Keine Drittanbieter-Anfragen](architecture/no-third-party-requests.md)
+    sowie die [Hardware](hardware/index.md) mit
+    [Kodak ScanMate i1120](hardware/kodak-scanmate-i1120.md) und
+    [CYD-Scan-Panel](hardware/cyd-scan-panel.md).
+
+    **Englisch bleiben vorerst die Seiten, die sich am häufigsten
+    ändern** — Scan-Profile, Profil-Schema, Troubleshooting, API-Referenz
+    und der Blog. Das ist Absicht: Eine Übersetzung, die hinterherhinkt,
+    ist schlechter als gar keine. Jede deutsche Seite verlinkt an den
+    passenden Stellen ins Englische.
 
     Grund für den zweigeteilten Aufbau: Zensical hat noch keine native
     Mehrsprachigkeit. Englische und deutsche Site sind zwei getrennte
@@ -55,35 +157,18 @@ Off-Site-Strategie gilt damit für alles, was das System produziert.
     [Issue #13](https://github.com/strausmann/paperless-scan-bridge/issues/13)
     fest, wann der Workaround verschwindet.
 
-## Worum es geht
-
-Für Teile dieses Stacks gibt es Dutzende bruchstückhafte Anleitungen —
-SANE auf dem Pi, Paperless-ngx mit NFS, Scanner-Tasten über scanbd,
-Zigbee-Automatisierung in Home Assistant. Was fehlt, ist ein einzelnes
-Repository, das vom frischen Pi-Image bis zur produktionsreifen
-Scan-Pipeline mit Backup, Monitoring und Härtung durchführt.
-
-Diese Lücke füllt dieses Projekt. Nebenbei ist es die Chronik davon, wie
-ein Kodak ScanMate i1120 — ein sechzehn Jahre alter Tischscanner ohne
-moderne Linux-Treiber — zum freihändigen Teil eines Homelabs wird.
-
-## Die eine nicht verhandelbare Regel
-
-**Container-First, dünner Host.** Am Pi sind ausschließlich drei
-Eingriffe erlaubt: Docker samt Compose-Plugin installieren, die
-Synology-NFS-Freigabe über `/etc/fstab` einhängen und udev-Regeln unter
-`/etc/udev/rules.d/` ablegen. Kein SANE auf dem Host. Kein scanbd auf
-dem Host. Keine Sprach-Runtimes auf dem Host.
-
 ## Weiterführend
 
+- [Erste Schritte](getting-started/index.md) — Voraussetzungen und der
+  erste Scan
+- [Architektur](architecture/index.md) — Komponenten, Datenfluss und die
+  drei Speichertopologien
+- [Hardware](hardware/index.md) — was funktioniert, was nicht, und wie
+  Sie Ihr eigenes Gerät melden
 - [Panel installieren](install/index.md) — Firmware direkt aus dem
   Browser auf das ESP32-Panel flashen
-- [Erste Schritte](getting-started/index.md) — was der Stack tut und was
-  man dafür braucht
 - [Englische Dokumentation](/en/) — vollständig, inklusive Referenz
 - [Repository auf GitHub](https://github.com/strausmann/paperless-scan-bridge)
-- [Roadmap](https://github.com/strausmann/paperless-scan-bridge/blob/main/ROADMAP.md)
 
 ## Lizenz und Marken
 
