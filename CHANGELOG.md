@@ -270,7 +270,12 @@ between releases as a running list.
   deferred `Close` on the files that receive a scanned page and an
   assembled document was unchecked, so a failed final flush would have
   written a truncated PDF and reported success for it. Both are checked
-  explicitly now.
+  explicitly now. The first real test run caught a second problem the
+  suite had been carrying silently: `scan-processor`'s OCR fixtures
+  wrote an executable script and ran it immediately, which fails with
+  `text file busy` whenever a concurrent test forks inside the window
+  where the write descriptor is still open (golang/go#22315). The
+  fixtures now wait until the script is genuinely executable.
 
 - A long scan-profile name no longer draws outside its button on the
   panel. The name label had neither a width nor a `long_mode`, and an
