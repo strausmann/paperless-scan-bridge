@@ -192,6 +192,13 @@ between releases as a running list.
 
 ### Fixed
 
+- Scan panel: setting Bridge URL and Bridge Token from the dashboard did
+  nothing visible until the next poll or a reboot. A freshly flashed
+  panel boots with both empty, so `on_boot` skips loading profiles and
+  checking the bridge — and the two entities had no `on_value` handler
+  to re-run those once configured. The grid stayed empty and the bridge
+  indicator stayed grey, which reads as "I configured it and it does not
+  work". Both entities now re-check on change.
 - Scan panel: the touchscreen was inverted on both axes, so a tap on the
   profile button landed on the opposite corner and did nothing. Measured
   on the reference unit: the physical top-left corner reads raw

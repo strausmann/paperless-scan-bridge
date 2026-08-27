@@ -195,12 +195,27 @@ text:
     optimistic: true
     restore_value: true
     mode: text
+    # A freshly flashed panel boots with both values empty, so on_boot
+    # skips refresh_profiles and check_bridge_health. Without this,
+    # filling them in from the dashboard changed nothing visible: the
+    # grid stayed empty and the bridge indicator stayed grey until the
+    # next 300s poll or a reboot, which reads as "I configured it and
+    # it does not work".
+    on_value:
+      - script.execute: refresh_profiles
+      - script.execute: check_bridge_health
   - platform: template
     name: "Bridge Token"
     id: bridge_token
     optimistic: true
     restore_value: true
     mode: password
+    # Same reason as Bridge URL above. Both are needed before a scan can
+    # be triggered, and either one arriving last is the one that
+    # completes the configuration — so both re-check.
+    on_value:
+      - script.execute: refresh_profiles
+      - script.execute: check_bridge_health
 
 # ---------------------------------------------------------------------
 # Grid size (Issue #9 item B1). Two persistent `number` entities, same

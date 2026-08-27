@@ -155,10 +155,11 @@ Then apply `mirror_x` / `mirror_y` if set: a mirrored axis becomes
 
 This is how the reference unit's inversion was found. A tap on the
 physical **top-left** corner read `[3820, 3820]` — near the ADC maximum
-on both axes. Unmirrored that maps to **(316, 237)**, the opposite
-corner, so every press on the profile button landed on empty screen and
-nothing happened. Both axes are mirrored in `substitutions:` for that
-reason; the same tap now maps to **(4, 3)**.
+on both axes. Unmirrored that maps to **(316, 237)**: on a 320x240
+screen that is 4 pixels from the bottom-right corner, i.e.
+diagonally opposite the finger. Every press on the profile button landed
+on empty screen and nothing happened. Both axes are mirrored in
+`substitutions:` for that reason; the same tap now maps to **(4, 3)**.
 
 If your computed point does not match where you touched, the calibration
 is wrong for your unit.
