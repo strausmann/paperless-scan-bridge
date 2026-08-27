@@ -676,24 +676,31 @@ func (m *Mirror) Run(ctx context.Context) {
 		case <-deferred.C:
 			deferredPending = false
 		case <-m.trigger:
-			if wait := m.throttleRemaining(); wait > 0 {
-				// Arm once per floor, and only for redundancy's sake --
-				// not for correctness. throttleRemaining counts down
-				// from lastAttempt, which does not move while the floor
-				// runs, so re-arming on every trigger would land on the
-				// same instant anyway; a caller in a loop cannot push
-				// the refresh out. The guard just avoids a Reset and a
-				// log line per press. (Verified by mutation: removing
-				// it breaks no test, which is why this comment no
-				// longer claims it prevents starvation.)
-				if !deferredPending {
-					deferredPending = true
-					deferred.Reset(wait)
-					m.logger.Info("firmware refresh deferred by the API-call floor",
-						slog.Duration("retry_in", wait.Round(time.Second)))
-				}
-				continue
+		}
+
+		// One rule for every wake-up, not just the button. A manual
+		// refresh shortly before the five-hourly tick would otherwise
+		// leave that tick to hit the floor, get a ThrottledError, and
+		// be dropped -- so a release published in between would go
+		// unnoticed for another five hours, despite a check having
+		// been due.
+		if wait := m.throttleRemaining(); wait > 0 {
+			// Arm once per floor, and only for redundancy's sake --
+			// not for correctness. throttleRemaining counts down from
+			// lastAttempt, which does not move while the floor runs,
+			// so re-arming would land on the same instant anyway; a
+			// caller in a loop cannot push the refresh out. The guard
+			// just avoids a Reset and a log line per wake-up.
+			// (Verified by mutation: removing it breaks no test, which
+			// is why this comment does not claim it prevents
+			// starvation.)
+			if !deferredPending {
+				deferredPending = true
+				deferred.Reset(wait)
+				m.logger.Info("firmware refresh deferred by the API-call floor",
+					slog.Duration("retry_in", wait.Round(time.Second)))
 			}
+			continue
 		}
 		m.refreshLogged(ctx)
 	}

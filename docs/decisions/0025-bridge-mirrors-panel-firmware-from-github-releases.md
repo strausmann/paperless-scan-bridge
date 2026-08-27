@@ -170,11 +170,14 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   tag. That is a permanently broken update path repaired only by a new
   release or by deleting the cache by hand.
 - **Neutral / follow-ups:** the panel's "Check for Update" runs the
-  check twice, at 8 seconds and at 5½ minutes. The second one exists
-  because a press landing inside the API-call floor is honoured *late*:
-  a single early check would read the manifest before the deferred
-  refresh ran, report no update, and leave freshly published firmware
-  waiting for the next six-hourly poll.
+  check three times — at 8 s, 90 s and 660 s — because there are three
+  windows to cover: the bridge already held the release; the bridge was
+  free to ask GitHub and has finished the download; and the press landed
+  at the start of the five-minute floor *and* the deferred refresh then
+  took its full five-minute timeout. 660 s is the sum of both
+  bridge-side limits plus a minute. A single early check would read the
+  manifest before the deferred refresh ran, report no update, and leave
+  freshly published firmware waiting for the next six-hourly poll.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the

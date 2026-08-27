@@ -528,9 +528,13 @@ paths:
           description: The file.
           headers:
             X-Firmware-Version:
+              description: >-
+                The **generation**, not the bare tag — on this route that
+                is what the caller asked for, and a tag alone does not
+                identify the bytes. The other two routes carry the tag.
               schema:
                 type: string
-                example: v1.2.0
+                example: v1.2.0-9f2c1a4b7e30
           content:
             application/octet-stream:
               schema:

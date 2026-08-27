@@ -1608,3 +1608,59 @@ func TestRefreshPublishesEvenIfTheStateFileCannotBeWritten(t *testing.T) {
 		t.Errorf("Open served %q", from.Tag)
 	}
 }
+
+// The floor applies to the scheduled tick as well, and a tick it
+// refuses must be re-armed like a button press. A manual refresh shortly
+// before the tick would otherwise leave that tick to be dropped, and a
+// release published in between would go unseen for another full
+// interval despite a check having been due.
+//
+// Asserted on the API-call count rather than on "does the new tag turn
+// up eventually": a repeating ticker gets a second chance on its own, so
+// eventual success proves nothing. The timings put exactly one tick
+// inside the floor and check the call it should produce arrives before
+// the following tick could rescue it.
+func TestRunReArmsAScheduledTickThatHitsTheFloor(t *testing.T) {
+	const (
+		floor    = 1500 * time.Millisecond
+		interval = 2 * time.Second
+	)
+
+	g := newFakeGitHub(t)
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		Interval:           interval,
+		MinRefreshInterval: floor,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go m.Run(ctx)
+
+	// t≈0: Run's initial refresh. Call 1; the floor now runs to 1500ms.
+	waitFor(t, func() bool { return g.apiCalls.Load() >= 1 }, "the initial refresh")
+
+	// t≈1400ms: a press just inside the floor. Deferred to 1500ms,
+	// where it becomes call 2 and restarts the floor to 3000ms.
+	time.Sleep(1400 * time.Millisecond)
+	m.TriggerRefresh()
+	waitFor(t, func() bool { return g.apiCalls.Load() >= 2 }, "the deferred press")
+
+	// t≈2000ms: the scheduled tick, squarely inside the new floor. It
+	// must be deferred to 3000ms and become call 3 -- well before the
+	// next tick at 4000ms, which is what would mask a dropped one.
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if g.apiCalls.Load() >= 3 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("apiCalls = %d; the throttled tick was dropped instead of re-armed",
+		g.apiCalls.Load())
+}
