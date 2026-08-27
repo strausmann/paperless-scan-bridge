@@ -47,6 +47,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -105,6 +106,34 @@ const (
 	// would hold refreshMu forever and the mirror would never try
 	// again.
 	refreshTimeout = 5 * time.Minute
+
+	// DefaultMinRefreshInterval is the floor between two GitHub API
+	// calls, however often a refresh is asked for.
+	//
+	// POST /firmware/refresh is unauthenticated by design, so anyone on
+	// the LAN can press the panel's button, or call the route in a
+	// loop. Coalescing alone does not bound that: once Run takes the
+	// queued token the next call queues immediately behind it, so a
+	// persistent caller drives one API call per refresh duration
+	// indefinitely and can exhaust the anonymous 60-per-hour quota --
+	// which would stop real updates arriving. This caps trigger-driven
+	// checks at 12 per hour. Nothing upstream changes in five minutes
+	// anyway; the scheduled poll runs hours apart and never meets it.
+	DefaultMinRefreshInterval = 5 * time.Minute
+
+	// generationsKept is how many mirrored releases stay on disk.
+	//
+	// Two, not one, and this is a correctness requirement rather than
+	// caution. The panel reads the manifest on its own schedule and
+	// installs when a person clicks, which can be hours later; it
+	// carries the MD5 it read at check time. If the newer release
+	// replaced the older one in between, that click would download a
+	// binary the held MD5 does not describe and fail -- safely, but
+	// visibly, and exactly in the moments right after a release. Keeping
+	// the previous generation, together with the version-qualified path
+	// the served manifest points at, makes the URL the panel captured
+	// stay valid and keep returning the same bytes.
+	generationsKept = 2
 )
 
 // Release describes the firmware currently in the cache.
@@ -124,13 +153,17 @@ type Release struct {
 
 // Options configures New. Every field except CacheDir has a default.
 type Options struct {
-	CacheDir   string
-	Repo       string
-	APIBase    string
-	Interval   time.Duration
-	HTTPClient *http.Client
-	Logger     *slog.Logger
-	UserAgent  string
+	CacheDir string
+	Repo     string
+	APIBase  string
+	Interval time.Duration
+	// MinRefreshInterval is the floor between two GitHub API calls.
+	// Zero means DefaultMinRefreshInterval; negative disables the
+	// throttle, which only tests have a reason to do.
+	MinRefreshInterval time.Duration
+	HTTPClient         *http.Client
+	Logger             *slog.Logger
+	UserAgent          string
 }
 
 // Mirror is the local copy of the panel firmware. It is safe for
@@ -150,6 +183,12 @@ type Mirror struct {
 	// refreshes would race on the same staging and destination
 	// directories.
 	refreshMu sync.Mutex
+	// minInterval and lastAttempt implement the API-call floor, both
+	// under refreshMu. lastAttempt records attempts, not successes: a
+	// caller who can make the mirror fail must not thereby be able to
+	// make it retry faster.
+	minInterval time.Duration
+	lastAttempt time.Time
 
 	// mu guards the published pointer only — the short critical
 	// section every request takes, distinct from the minutes-long
@@ -174,17 +213,21 @@ func New(opts Options) (*Mirror, error) {
 		return nil, errors.New("firmware: cache dir is required")
 	}
 	m := &Mirror{
-		cacheDir:  opts.CacheDir,
-		repo:      cmpOr(opts.Repo, DefaultRepo),
-		apiBase:   strings.TrimSuffix(cmpOr(opts.APIBase, DefaultAPIBase), "/"),
-		interval:  opts.Interval,
-		client:    opts.HTTPClient,
-		logger:    opts.Logger,
-		userAgent: cmpOr(opts.UserAgent, "paperless-scan-bridge"),
-		trigger:   make(chan struct{}, 1),
+		cacheDir:    opts.CacheDir,
+		repo:        cmpOr(opts.Repo, DefaultRepo),
+		apiBase:     strings.TrimSuffix(cmpOr(opts.APIBase, DefaultAPIBase), "/"),
+		interval:    opts.Interval,
+		minInterval: opts.MinRefreshInterval,
+		client:      opts.HTTPClient,
+		logger:      opts.Logger,
+		userAgent:   cmpOr(opts.UserAgent, "paperless-scan-bridge"),
+		trigger:     make(chan struct{}, 1),
 	}
 	if m.interval <= 0 {
 		m.interval = DefaultRefreshInterval
+	}
+	if m.minInterval == 0 {
+		m.minInterval = DefaultMinRefreshInterval
 	}
 	if m.client == nil {
 		m.client = &http.Client{Timeout: refreshTimeout}
@@ -291,9 +334,98 @@ func (m *Mirror) Open(name string) (io.ReadSeekCloser, time.Time, error) {
 	return f, info.ModTime(), nil
 }
 
+// OpenAt returns a file from a specific mirrored generation, which is
+// what the version-qualified paths in the served manifest point at.
+//
+// Unlike Open it is not restricted to the current release: the whole
+// point is that a manifest a panel read hours ago keeps resolving to
+// the bytes it described. It is bounded by what is on disk instead, and
+// the mirror keeps generationsKept of those.
+//
+// Both components are validated with the same rules that governed them
+// on the way in, so a request cannot name a directory or a file the
+// mirror would not itself have created.
+func (m *Mirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
+	if validateTag(tag) != nil || validateAssetName(name) != nil {
+		return nil, time.Time{}, ErrNotCached
+	}
+	p := filepath.Join(m.cacheDir, tag, name)
+	f, err := os.Open(p) //nolint:gosec // both path components validated above
+	if err != nil {
+		return nil, time.Time{}, ErrNotCached
+	}
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		_ = f.Close()
+		return nil, time.Time{}, ErrNotCached
+	}
+	return f, info.ModTime(), nil
+}
+
+// Manifest returns the update manifest as the bridge publishes it: the
+// mirrored file with each build's `ota.path` rewritten to the absolute,
+// version-qualified path this bridge serves that generation at.
+//
+// Only `path` is touched. The `md5` beside it is the digest CI computed
+// from the binary it shipped, and rewriting a digest is precisely what
+// ADR 0024 forbids — the mirror must publish the digest of the file it
+// will actually serve, which is what leaving it alone guarantees.
+//
+// The rewrite exists because ESPHome resolves a relative path against
+// the manifest's own URL, which would send every panel to
+// /firmware/<name>.bin — always the newest generation, whatever
+// manifest it happens to be holding. An install is a human click that
+// can come hours after the check, so "newest" and "the one this
+// manifest describes" are not the same file, and the MD5 the panel
+// carries would not match. `parts` stays relative: it is read by ESP
+// Web Tools during a USB install from the docs site, never from here.
+func (m *Mirror) Manifest() ([]byte, Release, error) {
+	rel, ok := m.Current()
+	if !ok {
+		return nil, Release{}, ErrNotCached
+	}
+
+	raw, err := os.ReadFile(filepath.Join(m.cacheDir, rel.Tag, ManifestName)) //nolint:gosec // rel.Tag was validated on the way in
+	if err != nil {
+		return nil, Release{}, fmt.Errorf("firmware: read manifest of %s: %w", rel.Tag, err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, Release{}, fmt.Errorf("firmware: decode manifest of %s: %w", rel.Tag, err)
+	}
+	builds, _ := doc["builds"].([]any)
+	for _, b := range builds {
+		build, ok := b.(map[string]any)
+		if !ok {
+			continue
+		}
+		ota, ok := build["ota"].(map[string]any)
+		if !ok {
+			continue
+		}
+		p, ok := ota["path"].(string)
+		if !ok || p == "" || strings.Contains(p, "://") {
+			continue
+		}
+		ota["path"] = "/firmware/" + rel.Tag + "/" + path.Base(p)
+	}
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, Release{}, fmt.Errorf("firmware: encode manifest of %s: %w", rel.Tag, err)
+	}
+	return out, rel, nil
+}
+
 // TriggerRefresh asks the background loop to refresh now and returns
-// immediately. false means a refresh is already queued or running, so
-// the request is satisfied either way — it never means "refused".
+// immediately. false means a refresh is already queued, so the request
+// is satisfied either way — it never means "refused".
+//
+// It is deliberately only the coalescing half of the rate control, and
+// the weaker half: a caller who keeps calling can queue another token
+// the moment Run takes the previous one. What actually bounds the
+// outbound API calls is the minInterval floor inside Refresh.
 func (m *Mirror) TriggerRefresh() bool {
 	select {
 	case m.trigger <- struct{}{}:
@@ -348,6 +480,16 @@ func (m *Mirror) refreshLogged(ctx context.Context) {
 func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
+
+	// The API-call floor. Checked here rather than in TriggerRefresh
+	// because this is the only place an outbound call is made, so it is
+	// the only place that can actually bound them.
+	if m.minInterval > 0 && !m.lastAttempt.IsZero() &&
+		time.Since(m.lastAttempt) < m.minInterval {
+		cur, _ := m.Current()
+		return cur, nil
+	}
+	m.lastAttempt = time.Now()
 
 	latest, err := m.latestRelease(ctx)
 	if err != nil {
@@ -566,24 +708,58 @@ func (m *Mirror) writeState(rel Release) error {
 	return nil
 }
 
-// prune removes every cached release directory except keep, plus any
-// staging directory a killed refresh left behind. Failures are logged,
-// not returned: stale bytes cost disk, but the refresh they follow
-// already succeeded and reporting it as failed would be a lie.
+// prune keeps the generationsKept most recent release directories —
+// keep among them, whatever its mtime — and removes the rest, together
+// with any staging directory a killed refresh left behind.
+//
+// Keeping more than one is what makes an install offered by an older
+// manifest still work; see generationsKept. Failures are logged, not
+// returned: stale bytes cost disk, but the refresh they follow already
+// succeeded and reporting it as failed would be a lie.
 func (m *Mirror) prune(keep string) {
 	entries, err := os.ReadDir(m.cacheDir)
 	if err != nil {
 		m.logger.Warn("firmware cache prune failed", slog.Any("err", err))
 		return
 	}
+
+	type generation struct {
+		name string
+		mod  time.Time
+	}
+	var older []generation
 	for _, e := range entries {
 		if !e.IsDir() || e.Name() == keep {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(m.cacheDir, e.Name())); err != nil {
+		// A staging directory is never a generation: it holds an
+		// abandoned, unverified download and always goes.
+		if strings.HasPrefix(e.Name(), stagingPrefix) {
+			m.remove(e.Name())
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
 			m.logger.Warn("firmware cache prune failed",
 				slog.String("entry", e.Name()), slog.Any("err", err))
+			continue
 		}
+		older = append(older, generation{name: e.Name(), mod: info.ModTime()})
+	}
+
+	// Newest first, so the survivors are the ones a recently-read
+	// manifest may still point at.
+	sort.Slice(older, func(i, j int) bool { return older[i].mod.After(older[j].mod) })
+	// keep already occupies one of the generationsKept slots.
+	for _, g := range older[min(len(older), generationsKept-1):] {
+		m.remove(g.name)
+	}
+}
+
+func (m *Mirror) remove(name string) {
+	if err := os.RemoveAll(filepath.Join(m.cacheDir, name)); err != nil {
+		m.logger.Warn("firmware cache prune failed",
+			slog.String("entry", name), slog.Any("err", err))
 	}
 }
 

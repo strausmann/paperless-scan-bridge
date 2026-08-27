@@ -432,7 +432,11 @@ What it does:
   not from GitHub — the panel cannot reach either over TLS
   (`MBEDTLS_ERR_SSL_ALLOC_FAILED`; ADR 0024). The bridge mirrors the
   release, verifies it against the release's own `SHA256SUMS`, and only
-  then publishes it (ADR 0025). The `source:` in `update:` is a
+  then publishes it (ADR 0025). The manifest the bridge serves points at
+  a version-qualified path (`/firmware/<tag>/cyd-scan-panel.ota.bin`)
+  and the bridge keeps the previous release cached, so pressing install
+  hours after the check still downloads the binary that check's MD5
+  describes. The `source:` in `update:` is a
   placeholder on `.invalid`; the real URL is set at runtime by the
   `apply_update_source` script from the Bridge URL entity, so moving
   the bridge to a new host is a dashboard edit, not a re-flash.

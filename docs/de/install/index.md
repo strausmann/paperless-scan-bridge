@@ -166,10 +166,28 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     weiter das Release aus, das sie bereits hatte. Das Manifest nennt nie
     einen Build, den die Bridge nicht herausgeben kann.
 
-    Sie müssen dafür nichts tun: Der Spiegel ist standardmäßig aktiv.
-    Soll Ihre Bridge nicht mit dem öffentlichen Internet sprechen, setzen
-    Sie in `config.toml` unter `[firmware]` den Wert
+    Danach müssen Sie nichts weiter tun: Der Spiegel ist standardmäßig
+    aktiv. Soll Ihre Bridge nicht mit dem öffentlichen Internet sprechen,
+    setzen Sie in `config.toml` unter `[firmware]` den Wert
     `enabled = false` und nutzen weiterhin das Upload-Formular.
+
+!!! warning "Ein bereits eingerichtetes Panel braucht einmal ein Update von Hand"
+
+    Das Ganze greift erst ab der Firmware, die es eingeführt hat. Ein
+    Panel, das bereits im Einsatz ist, läuft noch mit einem Build, der
+    das HTTPS-Manifest dieser Seite abfragt — genau der Abruf, der auf
+    dieser Hardware noch nie funktioniert hat. Es wird die neue Version
+    also **nie** von selbst bekommen.
+
+    Einmal von Hand einspielen:
+
+    1. [`cyd-scan-panel.ota.bin` herunterladen](#firmware-herunterladen).
+    2. Das Dashboard des Panels unter `http://<panel-ip>/` öffnen und das
+       Upload-Formular **OTA Update** benutzen. (Oder von dieser Seite
+       aus per USB neu flashen — beides geht.)
+    3. Die **Bridge URL** setzen, falls noch nicht geschehen.
+
+    Danach findet das Panel Updates von allein.
 
 !!! info "Was ein Update absichert"
 

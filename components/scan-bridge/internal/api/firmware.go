@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log/slog"
@@ -21,6 +22,12 @@ type FirmwareMirror interface {
 	// Open returns a file of that release and its modification time,
 	// or firmware.ErrNotCached.
 	Open(name string) (io.ReadSeekCloser, time.Time, error)
+	// OpenAt does the same for a named generation, which may be older
+	// than the current one.
+	OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error)
+	// Manifest returns the manifest as the bridge publishes it, with
+	// version-qualified binary paths, plus the release it describes.
+	Manifest() ([]byte, firmware.Release, error)
 	// TriggerRefresh queues a refresh and returns immediately.
 	TriggerRefresh() bool
 }
@@ -35,31 +42,72 @@ type firmwareRefreshResponse struct {
 	CachedVersion string `json:"cached_version,omitempty"`
 }
 
-// handleFirmwareFile serves one file of the mirrored release, including
-// manifest.json — the manifest is simply one of the release's assets,
-// so it needs no route of its own.
+// handleFirmwareManifest serves the update manifest of the current
+// release, with each build's `ota.path` rewritten to the
+// version-qualified path below. Only the path — never the MD5 beside
+// it, which is the digest CI computed from the binary it shipped.
+func (s *Server) handleFirmwareManifest(w http.ResponseWriter, r *http.Request) {
+	body, rel, err := s.Firmware.Manifest()
+	if err != nil {
+		if errors.Is(err, firmware.ErrNotCached) {
+			s.writeFirmwareNotCached(w, r)
+			return
+		}
+		s.Logger.LogAttrs(r.Context(), slog.LevelError, "firmware manifest unreadable",
+			slog.Any("err", err))
+		s.writeJSON(w, r, http.StatusInternalServerError, errorResponse{
+			Error: "firmware_unreadable",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Firmware-Version", rel.Tag)
+	http.ServeContent(w, r, firmware.ManifestName, rel.RetrievedAt, bytes.NewReader(body))
+}
+
+// handleFirmwareVersionedFile serves a file of a named generation.
+//
+// This is what the manifest points at, and it is the route that makes an
+// update survive the gap between check and click. A panel reads the
+// manifest on its own schedule and installs when a person presses the
+// button, which can be hours later, carrying the MD5 it read back then.
+// An unversioned path would hand it whatever the newest generation holds
+// by that point — a different binary, failing the MD5 check for no
+// reason the operator can see. The mirror keeps the previous generation
+// on disk precisely so this URL keeps returning the same bytes.
+func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Request) {
+	tag, name := r.PathValue("version"), r.PathValue("name")
+
+	f, modTime, err := s.Firmware.OpenAt(tag, name)
+	if err != nil {
+		s.writeFirmwareFileNotFound(w, r)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	w.Header().Set("Content-Type", firmwareContentType(name))
+	w.Header().Set("X-Firmware-Version", tag)
+	http.ServeContent(w, r, name, modTime, f)
+}
+
+// handleFirmwareFile serves one file of the *current* release by bare
+// name. Kept alongside the versioned route for anything that just wants
+// "the newest" — an operator with curl, and the manifest itself, which
+// the panel is configured to read from a stable URL.
 func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	rel, ok := s.Firmware.Current()
 	if !ok {
-		// 503, not 404: the resource exists in principle and the
-		// mirror is expected to have it shortly. A panel that saw 404
-		// would have no reason to come back.
-		s.writeJSON(w, r, http.StatusServiceUnavailable, errorResponse{
-			Error: "firmware_not_cached",
-			Hint:  "The bridge has not mirrored a release yet. POST /firmware/refresh, or wait for the periodic refresh.",
-		})
+		s.writeFirmwareNotCached(w, r)
 		return
 	}
 
 	f, modTime, err := s.Firmware.Open(name)
 	if err != nil {
 		if errors.Is(err, firmware.ErrNotCached) {
-			s.writeJSON(w, r, http.StatusNotFound, errorResponse{
-				Error: "firmware_file_not_found",
-				Hint:  "GET /firmware/manifest.json names the files of the mirrored release.",
-			})
+			s.writeFirmwareFileNotFound(w, r)
 			return
 		}
 		s.Logger.LogAttrs(r.Context(), slog.LevelError, "firmware file unreadable",
@@ -92,6 +140,23 @@ func (s *Server) handleFirmwareRefresh(w http.ResponseWriter, r *http.Request) {
 		resp.CachedVersion = rel.Tag
 	}
 	s.writeJSON(w, r, http.StatusAccepted, resp)
+}
+
+// 503, not 404: the resource exists in principle and the mirror is
+// expected to have it shortly. A panel that saw 404 would have no reason
+// to come back.
+func (s *Server) writeFirmwareNotCached(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, r, http.StatusServiceUnavailable, errorResponse{
+		Error: "firmware_not_cached",
+		Hint:  "The bridge has not mirrored a release yet. POST /firmware/refresh, or wait for the periodic refresh.",
+	})
+}
+
+func (s *Server) writeFirmwareFileNotFound(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, r, http.StatusNotFound, errorResponse{
+		Error: "firmware_file_not_found",
+		Hint:  "GET /firmware/manifest.json names the files of the mirrored release.",
+	})
 }
 
 func firmwareContentType(name string) string {

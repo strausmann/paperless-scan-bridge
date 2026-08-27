@@ -160,10 +160,29 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     release it already had. The manifest never names a build the bridge
     cannot hand over.
 
-    Nothing is required of you: the mirror is on by default. If your
-    bridge must not talk to the public internet, set
+    Nothing is required of you afterwards: the mirror is on by default.
+    If your bridge must not talk to the public internet, set
     `firmware.enabled = false` under `[firmware]` in `config.toml` and
     use the upload form instead.
+
+!!! warning "An existing panel needs one manual update first"
+
+    This only starts working from the firmware that introduced it. A
+    panel already in the field is still running a build that polls the
+    HTTPS manifest on this site — the fetch that has never once
+    succeeded on this hardware — so it will **never** pick the new
+    version up on its own.
+
+    Install it once by hand:
+
+    1. [Download `cyd-scan-panel.ota.bin`](#download-the-firmware) from
+       the release.
+    2. Open the panel's own dashboard at `http://<panel-ip>/` and use
+       the **OTA Update** upload form. (Or re-flash over USB from this
+       page — either works.)
+    3. Set the **Bridge URL** if it is not already set.
+
+    From then on the panel finds updates by itself.
 
 !!! info "What protects an update"
 

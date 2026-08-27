@@ -40,19 +40,21 @@ Three facts constrain the answer.
 
 We will **have `scan-bridge` mirror the panel firmware from this repository's
 GitHub Releases into a local cache, verify every file against the release's own
-`SHA256SUMS`, and only then publish it** on three unauthenticated routes:
+`SHA256SUMS`, and only then publish it** on these unauthenticated routes:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /firmware/{name}` | any file of the mirrored release, `manifest.json` included |
+| `GET /firmware/manifest.json` | the update manifest, with version-qualified binary paths |
+| `GET /firmware/{version}/{name}` | a file of a specific mirrored generation |
+| `GET /firmware/{name}` | the same file of whichever generation is current |
 | `POST /firmware/refresh` | queue an immediate check; returns `202` at once |
 
 The bridge polls every **5 hours**; the panel polls the bridge every **6**. The
 asymmetry is deliberate: the bridge should always have looked more recently than
 the panel asks.
 
-Two ordering rules make this safe, and they are the substance of the decision
-rather than implementation detail:
+Three rules make this safe, and they are the substance of the decision rather
+than implementation detail:
 
 1. **The manifest is swapped only after every file is downloaded and its
    checksum verified.** Publishing a new version before its binary is on disk
@@ -64,6 +66,21 @@ rather than implementation detail:
    handler that waited for a GitHub round trip would hold that loop past the
    60-second task watchdog and reboot the panel on the button press. The route
    queues the work and returns immediately.
+
+3. **The manifest points at version-qualified paths, and the previous
+   generation stays on disk.** A panel reads the manifest on its own schedule
+   but installs when a person clicks, which can be hours later, carrying the
+   MD5 it read at check time. A bare path would hand that click whatever the
+   newest generation holds by then — a different binary, failing the MD5 check
+   in exactly the moments right after a release. So the served manifest has
+   each build's `ota.path` rewritten to `/firmware/{tag}/{name}`, and the
+   mirror keeps two generations. The `md5` beside it is **never** rewritten:
+   it is the digest CI computed from the binary it shipped, which is what makes
+   ADR 0024's "publish the digest of the file you will actually serve" hold.
+
+Because the manifest's `ota.path` is rewritten, the mirror is not byte-verbatim
+— but the only field it touches is a path. `parts`, which ESP Web Tools reads
+during a USB install from the docs site, is left relative and untouched.
 
 The routes carry **no bearer token**. The panel must be able to update its way
 out of a broken configuration before an operator has entered one, and the bytes
@@ -103,6 +120,15 @@ rewrites a digest.
   so the mirror is strictly stronger than the panel fetching for itself.
 - **Positive:** a firmware release reaches every panel on the LAN within
   eleven hours unattended, or on a button press.
+- **Negative / trade-offs:** `POST /firmware/refresh` is unauthenticated, so
+  anyone on the LAN can ask for a check as often as they like. Coalescing the
+  trigger does not bound that — once the loop takes the queued token the next
+  call queues behind it — so the mirror enforces a **five-minute floor between
+  outbound GitHub calls**, at the only place an outbound call is made. That
+  caps trigger-driven checks at twelve per hour, well inside the anonymous
+  sixty-per-hour quota. A failed attempt counts against the floor too:
+  otherwise a caller who can make the mirror fail could make it retry without
+  limit. Nothing upstream changes in five minutes anyway.
 - **Negative / trade-offs:** `scan-bridge` now makes an outbound call to
   `api.github.com` every five hours. Deployments that must not talk to the
   public internet set `firmware.enabled = false`, and the three routes then
@@ -111,6 +137,12 @@ rewrites a digest.
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the
   meantime.
+- **Neutral / follow-ups:** panels already in the field will **not** receive
+  this automatically. Their running firmware still points at the HTTPS manifest
+  on the docs site, which is the fetch that has never worked on this hardware —
+  so the first build carrying the new update path has to be installed once by
+  hand, through the dashboard's upload form or over USB. Both `/install/` pages
+  say so explicitly.
 - **Neutral / follow-ups:** the panel's `update:` `source:` is now a placeholder
   (`http://bridge.invalid/…`, RFC 2606) overwritten at runtime from the Bridge
   URL entity. A panel with no Bridge URL set therefore reports an update check

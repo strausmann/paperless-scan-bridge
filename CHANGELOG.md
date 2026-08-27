@@ -49,11 +49,12 @@ between releases as a running list.
 - **The panel now updates itself, from your bridge.** `scan-bridge`
   mirrors the panel firmware from this repository's GitHub Releases,
   verifies every file against the release's own `SHA256SUMS`, and serves
-  it on three unauthenticated routes: `GET /firmware/{name}` (the
-  manifest and the binaries) and `POST /firmware/refresh`. The panel
-  polls its bridge every 6 hours and has a **Check for Update** button;
-  the bridge asks GitHub every 5 — deliberately sooner, so it has
-  normally already looked by the time the panel asks.
+  it on unauthenticated routes: `GET /firmware/manifest.json`,
+  `GET /firmware/{version}/{name}`, `GET /firmware/{name}` and
+  `POST /firmware/refresh`. The panel polls its bridge every 6 hours and
+  has a **Check for Update** button; the bridge asks GitHub every 5 —
+  deliberately sooner, so it has normally already looked by the time the
+  panel asks.
 
   The detour exists because the panel cannot reach GitHub, or the docs
   site, or anything else over TLS: with Wi-Fi, the Bluetooth stack, LVGL
@@ -70,6 +71,20 @@ between releases as a running list.
   immediately rather than waiting: the panel reaches it through a
   synchronous `http_request` on its main loop, where a blocking wait is
   a watchdog reboot. See ADR 0024 and the new ADR 0025.
+
+  The manifest points at version-qualified paths and the previous
+  release stays cached, so an install clicked hours after the check
+  still downloads the binary that check's MD5 describes rather than
+  whatever landed since. And because the refresh route is
+  unauthenticated, outbound GitHub calls carry a five-minute floor —
+  otherwise a caller in a loop could exhaust the anonymous quota and
+  stop real updates arriving.
+
+  **Panels already in the field do not get this automatically.** Their
+  running firmware still polls the HTTPS manifest that has never worked
+  on this hardware, so the first build carrying the new update path has
+  to be installed once by hand — the dashboard's upload form or USB.
+  After that, updates arrive on their own.
 
   Off by one setting (`firmware.enabled = false`) for deployments that
   must not talk to the public internet; the routes then answer the

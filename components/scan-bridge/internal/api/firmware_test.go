@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,6 +24,9 @@ type fakeMirror struct {
 	cached   bool
 	queued   bool
 	triggers int
+	// manifestErr models a cached release whose manifest cannot be
+	// read or decoded — a 500, not a 404.
+	manifestErr error
 }
 
 func (f *fakeMirror) Current() (firmware.Release, bool) {
@@ -45,6 +50,26 @@ func (f *fakeMirror) Open(name string) (io.ReadSeekCloser, time.Time, error) {
 		}
 	}
 	return nil, time.Time{}, firmware.ErrNotCached
+}
+
+func (f *fakeMirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
+	if !f.cached || tag != f.rel.Tag {
+		return nil, time.Time{}, firmware.ErrNotCached
+	}
+	return f.Open(name)
+}
+
+func (f *fakeMirror) Manifest() ([]byte, firmware.Release, error) {
+	if !f.cached {
+		return nil, firmware.Release{}, firmware.ErrNotCached
+	}
+	if f.manifestErr != nil {
+		return nil, firmware.Release{}, f.manifestErr
+	}
+	body := fmt.Appendf(nil,
+		`{"name":"CYD Scan Panel","version":%q,"builds":[{"ota":{"md5":"deadbeef","path":"/firmware/%s/cyd-scan-panel.ota.bin"}}]}`,
+		f.rel.Tag, f.rel.Tag)
+	return body, f.rel, nil
 }
 
 func (f *fakeMirror) TriggerRefresh() bool {
@@ -240,5 +265,69 @@ func TestFirmwareRoutesDisabled(t *testing.T) {
 		if rec.Code != http.StatusNotImplemented {
 			t.Errorf("%s %s = %d, want 501", tc.method, tc.path, rec.Code)
 		}
+	}
+}
+
+// The manifest must send the panel to a version-qualified path, so the
+// binary it downloads is the one the manifest it read describes even if
+// a newer release lands in between.
+func TestFirmwareManifestPointsAtTheVersionedRoute(t *testing.T) {
+	h := newFirmwareServer(t, newCachedMirror(t))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/firmware/manifest.json", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if want := "/firmware/v1.2.3/cyd-scan-panel.ota.bin"; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("manifest body %q does not point at %q", rec.Body.String(), want)
+	}
+}
+
+func TestFirmwareVersionedFileServed(t *testing.T) {
+	h := newFirmwareServer(t, newCachedMirror(t))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/firmware/v1.2.3/cyd-scan-panel.ota.bin", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "ota" {
+		t.Errorf("body = %q", rec.Body.String())
+	}
+	if v := rec.Header().Get("X-Firmware-Version"); v != "v1.2.3" {
+		t.Errorf("X-Firmware-Version = %q, want v1.2.3", v)
+	}
+}
+
+func TestFirmwareVersionedFileUnknownIs404(t *testing.T) {
+	h := newFirmwareServer(t, newCachedMirror(t))
+
+	for _, p := range []string{
+		"/firmware/v9.9.9/cyd-scan-panel.ota.bin",
+		"/firmware/v1.2.3/nope.bin",
+		"/firmware/v1.2.3/..%2Fstate.json",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", p, rec.Code)
+		}
+	}
+}
+
+func TestFirmwareManifestUnreadableIs500(t *testing.T) {
+	m := newCachedMirror(t)
+	m.manifestErr = errors.New("disk is on fire")
+	h := newFirmwareServer(t, m)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/firmware/manifest.json", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
 	}
 }

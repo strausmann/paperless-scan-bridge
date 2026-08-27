@@ -408,16 +408,154 @@ paths:
         "501":
           $ref: "#/components/responses/NotImplemented"
 
+  /firmware/manifest.json:
+    get:
+      operationId: getFirmwareManifest
+      tags: [firmware]
+      summary: The update manifest of the mirrored release
+      description: >-
+        The manifest the panel's `update:` entity polls. Mirrored from
+        the release, with one change: each build's `ota.path` is
+        rewritten to the absolute, version-qualified
+        `/firmware/{version}/{name}` this bridge serves that generation
+        at.
+
+
+        The rewrite is what makes an install survive the gap between
+        check and click. ESPHome resolves a relative path against the
+        manifest's own URL, so a bare path would send every panel to
+        `/firmware/<name>.bin` — always the newest generation. But a
+        panel installs when a person presses the button, possibly hours
+        after it read the manifest, carrying the MD5 from that read. It
+        would then download a binary that MD5 does not describe and fail.
+
+
+        The `md5` beside the path is **never** rewritten: it is the
+        digest CI computed from the binary it shipped, which is what
+        makes the published digest describe the file actually served
+        (ADR 0024). `parts` is left relative — it is read by ESP Web
+        Tools during a USB install from the docs site, never from here.
+      security: []
+      responses:
+        "200":
+          description: The manifest.
+          headers:
+            X-Firmware-Version:
+              description: The mirrored release tag.
+              schema:
+                type: string
+                example: v1.2.0
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: The cached manifest could not be read or decoded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
+        "501":
+          description: The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+        "503":
+          description: The bridge has not mirrored a release yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_not_cached
+                hint: >-
+                  The bridge has not mirrored a release yet. POST
+                  /firmware/refresh, or wait for the periodic refresh.
+
+  /firmware/{version}/{name}:
+    get:
+      operationId: getFirmwareFileAtVersion
+      tags: [firmware]
+      summary: A file of a specific mirrored generation
+      description: >-
+        What the manifest points at. Unlike `GET /firmware/{name}` this
+        is not restricted to the current release: the mirror keeps the
+        previous generation on disk so a URL a panel captured at check
+        time keeps returning the same bytes when someone finally presses
+        install. Two generations are kept; a third release evicts the
+        first.
+
+
+        Unauthenticated, for the same reasons as the routes above.
+      parameters:
+        - name: version
+          in: path
+          required: true
+          description: A mirrored release tag.
+          schema:
+            type: string
+          example: v1.2.0
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: cyd-scan-panel.ota.bin
+      security: []
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Firmware-Version:
+              schema:
+                type: string
+                example: v1.2.0
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: >-
+            No such generation is cached, or it carries no file by that
+            name. The two cases are one response on purpose — a caller
+            can only either receive the file or not, and separating them
+            would report which tags exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_file_not_found
+                hint: >-
+                  GET /firmware/manifest.json names the files of the
+                  mirrored release.
+        "501":
+          description: The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+
   /firmware/{name}:
     get:
       operationId: getFirmwareFile
       tags: [firmware]
-      summary: A file of the mirrored panel firmware
+      summary: A file of the current mirrored release
       description: >-
-        Serves one file of the panel-firmware release the bridge has
-        mirrored from GitHub Releases (ADR 0024, ADR 0025), including
-        `manifest.json` — the manifest is simply one of the release's
-        assets, so it needs no route of its own.
+        Serves one file of whichever panel-firmware release is current
+        (ADR 0024, ADR 0025). This is the "give me the newest" shape, for
+        an operator with `curl`; the panel uses the version-qualified
+        route above, which does not shift underneath it.
 
 
         Deliberately unauthenticated. The panel fetches the manifest
@@ -429,10 +567,7 @@ paths:
 
         `name` is matched against the cached release's own file list, not
         joined onto a path, so only files that release actually carries
-        can be served. The manifest is mirrored verbatim: its `ota.path`
-        is relative, and ESPHome resolves a relative path against the
-        manifest's own URL, so the binary resolves to
-        `/firmware/<name>.bin` without any rewriting.
+        can be served.
 
 
         The response carries `X-Firmware-Version` with the mirrored
@@ -523,7 +658,11 @@ paths:
 
         Unauthenticated, for the same reasons as `GET /firmware/{name}`.
         The only effect an unauthenticated caller can have is to make the
-        bridge ask GitHub sooner than its five-hourly schedule.
+        bridge ask GitHub sooner than its five-hourly schedule — and that
+        is bounded: the mirror enforces a five-minute floor between
+        outbound GitHub calls, so a caller in a loop cannot exhaust the
+        anonymous sixty-per-hour quota and thereby stop real updates
+        arriving. A failed attempt counts against the floor too.
       security: []
       responses:
         "202":

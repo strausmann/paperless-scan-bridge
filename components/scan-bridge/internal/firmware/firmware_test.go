@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -116,10 +118,15 @@ func (g *fakeGitHub) handleDownload(w http.ResponseWriter, r *http.Request) {
 func newTestMirror(t *testing.T, g *fakeGitHub) *Mirror {
 	t.Helper()
 	m, err := New(Options{
-		CacheDir:   t.TempDir(),
-		Repo:       "strausmann/paperless-scan-bridge",
-		APIBase:    g.srv.URL,
-		HTTPClient: g.srv.Client(),
+		CacheDir: t.TempDir(),
+		Repo:     "strausmann/paperless-scan-bridge",
+		APIBase:  g.srv.URL,
+		// Negative disables the API-call floor. Every test that wants
+		// two refreshes in a row would otherwise get the second one
+		// throttled away; TestRefreshThrottlesRepeatedCalls covers the
+		// floor itself.
+		MinRefreshInterval: -1,
+		HTTPClient:         g.srv.Client(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -317,7 +324,10 @@ func TestLoadAdoptsAnExistingCache(t *testing.T) {
 	}
 
 	// A second Mirror over the same directory models a restart.
-	restarted, err := New(Options{CacheDir: m.cacheDir, APIBase: g.srv.URL, HTTPClient: g.srv.Client()})
+	restarted, err := New(Options{
+		CacheDir: m.cacheDir, APIBase: g.srv.URL,
+		MinRefreshInterval: -1, HTTPClient: g.srv.Client(),
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -368,7 +378,13 @@ func TestLoadOnEmptyCacheDirIsNotAnError(t *testing.T) {
 	}
 }
 
-func TestRefreshPrunesTheOldRelease(t *testing.T) {
+// The previous generation is deliberately RETAINED, not pruned. An
+// earlier version of this test asserted the opposite, before it was
+// clear that a panel installs when a person clicks -- possibly hours
+// after it read the manifest -- and carries the MD5 from that read. See
+// generationsKept. Eviction is covered by
+// TestPruneKeepsExactlyTwoGenerations.
+func TestRefreshKeepsThePreviousRelease(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
 	if _, err := m.Refresh(t.Context()); err != nil {
@@ -381,11 +397,13 @@ func TestRefreshPrunesTheOldRelease(t *testing.T) {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(m.cacheDir, "v1.0.0")); !os.IsNotExist(err) {
-		t.Errorf("v1.0.0 not pruned: %v", err)
+	for _, tag := range []string{"v1.0.0", "v2.0.0"} {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
+			t.Errorf("%s missing after the second refresh: %v", tag, err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(m.cacheDir, "v2.0.0")); err != nil {
-		t.Errorf("v2.0.0 missing after refresh: %v", err)
+	if cur, _ := m.Current(); cur.Tag != "v2.0.0" {
+		t.Errorf("served tag = %q, want v2.0.0", cur.Tag)
 	}
 }
 
@@ -554,4 +572,230 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+// The unauthenticated refresh route means anyone on the LAN can ask for
+// a check as often as they like. Coalescing does not bound that -- once
+// Run takes the queued token the next call queues behind it -- so the
+// floor lives here, at the only place that makes an outbound call.
+// Without it a persistent caller exhausts GitHub's anonymous
+// 60-per-hour quota and stops real updates arriving.
+func TestRefreshThrottlesRepeatedCalls(t *testing.T) {
+	g := newFakeGitHub(t)
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		MinRefreshInterval: time.Hour,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	// A new release upstream: without the floor this would be fetched.
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("newer-ota-image-bytes")
+
+	for range 20 {
+		if _, err := m.Refresh(t.Context()); err != nil {
+			t.Fatalf("throttled Refresh returned an error: %v", err)
+		}
+	}
+	if got := g.apiCalls.Load(); got != 1 {
+		t.Errorf("apiCalls = %d after 21 refreshes inside the floor, want 1", got)
+	}
+	cur, _ := m.Current()
+	if cur.Tag != "v1.0.0" {
+		t.Errorf("served tag = %q; a throttled refresh must leave the cache alone", cur.Tag)
+	}
+}
+
+// A failed attempt still counts against the floor. Otherwise a caller
+// who can make the mirror fail -- by any means, including simply being
+// faster than the network -- could make it retry without limit.
+func TestRefreshThrottleCountsFailedAttempts(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.sums = []byte("not a checksum file\n")
+	m, err := New(Options{
+		CacheDir:           t.TempDir(),
+		APIBase:            g.srv.URL,
+		MinRefreshInterval: time.Hour,
+		HTTPClient:         g.srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, err := m.Refresh(t.Context()); err == nil {
+		t.Fatal("Refresh accepted a malformed SHA256SUMS")
+	}
+	for range 5 {
+		_, _ = m.Refresh(t.Context())
+	}
+	if got := g.apiCalls.Load(); got != 1 {
+		t.Errorf("apiCalls = %d; a failed attempt must still count against the floor", got)
+	}
+}
+
+// The manifest the bridge publishes must point at the generation it
+// describes, not at "whatever is newest when the panel gets round to
+// installing".
+func TestManifestRewritesOtaPathToTheVersionedRoute(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.assets[ManifestName] = []byte(`{"name":"CYD Scan Panel","version":"v1.0.0","builds":[{"chipFamily":"ESP32","parts":[{"path":"cyd-scan-panel.factory.bin","offset":0}],"ota":{"md5":"deadbeef","path":"cyd-scan-panel.ota.bin","summary":"Release v1.0.0"}}]}`)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	body, rel, err := m.Manifest()
+	if err != nil {
+		t.Fatalf("Manifest: %v", err)
+	}
+	if rel.Tag != "v1.0.0" {
+		t.Errorf("release tag = %q", rel.Tag)
+	}
+
+	var doc struct {
+		Builds []struct {
+			Parts []struct {
+				Path string `json:"path"`
+			} `json:"parts"`
+			OTA struct {
+				MD5  string `json:"md5"`
+				Path string `json:"path"`
+			} `json:"ota"`
+		} `json:"builds"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("decode published manifest: %v", err)
+	}
+	if len(doc.Builds) != 1 {
+		t.Fatalf("builds = %d, want 1", len(doc.Builds))
+	}
+	if want := "/firmware/v1.0.0/cyd-scan-panel.ota.bin"; doc.Builds[0].OTA.Path != want {
+		t.Errorf("ota.path = %q, want %q", doc.Builds[0].OTA.Path, want)
+	}
+	// The digest is CI's, computed from the binary it shipped. Rewriting
+	// it is what ADR 0024 forbids.
+	if doc.Builds[0].OTA.MD5 != "deadbeef" {
+		t.Errorf("ota.md5 = %q, want it untouched", doc.Builds[0].OTA.MD5)
+	}
+	// parts is read by ESP Web Tools against the docs site, never here.
+	if doc.Builds[0].Parts[0].Path != "cyd-scan-panel.factory.bin" {
+		t.Errorf("parts[0].path = %q, want it left relative", doc.Builds[0].Parts[0].Path)
+	}
+}
+
+func TestManifestOnColdCache(t *testing.T) {
+	m, err := New(Options{CacheDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, _, err := m.Manifest(); !errors.Is(err, ErrNotCached) {
+		t.Errorf("Manifest on a cold cache = %v, want ErrNotCached", err)
+	}
+}
+
+// The regression the versioned route and the retained generation exist
+// for: a panel reads the manifest, a newer release lands, and only then
+// does someone press install. The URL it captured must still return the
+// bytes that manifest's MD5 describes.
+func TestPreviousGenerationStaysServableAfterANewRelease(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	oldBytes := string(g.assets["cyd-scan-panel.ota.bin"])
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-ota-bytes")
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	f, _, err := m.OpenAt("v1.0.0", "cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("OpenAt on the previous generation: %v", err)
+	}
+	got, err := io.ReadAll(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != oldBytes {
+		t.Errorf("previous generation returned %q, want %q", got, oldBytes)
+	}
+
+	// The current one is obviously still there, and is a different file.
+	f, _, err = m.OpenAt("v2.0.0", "cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("OpenAt on the current generation: %v", err)
+	}
+	_ = f.Close()
+}
+
+// Two generations, not more: the third release evicts the first.
+func TestPruneKeepsExactlyTwoGenerations(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+
+	for i, tag := range []string{"v1.0.0", "v2.0.0", "v3.0.0"} {
+		g.tag = tag
+		g.assets["cyd-scan-panel.ota.bin"] = fmt.Appendf(nil, "ota-generation-%d", i)
+		if _, err := m.Refresh(t.Context()); err != nil {
+			t.Fatalf("Refresh %s: %v", tag, err)
+		}
+		// os.ReadDir orders by name and prune orders by mtime; a
+		// same-second mtime would make the choice arbitrary.
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if _, err := os.Stat(filepath.Join(m.cacheDir, "v1.0.0")); !os.IsNotExist(err) {
+		t.Errorf("v1.0.0 survived two later releases: %v", err)
+	}
+	for _, tag := range []string{"v2.0.0", "v3.0.0"} {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
+			t.Errorf("%s missing: %v", tag, err)
+		}
+	}
+}
+
+func TestOpenAtRejectsTraversal(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	cases := []struct{ tag, name string }{
+		{"..", "state.json"},
+		{"../..", "passwd"},
+		{"v1.0.0", "../state.json"},
+		{"v1.0.0", "../../etc/passwd"},
+		{".", "state.json"},
+		{"v1.0.0", ""},
+		{"", "manifest.json"},
+		{"v1.0.0/..", "manifest.json"},
+	}
+	for _, tc := range cases {
+		if _, _, err := m.OpenAt(tc.tag, tc.name); err == nil {
+			t.Errorf("OpenAt(%q, %q) succeeded", tc.tag, tc.name)
+		}
+	}
+}
+
+func TestOpenAtUnknownGeneration(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if _, _, err := m.OpenAt("v9.9.9", ManifestName); !errors.Is(err, ErrNotCached) {
+		t.Errorf("OpenAt on an unknown tag = %v, want ErrNotCached", err)
+	}
 }

@@ -40,16 +40,28 @@ func (s *Server) Router() http.Handler {
 	// binary anyone can download from GitHub with no credential at
 	// all. There is nothing here a token would protect.
 	//
-	// One route serves every file, manifest.json included — the
-	// manifest is just an asset of the release. It also keeps the
-	// allowlist honest: internal/firmware.Open matches {name} against
-	// the cached release's own file list, so there is exactly one
-	// place where a request-supplied name meets the filesystem.
+	// The manifest gets its own handler because the bridge does not
+	// serve it byte-for-byte: each build's `ota.path` is rewritten to
+	// the version-qualified route below, so the binary a panel
+	// downloads is the one the manifest it read describes, even if a
+	// newer release landed in between. The `md5` next to it is never
+	// touched (ADR 0024).
+	//
+	// `GET /firmware/{name}` stays for "give me the newest", which is
+	// what an operator with curl wants. Both bare-name paths resolve
+	// through internal/firmware, which matches the name against the
+	// cached release's own file list rather than joining it onto a
+	// path — so there is exactly one place where a request-supplied
+	// name meets the filesystem, and it is an allowlist.
 	if s.Firmware != nil {
+		mux.HandleFunc("GET /firmware/manifest.json", s.handleFirmwareManifest)
 		mux.HandleFunc("GET /firmware/{name}", s.handleFirmwareFile)
+		mux.HandleFunc("GET /firmware/{version}/{name}", s.handleFirmwareVersionedFile)
 		mux.HandleFunc("POST /firmware/refresh", s.handleFirmwareRefresh)
 	} else {
+		mux.Handle("GET /firmware/manifest.json", s.notImplemented("firmware mirror is disabled"))
 		mux.Handle("GET /firmware/{name}", s.notImplemented("firmware mirror is disabled"))
+		mux.Handle("GET /firmware/{version}/{name}", s.notImplemented("firmware mirror is disabled"))
 		mux.Handle("POST /firmware/refresh", s.notImplemented("firmware mirror is disabled"))
 	}
 
