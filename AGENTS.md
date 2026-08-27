@@ -121,9 +121,16 @@ note the migration cost.
 
 **YAML:**
 
-- `yamllint` clean against the project config
+- `yamllint` clean against `.yamllint.yml`
 - Two-space indentation
-- Sequence items aligned with the key (no extra indent)
+- Sequence items **indented one level under their key**. This used to
+  say the opposite ("aligned with the key, no extra indent"), and not
+  one file in the repository ever followed it: measured with yamllint,
+  `indent-sequences: true` produces **0** violations across every
+  tracked YAML file, `false` produces **148**. Every upstream whose
+  format we copy — GitHub Actions, Compose, pre-commit, ESPHome —
+  documents the indented form too. Corrected to the convention that is
+  actually in use and now enforced by `.yamllint.yml`
 - Booleans as `true`/`false`, never `yes`/`no` or `on`/`off`
 
 **Markdown:**

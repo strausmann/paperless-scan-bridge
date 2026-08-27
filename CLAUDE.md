@@ -97,8 +97,8 @@ Replacements need explicit justification in the issue/PR.
   with the standard `testing` package.
 - **Shell:** `#!/usr/bin/env bash` + `set -euo pipefail` immediately,
   `shellcheck` clean at strict level (`-S style`).
-- **YAML:** two-space indent, sequence items aligned with key (no extra
-  indent), booleans as `true`/`false` only.
+- **YAML:** two-space indent, sequence items indented one level
+  under their key, booleans as `true`/`false` only.
 - **Markdown:** 80-column prose wrap, ATX headings, one-sentence-per-line
   acceptable in long-form docs for diff-friendliness.
 - **Dockerfiles:** `hadolint` clean, multi-stage when build tools are
