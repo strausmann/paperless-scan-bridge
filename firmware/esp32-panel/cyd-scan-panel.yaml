@@ -64,8 +64,34 @@ esphome:
 
 esp32:
   board: esp32dev
+  # ESPHome's own option, not a raw sdkconfig override: it writes
+  # CONFIG_ESP_TASK_WDT_TIMEOUT_S itself (esp32/__init__.py), so setting
+  # both would be two writers for one key with no defined winner.
+  # CONFIG_ESP_TASK_WDT_PANIC is True alongside it, which is why hitting
+  # the limit reboots rather than merely logging.
+  watchdog_timeout: 60s
   framework:
     type: arduino
+    # The task watchdog defaults to 5s and the scan POST blocks the
+    # main loop for the whole scan -- twenty seconds on the reference
+    # hardware. Every scan started from the panel therefore paniced the
+    # device at the five-second mark and rebooted it, which from the
+    # front looks like "the panel crashed while the scanner kept
+    # going": the bridge already had the request, so the scan completed
+    # and the panel that asked for it was gone.
+    #
+    # 60s is chosen against the scan, not against the watchdog: the
+    # reference duplex scan takes about twenty seconds and the profile
+    # allows up to 120, so this covers the normal case with room and
+    # still fires long before a genuinely wedged device sits there
+    # forever.
+    #
+    # This raises the ceiling; it does not make blocking the loop
+    # correct. The real fix is not to block it at all -- the bridge's
+    # /jobs endpoints (Phase 1.4) would let the panel fire a scan and
+    # poll for the result instead of holding the loop through it. Until
+    # those exist, ESPHome's http_request is synchronous and there is
+    # no async path to use.
 
 substitutions:
   name: cyd-scan-panel
@@ -249,7 +275,18 @@ web_server:
 http_request:
   id: http
   useragent: "esphome/cyd-scan-panel"
-  timeout: 8s
+  # 8s was shorter than a scan. A duplex page through this feeder takes
+  # about twenty seconds, so POST /scan could never return in time --
+  # the panel timed out on every scan it ever started, and would have
+  # reported "Bridge unreachable" for a scan that was working, if it
+  # had survived long enough to report anything (see the watchdog note
+  # in esp32: above).
+  #
+  # 120s matches the profile's own timeout_seconds, which bounds the
+  # whole /scan call on the bridge side. Any answer the bridge can give
+  # arrives before this fires; anything slower has already failed
+  # there.
+  timeout: 120s
   # Plain HTTP is intentional (LAN-only deployment) — see README.md
   # "Security model". If the bridge ever moves behind a TLS-terminating
   # proxy, set the Bridge URL text entity to https://... and remove this
@@ -1688,9 +1725,36 @@ script:
 # light, not a heartbeat, and profiles change when someone edits a YAML
 # file and restarts the daemon — not every half minute.
 interval:
+  # The steady-state refresh. Profiles change when someone edits a YAML
+  # file and restarts the daemon, not every half minute.
   - interval: 300s
     then:
       - script.execute: refresh_profiles
+
+  # A short retry that stops itself once the grid has something in it.
+  #
+  # on_boot calls refresh_profiles once, and that call can legitimately
+  # come to nothing -- the bridge may still be starting, or the Bridge
+  # Token may not have been restored from flash yet, in which case the
+  # script skips the request entirely rather than firing it at an empty
+  # target. Whatever the reason, the ONLY thing that tried again was the
+  # 300s interval above. An operator watching a freshly booted panel saw
+  # an empty grid for up to five minutes with no indication that
+  # anything was going to happen. Observed: boot at 19:41, profiles at
+  # 19:46:03.
+  #
+  # 15s while the grid is empty, nothing once it is not. The condition
+  # is on total_profile_count rather than on a "did boot succeed" flag
+  # because that is the state the operator is actually looking at: an
+  # empty grid is worth retrying for, whatever emptied it.
+  - interval: 15s
+    then:
+      - if:
+          condition:
+            lambda: "return id(total_profile_count) == 0;"
+          then:
+            - script.execute: refresh_profiles
+
   - interval: 60s
     then:
       - script.execute: check_bridge_health

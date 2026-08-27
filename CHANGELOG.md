@@ -286,6 +286,22 @@ between releases as a running list.
 
 ### Fixed
 
+- **Starting a scan from the panel rebooted the panel.** Two numbers
+  made it certain: `http_request.timeout` was `8s` while a duplex scan
+  takes about twenty seconds, and the ESP-IDF task watchdog fires at
+  `5s` with `CONFIG_ESP_TASK_WDT_PANIC` on. The scan POST blocks the
+  main loop for its whole duration, so every scan the panel ever started
+  paniced the device five seconds in — and because the bridge already
+  had the request, the scanner went on scanning while the panel that
+  asked for it rebooted. That is exactly the reported "the paper was
+  pulled and the panel crashed". `watchdog_timeout` is now `60s` and the
+  HTTP timeout `120s`, matching the profile's own `timeout_seconds`.
+- The profile grid no longer stays empty for up to five minutes after a
+  boot. `on_boot` refreshes once, and if that comes to nothing — the
+  bridge still starting, or the Bridge Token not yet restored from flash
+  — the only retry was the 300-second interval. A 15-second retry now
+  runs while the grid is empty and stops as soon as it is not.
+
 - CI now actually builds, lints and tests the Go code. Every job in
   `ci.yml` was `echo "placeholder"`, and the `Makefile`'s `test-go`,
   `lint`, `test-shell`, `test-yaml` and `test-docker` targets printed
