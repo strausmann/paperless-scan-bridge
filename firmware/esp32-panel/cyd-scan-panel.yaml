@@ -106,9 +106,17 @@ substitutions:
   #     the top-left corner mapped to (316, 237) — diagonally opposite
   #     the finger — so every press on a profile button landed on empty
   #     screen and did nothing.
-  #   * The endpoints below are the measured extremes rather than the
-  #     original placeholders. With them the four corners map to (0,0),
-  #     (320,2), (2,240) and (316,237).
+  #   * The endpoints below are the per-edge MEANS of those readings,
+  #     not their extremes -- each edge is read twice (the left edge by
+  #     the top-left and bottom-left taps, and so on) and the two never
+  #     agree: 216 vs 309, 3820 vs 3777. Averaging splits that error
+  #     instead of loading it all onto one corner. So x_min is
+  #     (216+309)/2 and x_max (3820+3777)/2 -- from raw_y, because
+  #     swap_xy means the x bounds come from the raw axis that carries
+  #     the horizontal. With them the corners map to (0,0), (320,2),
+  #     (2,240) and (316,237); the first two are a pixel or so outside
+  #     the screen before clamping, which is the expected cost of
+  #     averaging.
   #
   # Still per-unit: resistive panels vary, so re-measure for a new board.
   # README.md "Touch calibration" has the procedure.
