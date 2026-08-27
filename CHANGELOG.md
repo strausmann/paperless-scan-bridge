@@ -51,9 +51,9 @@ between releases as a running list.
   feeder (Epic A5). `png` is lossless where `jpeg` is not — a scanned
   form re-encoded as JPEG carries ringing around every letter — and like
   `jpeg` it holds one page per file, so `page_grouping: combined` with
-  several pages is rejected rather than silently truncated. `max_pages:
-  0` is the default and drains the ADF, exactly as before; `max_pages:
-  1` is the single-sheet case. There is deliberately **no** separate
+  several pages is rejected rather than silently truncated. A
+  `max_pages` of `0` is the default and drains the ADF, exactly as
+  before; `1` is the single-sheet case. There is deliberately **no** separate
   `single_sheet` flag: it would mean the same thing and only create a
   contradiction to resolve. Everything below the profile already
   supported the cap — `sane-runtime` turns it into `scanimage
