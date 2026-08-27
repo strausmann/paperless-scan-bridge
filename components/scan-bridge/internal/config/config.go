@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/firmware"
 )
 
 // AuthMode enumerates the supported authentication strategies.
@@ -38,6 +40,34 @@ type Config struct {
 	Paths    PathsConfig    `toml:"paths"`
 	Logging  LoggingConfig  `toml:"logging"`
 	Shutdown ShutdownConfig `toml:"shutdown"`
+	Firmware FirmwareConfig `toml:"firmware"`
+}
+
+// FirmwareConfig configures the panel-firmware mirror (internal/
+// firmware, ADR 0024, issue #111): the bridge fetches the panel's
+// firmware from GitHub Releases and serves it over plain HTTP on the
+// LAN, because the ESP32 has no heap left for a TLS session and cannot
+// reach GitHub itself.
+type FirmwareConfig struct {
+	// Enabled turns the mirror and its /firmware routes on. Default
+	// true: a deployment that runs the panel is the normal case, and a
+	// bridge with no panel pays one API call every five hours.
+	Enabled bool `toml:"enabled"`
+	// CacheDir holds one directory per mirrored release plus the
+	// state file. Under StateDir on purpose — unlike scan output
+	// (which is tmpfs, see deploy/compose/scan-bridge.yml) this has to
+	// survive a restart, or every reboot re-downloads ~1.7 MB and
+	// serves 503 until it finishes.
+	CacheDir string `toml:"cache_dir"`
+	// Repo is the owner/name the releases come from.
+	Repo string `toml:"repo"`
+	// APIBase is GitHub's API root. Overridable so tests, and an
+	// air-gapped mirror, can point somewhere else.
+	APIBase string `toml:"api_base"`
+	// RefreshIntervalSeconds is how often the mirror asks GitHub.
+	// Shorter than the panel's own 6h check on purpose: the bridge
+	// should know before the panel asks.
+	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
 }
 
 // ServerConfig controls the public REST API and the metrics endpoint.
@@ -157,6 +187,13 @@ func Default() Config {
 			SIGINTTimeoutSeconds:  5,
 			HardTimeoutSeconds:    60,
 		},
+		Firmware: FirmwareConfig{
+			Enabled:                true,
+			CacheDir:               "/var/lib/scan-bridge/firmware",
+			Repo:                   firmware.DefaultRepo,
+			APIBase:                firmware.DefaultAPIBase,
+			RefreshIntervalSeconds: int(firmware.DefaultRefreshInterval / time.Second),
+		},
 	}
 }
 
@@ -265,6 +302,29 @@ func applyEnv(cfg *Config, look func(string) (string, bool)) error {
 		}
 		cfg.Paths.KeepScanOutput = b
 	}
+	if v, ok := look("SCAN_BRIDGE_FIRMWARE_ENABLED"); ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("SCAN_BRIDGE_FIRMWARE_ENABLED %q: %w", v, err)
+		}
+		cfg.Firmware.Enabled = b
+	}
+	if v, ok := look("SCAN_BRIDGE_FIRMWARE_CACHE_DIR"); ok {
+		cfg.Firmware.CacheDir = v
+	}
+	if v, ok := look("SCAN_BRIDGE_FIRMWARE_REPO"); ok {
+		cfg.Firmware.Repo = v
+	}
+	if v, ok := look("SCAN_BRIDGE_FIRMWARE_API_BASE"); ok {
+		cfg.Firmware.APIBase = v
+	}
+	if v, ok := look("SCAN_BRIDGE_FIRMWARE_REFRESH_INTERVAL_SECONDS"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("SCAN_BRIDGE_FIRMWARE_REFRESH_INTERVAL_SECONDS %q: %w", v, err)
+		}
+		cfg.Firmware.RefreshIntervalSeconds = n
+	}
 	if v, ok := look("SCAN_BRIDGE_LOG_LEVEL"); ok {
 		cfg.Logging.Level = v
 	}
@@ -350,7 +410,42 @@ func (c *Config) Validate() error {
 		return errors.New("paths.output_dir must be non-empty")
 	}
 
+	if c.Firmware.Enabled {
+		if c.Firmware.CacheDir == "" {
+			return errors.New("firmware.cache_dir must be non-empty when firmware.enabled")
+		}
+		if owner, name, ok := strings.Cut(c.Firmware.Repo, "/"); !ok ||
+			owner == "" || name == "" || strings.Contains(name, "/") {
+			return fmt.Errorf("firmware.repo %q: must be owner/name", c.Firmware.Repo)
+		}
+		if c.Firmware.APIBase == "" {
+			return errors.New("firmware.api_base must be non-empty when firmware.enabled")
+		}
+		// The floor is about GitHub's rate limit, not about taste:
+		// unauthenticated API calls are capped at 60 per hour per IP,
+		// and the mirror deliberately carries no token. A misconfigured
+		// interval of a few seconds would exhaust that in a minute and
+		// leave the mirror rate-limited for the rest of the hour --
+		// i.e. a value meant to make updates arrive faster would stop
+		// them arriving at all.
+		if c.Firmware.RefreshIntervalSeconds < MinFirmwareRefreshSeconds {
+			return fmt.Errorf(
+				"firmware.refresh_interval_seconds (%d) must be >= %d",
+				c.Firmware.RefreshIntervalSeconds, MinFirmwareRefreshSeconds)
+		}
+	}
+
 	return nil
+}
+
+// MinFirmwareRefreshSeconds is the lowest firmware.refresh_interval_seconds
+// Validate accepts. See the rate-limit reasoning there.
+const MinFirmwareRefreshSeconds = 300
+
+// FirmwareRefreshInterval returns the mirror's poll interval as a
+// duration.
+func (c *Config) FirmwareRefreshInterval() time.Duration {
+	return time.Duration(c.Firmware.RefreshIntervalSeconds) * time.Second
 }
 
 // SIGTERMTimeout returns the configured graceful-shutdown deadline as

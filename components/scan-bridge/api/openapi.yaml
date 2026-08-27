@@ -50,6 +50,12 @@ tags:
     description: >-
       Job store surface. Not implemented yet (Phase 1.4) — every
       operation here returns 501.
+  - name: firmware
+    description: >-
+      The panel firmware, mirrored from GitHub Releases and served over
+      plain HTTP on the LAN (ADR 0024, ADR 0025). Never behind auth —
+      the panel fetches it before a bearer token has been configured,
+      and the content is a public release asset.
 
 paths:
   /health:
@@ -402,6 +408,147 @@ paths:
         "501":
           $ref: "#/components/responses/NotImplemented"
 
+  /firmware/{name}:
+    get:
+      operationId: getFirmwareFile
+      tags: [firmware]
+      summary: A file of the mirrored panel firmware
+      description: >-
+        Serves one file of the panel-firmware release the bridge has
+        mirrored from GitHub Releases (ADR 0024, ADR 0025), including
+        `manifest.json` — the manifest is simply one of the release's
+        assets, so it needs no route of its own.
+
+
+        Deliberately unauthenticated. The panel fetches the manifest
+        before an operator has entered a bearer token, and would
+        otherwise be unable to update its way out of a broken
+        configuration; the content is a public release asset anyone can
+        download from GitHub with no credential at all.
+
+
+        `name` is matched against the cached release's own file list, not
+        joined onto a path, so only files that release actually carries
+        can be served. The manifest is mirrored verbatim: its `ota.path`
+        is relative, and ESPHome resolves a relative path against the
+        manifest's own URL, so the binary resolves to
+        `/firmware/<name>.bin` without any rewriting.
+
+
+        The response carries `X-Firmware-Version` with the mirrored
+        release tag, so `curl -I` answers "which build is this bridge
+        handing out?" without transferring ~1.7 MB.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: >-
+            A file name of the mirrored release, e.g. `manifest.json` or
+            `cyd-scan-panel.ota.bin`.
+          schema:
+            type: string
+          example: manifest.json
+      security: []
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Firmware-Version:
+              description: The mirrored release tag.
+              schema:
+                type: string
+                example: v1.2.0
+          content:
+            application/json:
+              schema:
+                type: object
+                description: >-
+                  The ESP Web Tools / ESPHome update manifest, mirrored
+                  verbatim from the release.
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: >-
+            The mirrored release carries no file by that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_file_not_found
+                hint: >-
+                  GET /firmware/manifest.json names the files of the
+                  mirrored release.
+        "501":
+          description: >-
+            The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+        "503":
+          description: >-
+            The bridge has not mirrored a release yet. `503` and not
+            `404` on purpose: the resource exists in principle and is
+            expected shortly, so a client should come back rather than
+            conclude the endpoint does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_not_cached
+                hint: >-
+                  The bridge has not mirrored a release yet. POST
+                  /firmware/refresh, or wait for the periodic refresh.
+
+  /firmware/refresh:
+    post:
+      operationId: refreshFirmware
+      tags: [firmware]
+      summary: Ask the bridge to check GitHub for a newer panel firmware
+      description: >-
+        Queues an immediate check and returns at once. It never waits
+        for the result: the panel reaches this through ESPHome's
+        `http_request`, which is synchronous on the device's main loop,
+        and a handler that blocked for a GitHub round trip plus a
+        ~1.7 MB download would hold that loop past the 60-second task
+        watchdog and reboot the panel on the button press.
+
+
+        Unauthenticated, for the same reasons as `GET /firmware/{name}`.
+        The only effect an unauthenticated caller can have is to make the
+        bridge ask GitHub sooner than its five-hourly schedule.
+      security: []
+      responses:
+        "202":
+          description: >-
+            Accepted. `queued` is `false` when a refresh was already
+            pending — the request is satisfied either way, which is why
+            this is `202` in both cases rather than a conflict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareRefreshResponse"
+              example:
+                queued: true
+                cached_version: v1.2.0
+        "501":
+          description: >-
+            The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+
 components:
   securitySchemes:
     bearerAuth:
@@ -435,6 +582,22 @@ components:
             hint: job store has not landed yet
 
   schemas:
+    FirmwareRefreshResponse:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
+          description: >-
+            Whether this call queued a refresh. `false` means one was
+            already pending, not that the request was refused.
+        cached_version:
+          type: string
+          description: >-
+            The release tag the bridge is currently serving. Absent
+            while the cache is cold.
+          example: v1.2.0
+
     HealthResponse:
       type: object
       required: [status]

@@ -16,6 +16,9 @@ itself:
 - `GET /ready` has a real `200`/`503` contract as of Phase 1.2h.
 - `GET /jobs`, `GET /jobs/{id}` and `POST /jobs/{id}/cancel` are real
   `501 Not Implemented` stubs — there is no job store yet.
+- `GET /firmware/{name}` and `POST /firmware/refresh` are
+  unauthenticated on purpose, and answer the same `501` envelope when
+  the mirror is switched off. See ADR 0025 for why they carry no token.
 
 <div id="scalar-mount"></div>
 

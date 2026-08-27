@@ -32,6 +32,27 @@ func (s *Server) Router() http.Handler {
 	// the implementation brief) — the rest of the surface stays open.
 	mux.Handle("POST /scan", s.requireBearer(http.HandlerFunc(s.handleScan)))
 
+	// Panel firmware, mirrored from GitHub Releases (ADR 0024, issue
+	// #111). Deliberately NOT behind requireBearer, for two reasons:
+	// the panel fetches the manifest before an operator has entered a
+	// token (and would otherwise be unable to update its way out of a
+	// broken configuration), and the content is a public release
+	// binary anyone can download from GitHub with no credential at
+	// all. There is nothing here a token would protect.
+	//
+	// One route serves every file, manifest.json included — the
+	// manifest is just an asset of the release. It also keeps the
+	// allowlist honest: internal/firmware.Open matches {name} against
+	// the cached release's own file list, so there is exactly one
+	// place where a request-supplied name meets the filesystem.
+	if s.Firmware != nil {
+		mux.HandleFunc("GET /firmware/{name}", s.handleFirmwareFile)
+		mux.HandleFunc("POST /firmware/refresh", s.handleFirmwareRefresh)
+	} else {
+		mux.Handle("GET /firmware/{name}", s.notImplemented("firmware mirror is disabled"))
+		mux.Handle("POST /firmware/refresh", s.notImplemented("firmware mirror is disabled"))
+	}
+
 	// Endpoints whose backing subsystem has not landed yet. They
 	// return a uniform 501 envelope so clients see a stable schema.
 	mux.Handle("GET /jobs", s.notImplemented("job store has not landed yet"))

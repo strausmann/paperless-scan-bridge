@@ -34,3 +34,23 @@ format = "json"
 sigterm_timeout_seconds = 30
 sigint_timeout_seconds = 5
 hard_timeout_seconds = 60
+
+# The panel-firmware mirror (ADR 0024, issue #111). The bridge fetches
+# the CYD panel's firmware from GitHub Releases, verifies it against the
+# release's own SHA256SUMS, and serves it over plain HTTP on the LAN at
+# /firmware/manifest.json -- because the panel's ESP32 has no heap left
+# for a TLS session and cannot reach GitHub itself.
+#
+# cache_dir sits under state_dir on purpose: unlike scan output (tmpfs,
+# see deploy/compose/scan-bridge.yml) this has to survive a restart, or
+# every reboot re-downloads ~1.7 MB and answers 503 until it finishes.
+#
+# Set enabled = false if you run no panel. It costs one unauthenticated
+# GitHub API call every five hours otherwise -- well inside the
+# 60-per-hour limit, which is why the mirror carries no token.
+[firmware]
+enabled = true
+cache_dir = "/var/lib/scan-bridge/firmware"
+repo = "strausmann/paperless-scan-bridge"
+api_base = "https://api.github.com"
+refresh_interval_seconds = 18000

@@ -425,6 +425,26 @@ What it does:
   louder than a 20px footer label. Hidden again in every terminal
   branch, the same discipline as the LED/label reset above.
 
+- Checks its bridge for newer firmware every 6h and reports one as
+  **Firmware Update** on its own dashboard; a **Check for Update**
+  button asks straight away. The manifest comes from
+  `<Bridge URL>/firmware/manifest.json`, not from the docs site, and
+  not from GitHub — the panel cannot reach either over TLS
+  (`MBEDTLS_ERR_SSL_ALLOC_FAILED`; ADR 0024). The bridge mirrors the
+  release, verifies it against the release's own `SHA256SUMS`, and only
+  then publishes it (ADR 0025). The `source:` in `update:` is a
+  placeholder on `.invalid`; the real URL is set at runtime by the
+  `apply_update_source` script from the Bridge URL entity, so moving
+  the bridge to a new host is a dashboard edit, not a re-flash.
+
+  Two things about the timing, both deliberate. The **check** runs on
+  its own FreeRTOS task inside ESPHome's `http_request` update platform,
+  so unlike a scan it cannot trip the task watchdog however long it
+  takes. The **button** does not: it POSTs `/firmware/refresh`, which
+  the bridge answers with `202` immediately and processes behind the
+  request, precisely because that POST *is* synchronous on the main
+  loop.
+
 What it deliberately does **not** do yet (see Issue #9 for phases beyond
 D/E):
 

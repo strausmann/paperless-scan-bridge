@@ -28,8 +28,9 @@ der Site:
 - **[Panel verwalten](../manage/index.md)** — ein Panel über Bluetooth
   ins WLAN bringen (Chrome/Edge, Web Bluetooth).
 - **[Firmware herunterladen](../install/index.md#firmware-herunterladen)**
-  — die `.bin` fürs Upload-Formular des Dashboards, der funktionierende
-  Update-Weg, solange das Selbst-Update kaputt ist.
+  — die `.bin` fürs Upload-Formular des Dashboards, der Rückfallweg. Der
+  normale Weg läuft inzwischen automatisch: Das Panel holt seine
+  Firmware von der Bridge (siehe unten).
 
 Diese Seite ist die Hardware-Referenz dahinter: was das Panel ist, wie es
 sich nach der Einrichtung verhält und was es weiterhin nicht kann.
@@ -121,13 +122,28 @@ kein LVGL-Speicherbudget gegen Hardware belegt.
     Die Firmware-README führt beides unter „Scope and known limitations"
     mit derselben Einschränkung.
 
-Dazu kommt eine Einschränkung, die Sie direkt betrifft: **Das
-Selbst-Update über das gehostete Manifest funktioniert auf dieser
-Hardware nicht.** Der TLS-Kontext lässt sich neben WLAN, Bluetooth-Stack,
-LVGL und dem eigenen Dashboard nicht mehr anlegen. Aktualisiert wird
-vorerst über das Upload-Formular im Dashboard —
+## Updates kommen von der Bridge
+
+Sobald das Panel seine **Bridge URL** kennt, fragt es dort alle sechs
+Stunden nach neuerer Firmware und meldet sie auf dem eigenen Dashboard
+als **Firmware Update**; die Schaltfläche **Check for Update** fragt
+sofort nach.
+
+Das Panel spricht nie mit GitHub. Es kann es nicht: Neben WLAN,
+Bluetooth-Stack, LVGL und dem eigenen Dashboard bleibt kein Speicher
+mehr, um eine TLS-Sitzung anzulegen (`MBEDTLS_ERR_SSL_ALLOC_FAILED`) —
+eine Speichergrenze, kein Zertifikatsproblem. Also fragt `scan-bridge`
+alle fünf Stunden bei GitHub nach, lädt das Release, **prüft es gegen
+die `SHA256SUMS` des Releases** und veröffentlicht es erst danach unter
+`http://<ihre-bridge>:18080/firmware/manifest.json`. Eine Datei mit
+falscher Prüfsumme wird verworfen, die Bridge liefert weiter aus, was
+sie hatte — das Manifest kündigt also nie einen Build an, den die Bridge
+nicht herausgeben kann.
+
+Geprüft wird automatisch, **installiert nur auf ausdrücklichen Klick**.
+Die Begründung steht in ADR 0024 und ADR 0025. Das Upload-Formular im
+Dashboard bleibt als Rückfallweg —
 [die Datei dafür gibt es hier](../install/index.md#firmware-herunterladen).
-Einzelheiten und der beschlossene Ausweg stehen auf derselben Seite.
 
 Die vollständige, aktuelle Liste führt die Firmware-README unter „Scope
 and known limitations".

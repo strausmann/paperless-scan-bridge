@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func envFunc(m map[string]string) func(string) (string, bool) {
@@ -441,5 +442,92 @@ func TestValidateRejectsNonPositiveReadTimeoutSeconds(t *testing.T) {
 	cfg.Server.ReadTimeoutSeconds = -1
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected validation to fail on server.read_timeout_seconds <= 0")
+	}
+}
+
+func TestDefaultEnablesTheFirmwareMirror(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	if !cfg.Firmware.Enabled {
+		t.Error("Default Firmware.Enabled = false; a deployment with a panel is the normal case")
+	}
+	if cfg.Firmware.CacheDir != "/var/lib/scan-bridge/firmware" {
+		t.Errorf("Default Firmware.CacheDir = %q", cfg.Firmware.CacheDir)
+	}
+	// Shorter than the panel's own 6h check on purpose (ADR 0024,
+	// issue #111): the bridge must know before the panel asks.
+	if cfg.FirmwareRefreshInterval() >= 6*time.Hour {
+		t.Errorf("Default firmware refresh interval %v must stay below the panel's 6h check",
+			cfg.FirmwareRefreshInterval())
+	}
+}
+
+func TestFirmwareEnvOverrides(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("", envFunc(map[string]string{
+		"SCAN_BRIDGE_FIRMWARE_CACHE_DIR":                "/tmp/fw",
+		"SCAN_BRIDGE_FIRMWARE_REPO":                     "someone/else",
+		"SCAN_BRIDGE_FIRMWARE_API_BASE":                 "http://localhost:9999",
+		"SCAN_BRIDGE_FIRMWARE_REFRESH_INTERVAL_SECONDS": "900",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Firmware.CacheDir != "/tmp/fw" ||
+		cfg.Firmware.Repo != "someone/else" ||
+		cfg.Firmware.APIBase != "http://localhost:9999" ||
+		cfg.Firmware.RefreshIntervalSeconds != 900 {
+		t.Errorf("firmware env overrides not applied: %+v", cfg.Firmware)
+	}
+}
+
+func TestFirmwareDisabledSkipsItsValidation(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Firmware.Enabled = false
+	cfg.Firmware.CacheDir = ""
+	cfg.Firmware.Repo = "nonsense"
+	cfg.Firmware.RefreshIntervalSeconds = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate on a disabled mirror = %v, want nil", err)
+	}
+}
+
+func TestValidateRejectsBadFirmwareConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{"empty cache dir", func(c *Config) { c.Firmware.CacheDir = "" }, "cache_dir"},
+		{"repo without slash", func(c *Config) { c.Firmware.Repo = "nonsense" }, "owner/name"},
+		{"repo with empty owner", func(c *Config) { c.Firmware.Repo = "/name" }, "owner/name"},
+		{"repo with empty name", func(c *Config) { c.Firmware.Repo = "owner/" }, "owner/name"},
+		{"empty api base", func(c *Config) { c.Firmware.APIBase = "" }, "api_base"},
+		// Below GitHub's 60-per-hour unauthenticated limit the mirror
+		// would rate-limit itself out of updating at all.
+		{"interval too small", func(c *Config) { c.Firmware.RefreshIntervalSeconds = 5 }, "refresh_interval_seconds"},
+		{"zero interval", func(c *Config) { c.Firmware.RefreshIntervalSeconds = 0 }, "refresh_interval_seconds"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := Default()
+			tc.mutate(&cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate accepted %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
 	}
 }
