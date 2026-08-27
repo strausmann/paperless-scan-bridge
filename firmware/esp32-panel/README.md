@@ -123,27 +123,65 @@ Nothing to copy or fill in before flashing — everything below happens
    / **`>`** buttons in the footer to page through them — see "Scope
    and known limitations" below.
 
-## Touch calibration (required after first flash)
+## Touch calibration
 
-The XPT2046 calibration values in `cyd-scan-panel.yaml`
-(`calibration.x_min`/`x_max`, `calibration.y_min`/`y_max`) are
-**placeholders** — every physical panel needs its own calibration.
-After flashing:
+**This is per-unit and mandatory.** The values shipped in
+`substitutions:` are a starting point from one board; resistive panels
+vary enough between units that a tap can land tens of pixels away, or in
+a different quadrant entirely.
 
-1. Watch the logs (`esphome logs cyd-scan-panel.yaml`, or the ESP Web
-   Tools installer's built-in log view) while tapping each corner of the
-   screen and note the raw touch coordinates ESPHome reports.
-2. Update the four `calibration.*` values in `cyd-scan-panel.yaml` to
-   match, and re-flash (over USB or OTA).
-3. Verify all 9 button slots respond accurately across the whole
-   screen (not just the ones visible at the default 2x3 grid size —
-   set "Grid Rows"/"Grid Cols" to 3x3 first to check the rest), not
-   just near the calibration points you tested.
+### Telling a calibration problem from a dropped tap
 
-There is no on-device calibration wizard — see "Scope and known
-limitations" below. This step still needs the source tree and a local
-`esphome` install; it is not something the browser installer alone can
-do (calibration values are compiled into the binary, not runtime state).
+Two different faults look identical from the outside ("I tapped and
+nothing happened"), so check which one you have before changing numbers.
+
+Open the panel's dashboard, watch the **Debug Log**, and tap a button.
+Every touch prints its raw value:
+
+```text
+[D][xpt2046:062] Touchscreen Update [2790, 3240], z = 2719
+```
+
+Convert it by hand. With `swap_xy: true` the driver swaps the pair
+first, then maps each axis onto the screen:
+
+```text
+screen_x = (raw_y - x_min) / (x_max - x_min) * screen_width
+screen_y = (raw_x - y_min) / (y_max - y_min) * screen_height
+```
+
+With the shipped values (`x_min 280`, `x_max 3860`, `y_min 340`,
+`y_max 3860`, 320x240) the sample above lands at **(265, 167)** — the
+lower-right corner. If that is not where you touched, the calibration is
+wrong for your unit.
+
+If the computed point *does* match where you tapped and the button still
+did not fire, the tap was dropped rather than mislocated — see
+"Responsiveness" below.
+
+### Correcting it
+
+Tap each corner of the screen in turn and note the raw pairs. The
+smallest and largest `raw_y` you see become `x_min`/`x_max`; the
+smallest and largest `raw_x` become `y_min`/`y_max`. Put them in the
+`substitutions:` block and re-flash — over USB or OTA, both work.
+
+## Responsiveness
+
+`http_request` is synchronous. While a poll is in flight the main loop is
+blocked and LVGL processes no input, so a tap in that window is lost, not
+queued. A panel on a slow link logged
+
+```text
+[W][component:473] interval took a long time for an operation (1091 ms),
+max is 190 ms
+```
+
+which is over a second of dead touchscreen per poll. The polling
+intervals are set with that in mind (`check_bridge_health` every 60s,
+`refresh_profiles` every 300s) rather than as fast as the data could
+theoretically change. Lowering them makes the panel feel worse, not
+fresher.
 
 ## Display orientation
 

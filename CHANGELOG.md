@@ -192,6 +192,17 @@ between releases as a running list.
 
 ### Fixed
 
+- Scan panel: tapping a profile often did nothing. `http_request` is
+  synchronous, so every status poll blocked the main loop and LVGL
+  processed no input while it ran — a panel on a slow link logged
+  `interval took a long time for an operation (1091 ms)`, i.e. over a
+  second of dead touchscreen per poll. At the previous 15s/30s intervals
+  the panel was unresponsive several percent of the time. `/ready` now
+  polls every 60s and `/profiles` every 300s; neither needed to be that
+  eager. The firmware README gains a procedure for telling a dropped tap
+  apart from a miscalibrated one, since both look identical from the
+  outside.
+
 - Scan profiles now reject a `source` the scanner does not offer, at
   daemon startup instead of on the first scan. `validateProfile` only
   checked that `source` was non-empty, so an unusable value passed

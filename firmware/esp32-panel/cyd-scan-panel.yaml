@@ -1292,11 +1292,26 @@ script:
                     # disabled: false.
                     - script.execute: render_page
 
+# Polling intervals are a responsiveness decision, not just a freshness
+# one. ESPHome's http_request is synchronous: while a poll is in flight
+# the main loop is blocked, LVGL processes no input, and a tap landing in
+# that window is simply lost. A panel on a slow link showed
+#
+#   [W][component:473] interval took a long time for an operation
+#   (1091 ms), max is 190 ms
+#
+# so each poll cost over a second of dead touchscreen. At the previous
+# 15s/30s the panel was unresponsive several percent of the time, and
+# tapping a profile "did nothing" often enough to look broken.
+#
+# Neither value needs to be that eager. The bridge indicator is a status
+# light, not a heartbeat, and profiles change when someone edits a YAML
+# file and restarts the daemon — not every half minute.
 interval:
-  - interval: 30s
+  - interval: 300s
     then:
       - script.execute: refresh_profiles
-  - interval: 15s
+  - interval: 60s
     then:
       - script.execute: check_bridge_health
 
