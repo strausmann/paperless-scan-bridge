@@ -1511,6 +1511,22 @@ lvgl:
                   y: 2
                   text: "Bridge: --"
 
+
+        # Every button below reacts to `on_click`, never `on_press`.
+        #
+        # ESPHome maps `on_press` to LV_EVENT_PRESSED, which LVGL fires
+        # the instant a finger lands on a widget -- no release needed,
+        # and again each time a still-pressed finger re-enters it. A
+        # finger dragged across this grid therefore fired a scan under
+        # every button it crossed. `on_click` is LV_EVENT_CLICKED:
+        # pressed and released on the same widget, i.e. an actual tap.
+        #
+        # This matters more here than the usual button-widget nitpick.
+        # A scan is not a screen transition that can be undone by
+        # tapping back -- it pulls a sheet through the feeder, runs for
+        # about twenty seconds and uploads a document. It must be the
+        # result of a deliberate tap, never of a finger travelling
+        # across the display.
         - button:
             id: slot0_btn
             x: *slot0_x
@@ -1531,7 +1547,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1560,7 +1576,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1589,7 +1605,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1618,7 +1634,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1647,7 +1663,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1676,7 +1692,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1705,7 +1721,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1734,7 +1750,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1763,7 +1779,7 @@ lvgl:
                   width: 96
                   long_mode: DOT
                   text: ""
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1787,7 +1803,7 @@ lvgl:
                   id: prev_page_label
                   align: CENTER
                   text: "<"
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
@@ -1816,7 +1832,7 @@ lvgl:
                   id: next_page_label
                   align: CENTER
                   text: ">"
-            on_press:
+            on_click:
               then:
                 - if:
                     condition:
