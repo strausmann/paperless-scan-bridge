@@ -73,15 +73,30 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 
-		next.ServeHTTP(rec, r)
+		// Deferred so the line is still written when the handler panics.
+		// net/http recovers a panic above this middleware, so without
+		// the defer the one request an operator most wants to see —
+		// the one that took the process sideways — is the only one
+		// missing from the log.
+		defer func() {
+			status := rec.status
+			if status == 0 {
+				// The handler returned without writing anything.
+				// net/http still sends 200, so report that rather than
+				// a zero, which would read as a broken field and take
+				// the level with it.
+				status = http.StatusOK
+			}
+			s.logger().LogAttrs(r.Context(), levelForStatus(status),
+				"http request",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", status),
+				slog.Int("bytes", rec.bytes),
+				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+			)
+		}()
 
-		s.logger().LogAttrs(r.Context(), levelForStatus(rec.status),
-			"http request",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", rec.status),
-			slog.Int("bytes", rec.bytes),
-			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
-		)
+		next.ServeHTTP(rec, r)
 	})
 }

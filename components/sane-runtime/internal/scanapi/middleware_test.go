@@ -88,7 +88,14 @@ func TestRequestLoggingHasNoSourceIP(t *testing.T) {
 	srv, buf := capturingServer(t, &fakeScanner{})
 	srv.Router().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health", nil))
 
-	if _, ok := requestLines(t, buf)[0]["source_ip"]; ok {
+	lines := requestLines(t, buf)
+	if len(lines) == 0 {
+		// Without this the test panics on an index instead of saying
+		// what went wrong — and a missing line is exactly the case
+		// worth reading about.
+		t.Fatalf("no request log line: %s", buf.String())
+	}
+	if _, ok := lines[0]["source_ip"]; ok {
 		t.Error("source_ip present; it is meaningless over a Unix socket")
 	}
 }
@@ -165,4 +172,53 @@ func (s *slowScanner) ListDevices(context.Context) ([]string, error) {
 func (s *slowScanner) Scan(context.Context, scanner.Params) ([]scanner.Page, error) {
 	time.Sleep(s.delay)
 	return []scanner.Page{fakePage(0, "page-bytes")}, nil
+}
+
+// TestRequestLoggingLogsPanickingRequests: net/http recovers a handler
+// panic above this middleware, so a non-deferred log call is skipped for
+// exactly the request an operator most needs to see.
+func TestRequestLoggingLogsPanickingRequests(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	srv := &Server{
+		Scanner: &fakeScanner{},
+		Logger:  slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+	h := srv.loggingMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	}))
+
+	func() {
+		defer func() { _ = recover() }()
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/scan", nil))
+	}()
+
+	if len(requestLines(t, buf)) != 1 {
+		t.Fatalf("panicking request produced no log line: %s", buf.String())
+	}
+}
+
+// TestRequestLoggingDefaultsStatusTo200: a handler that returns without
+// writing still makes net/http send 200. Logging 0 would read as a
+// broken field and drag the level down with it.
+func TestRequestLoggingDefaultsStatusTo200(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	srv := &Server{
+		Scanner: &fakeScanner{},
+		Logger:  slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+	h := srv.loggingMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health", nil))
+
+	lines := requestLines(t, buf)
+	if len(lines) == 0 {
+		t.Fatalf("no request log line: %s", buf.String())
+	}
+	if got := lines[0]["status"]; got != float64(http.StatusOK) {
+		t.Errorf("status = %v, want 200", got)
+	}
 }
