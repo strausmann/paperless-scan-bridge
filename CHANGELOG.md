@@ -46,6 +46,21 @@ between releases as a running list.
 
 ### Added
 
+- The scan panel now logs what it is actually doing. Its log used to be
+  dominated by two framework components — `xpt2046` printing a line per
+  touch sample and `http_request.idf` one per response header — so a
+  whole poll cost two lines saying only `content-length: 19`, and which
+  endpoint was called, what came back, and why it failed were nowhere.
+  Both are raised to INFO and every request now logs method, URL,
+  status, byte count and duration, with truncated response bodies and a
+  plain-language reason on each failure. The scan path goes further and
+  walks the result: `scan_id`, bridge-side duration, every document with
+  filename and page count, every destination with status and `task_id`,
+  plus OCR-confidence and warnings — and raises an explicit error when a
+  destination delivery failed, which the panel otherwise hides behind a
+  green "Done" (the bridge does not treat a delivery failure as a scan
+  failure). The bearer token is never logged.
+
 - The scan panel now reports **Reset Reason**, **Uptime**, **Loop Time**
   and three heap sensors on its own dashboard. Reported symptom: under
   heavy tapping the profile buttons vanish, the Wi-Fi and Bridge
