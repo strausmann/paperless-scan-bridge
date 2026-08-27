@@ -46,6 +46,15 @@ between releases as a running list.
 
 ### Added
 
+- `sane-runtime` now logs one structured line per HTTP request, matching
+  `scan-bridge`'s schema, so a scan reads as two corresponding lines
+  across the two containers. Previously only failures were logged: a
+  successful request produced nothing, and the container's log after a
+  completed scan showed only its startup line — leaving no way to tell
+  "the request never arrived" (socket or permissions) from "it arrived
+  and the scanner is slow". `duration_ms` covers the full multipart
+  response, so `POST /scan` reports the real scan time rather than the
+  time to the first header.
 - The scan panel now checks for firmware updates on its own and reports
   them on its dashboard, instead of requiring someone to locate a `.bin`
   and upload it by hand (ADR 0023). It polls the same `manifest.json`
@@ -55,8 +64,8 @@ between releases as a running list.
   panel verifies that MD5 while writing, so an interrupted or altered
   download is discarded and the running firmware survives. Checking is
   automatic; **installing stays a deliberate click** — see the ADR for
-  why that constraint matters given that this framework cannot verify
-  TLS certificates.
+  why that constraint matters while TLS certificate verification is off
+  on this build.
 
 - Add the project homepage as a Zensical custom home template (Issue
   #60): landing page and documentation now live on one site, the same

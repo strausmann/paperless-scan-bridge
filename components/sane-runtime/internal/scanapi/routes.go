@@ -12,5 +12,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /ready", s.handleReady)
 	mux.HandleFunc("POST /scan", s.handleScan)
 
-	return mux
+	// Wrapped rather than applied per route so a route added later is
+	// logged by construction instead of by remembering to.
+	return s.loggingMiddleware(mux)
 }
