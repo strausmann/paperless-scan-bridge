@@ -62,24 +62,30 @@ A working stack that successfully scans a document via webhook and
 delivers it to Paperless-ngx. No hardware buttons, no Zigbee, no
 backup yet. Just the core path from trigger to document.
 
-- `[ ]` `sane-runtime` container, Debian slim base, with SANE and
-   the Kodak i1120 verified working
-- `[~]` `scan-bridge` daemon in Go: `POST /scan`, `GET /health`,
-   `GET /profiles` endpoints — `GET /health`, `GET /version`,
-   `GET /profiles` and `GET /profiles/{name}` are implemented
-   (Phase 1.1). `GET /ready`, `POST /scan` and the `/jobs` endpoints
-   return `501 Not Implemented` until Phase 1.2 lands.
-- `[ ]` `scan-processor` container, basic ImageMagick wrapper,
-   atomic NFS write
-- `[ ]` Bash bootstrap script that installs Docker, mounts NFS,
-   loads udev rules, pulls images
-- `[ ]` Reference compose stack for Topology B (NFS direct) as the
-   simplest start
-- `[ ]` Documentation: getting started, hardware setup, first scan
-- `[ ]` Tilt configuration for local development
-- `[ ]` GitHub Actions for multi-arch container builds, push to GHCR
-- `[ ]` Renovate configuration for dependency updates
-- `[ ]` First blog post published, announcing the launch
+- `[x]` `sane-runtime` container, Debian slim base, with SANE and
+   the Kodak i1120 verified working — proven end to end on 2026-08-26
+- `[~]` `scan-bridge` daemon in Go. `GET /health`, `GET /version`,
+   `GET /ready`, `GET /profiles`, `GET /profiles/{name}` and
+   `POST /scan` are all implemented — `POST /scan` is a real,
+   bearer-protected handler that dispatches through `sane-runtime` and
+   `scan-processor` to delivery. Only the three `/jobs` endpoints still
+   return `501 Not Implemented`, waiting on the Phase 1.4 job store.
+- `[x]` `scan-processor` container: deskew, blank-page removal, OCR
+   with a confidence gate, PDF assembly, atomic NFS write
+- `[x]` Bash bootstrap script that installs Docker, mounts NFS and
+   loads udev rules (`deploy/bootstrap/install.sh`, idempotent, with
+   `--dry-run`). Not yet run end to end on an unprepared machine.
+- `[x]` Reference compose stack for Topology B (NFS direct) as the
+   simplest start (`deploy/compose/scan-bridge.yml`, pinned GHCR images)
+- `[x]` Documentation: getting started, hardware setup, first scan — live at
+   scan-bridge.strausmann.de, English and German
+- `[x]` Tilt configuration for local development (`Tiltfile`)
+- `[x]` GitHub Actions for multi-arch container builds, push to GHCR (`docker-
+   bake.hcl`, amd64 + arm64). CI also builds, lints and tests the Go code,
+   which it did not until 2026-08-27
+- `[x]` Renovate configuration for dependency updates (`renovate.json`; the
+   split with Dependabot is documented in it)
+- `[x]` First blog post published, announcing the launch
 
 **Definition of done for Phase 1:** A user with a fresh Pi, a Synology
 NAS, and a Paperless-ngx instance can run the bootstrap script, send a
@@ -87,27 +93,31 @@ single curl request, and see a PDF in Paperless within 30 seconds.
 
 ### Phase 1.3 — Image processing, OCR, formats, page handling
 
-**Status: planned.** This sub-phase did not have its own checklist yet;
+**Status: essentially complete.** Only the two `Needs clarification` items below
+are open; everything `Ready to dev` has shipped. This sub-phase did not have its
+own checklist yet;
 the items below fill it in, including the profile "Baukasten" (building
 block) features from the 2026-08-13 vision. See the vision document for
 the full spec and open questions on each `(vision)` item.
 
-- `[ ]` `scan-processor` deskew, blank-page removal, PDF assembly (already
-   scoped in `ARCHITECTURE.md`, not yet built)
-- `[ ]` `(vision)` Per-profile OCR on/off, wiring the already-documented
-   optional `tesseract` pass to a profile flag instead of a single global
-   default — **Ready to dev**, see vision doc Epic A2
-- `[ ]` `(vision)` Output format: add `png` to the existing
-   `pdf`/`jpeg`/`tiff` set — **Ready to dev**, see vision doc Epic A3
-- `[ ]` `(vision)` Feeder behaviour: scan exactly one page vs. drain the
-   whole ADF (`max_pages`/`single_sheet` profile field) — **Ready to dev**,
-   see vision doc Epic A5
-- `[ ]` `(vision)` Multi-page result shape: one combined object vs. one
-   object per page, with destination-specific defaults — **Needs
+- `[x]` `scan-processor` deskew, blank-page removal, PDF assembly
+- `[x]` `(vision)` Per-profile OCR on/off, plus `ocr.min_confidence` and
+   `ocr.languages: [auto]` (Epic A2)
+- `[x]` `(vision)` Output format: `png` added to the existing
+   `pdf`/`jpeg`/`tiff` set (Epic A3)
+- `[x]` `(vision)` Feeder behaviour: `max_pages` caps how many sheets one
+   scan pulls; `0` drains the ADF, `1` is the single-sheet case (Epic A5).
+   No separate `single_sheet` field — it would mean exactly `max_pages: 1`.
+- `[~]` `(vision)` Multi-page result shape: `page_grouping` is a real
+   profile field and `combined`/`per_page` both work end to end. What is
+   still open is the *destination-specific default* — which shape a
+   destination should get when a profile does not say. **Needs
    clarification**, see vision doc Epic A6
-- `[ ]` `(vision)` Document type/kind → destination-specific labels and
-   actions (e.g. "Eingangsrechnung", "Post", "Verträge") — **Needs
-   clarification**, see vision doc Epic A7
+- `[~]` `(vision)` Document type/kind: `document_type` is a real profile
+   field and reaches every destination, and `title_template` consumes it.
+   What is still open is the destination-specific *labels and actions*
+   half — what a destination should do with "Eingangsrechnung" beyond
+   putting it in a title. **Needs clarification**, see vision doc Epic A7
 
 ### Phase 1.4 — Web UI, profile management, remaining API surface
 
@@ -123,9 +133,24 @@ the full spec and open questions on each `(vision)` item.
 - `[ ]` `(vision)` Destination: upload to Paperless-ngx **or** fileee, and
    to which account/target — **Needs clarification**, see vision doc
    Epic A1 (interacts with ADR 0004)
-- `[ ]` `(vision)` OpenAPI 3.1 spec for scan-bridge (already referenced as
-   aspirational in `CONTAINER_SUITE.md` §4.4, not yet created) rendered
-   with Scalar on the docs site — **Ready to dev**, see vision doc Epic F1
+- `[x]` `(vision)` OpenAPI 3.1 spec for scan-bridge, rendered with Scalar
+   on the docs site (Epic F1). Hand-written, not generated. Reachable only
+   from the published site — the daemon does not serve it, which is a gap
+   the Phase 1.4 UI should close.
+
+!!! note "Phase 2 was started before Phase 1 finished"
+
+    The panel items below carry their real state rather than a blanket
+    "not started": grid size, paging, the scan-status display and the
+    three-colour indicator are built; display rotation is `[~]` because
+    the grid geometry follows the orientation but the header and footer
+    rows are still landscape-only.
+
+    The CYD scan-control panel, its browser installer, the BLE
+    management surface and firmware OTA are all built — they are listed
+    under Phase 2 below and marked accordingly. Losing the scanner's
+    hardware button (see the i1120 page) made a panel the primary
+    trigger rather than a nice-to-have, so it moved forward.
 
 ## Phase 2 — Trigger paths and UI
 
@@ -158,20 +183,20 @@ this phase — a fixed 6-button landscape-only grid is running firmware
 today (`firmware/esp32-panel/cyd-scan-panel.yaml`). The items below are
 v3 additions from the 2026-08-13 vision, all firmware-side unless noted.
 
-- `[ ]` `(vision)` Configurable grid size (replacing the hard-coded 6
+- `[x]` `(vision)` Configurable grid size (replacing the hard-coded 6
    slots) — **Ready to dev**, see vision doc Epic B1
-- `[ ]` `(vision)` Paging buttons when more profiles exist than fit the
+- `[x]` `(vision)` Paging buttons when more profiles exist than fit the
    grid — **Ready to dev**, see vision doc Epic B2
 - `[ ]` `(vision)` Sorting: alphabetical / manual / usage-frequency /
    mixed (static-pinned + frequency-sorted) — **Needs clarification**, see
    vision doc Epic B3 (depends on the Phase 1.4 profile-database work)
-- `[ ]` `(vision)` Display rotation (portrait 240×320 in addition to the
+- `[~]` `(vision)` Display rotation (portrait 240×320 in addition to the
    current landscape 320×240 — already called out as a known gap in the
    firmware's own README) — **Ready to dev**, see vision doc Epic B4
-- `[ ]` `(vision)` Scan-status shown prominently until completion
+- `[x]` `(vision)` Scan-status shown prominently until completion
    (extends the existing tap → LED/status-label behaviour) — **Ready to
    dev**, see vision doc Epic B5
-- `[ ]` `(vision)` Chain-status indicator (green/red/blue) wired to
+- `[x]` `(vision)` Chain-status indicator (green/red/blue) wired to
    `GET /ready` once that endpoint's dispatch dependency lands (currently
    `501`) — **Ready to dev, blocked on the already-planned `/ready`
    endpoint**, see vision doc Epic B6

@@ -19,7 +19,11 @@ decisions, and the occasional dead end worth documenting.
 
 ## Posts
 
-No posts yet. The first one is planned for the Phase 1 launch.
+- **2026-08-27** —
+  [A sixteen-year-old scanner, a Pi, and the button that does not exist](posts/2026-08-27-a-sixteen-year-old-scanner-and-a-pi.md)
+  · *project* · The Phase 1 pipeline scans, assembles and uploads a real
+  document. Getting there meant discarding the feature the whole design
+  was named after.
 
 ## Writing a post
 
