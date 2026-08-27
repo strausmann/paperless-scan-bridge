@@ -99,3 +99,28 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   compose any text that cites it. Generalized: a reference to a SHA, URL, line
   number, file path or version in public text must be copied from a command's
   output, never from memory or expectation.
+
+## 2026-08-27 — A branch cut from another feature branch duplicated a merged change
+
+- **What happened:** `/en/manage/` and `/de/manage/` shipped the "The panel is
+  only findable while it has no Wi-Fi" box **twice** — once above the
+  `## Connect over Bluetooth` heading and once below it. The operator spotted it
+  on the deployed site.
+- **Root cause:** `fix/panel-crash-diagnostics` (PR #82) was created with
+  `git checkout -b` while the working copy was still on
+  `docs/manage-precondition-before-button` (PR #81), not on `main`. PR #82 thus
+  carried PR #81's *first* commit (box moved above the heading) but not its
+  *second* (box moved below it, fixing the anchor). Squash-merging #81 put one
+  box below the heading; squash-merging #82 afterwards re-applied the inherited
+  first commit on top, adding a second box above it. Git cannot flag this: the
+  two states touch different line ranges, so there is no textual conflict — only
+  a semantic one.
+- **Impact:** A duplicated paragraph on two published pages. Both PRs were green
+  and both bot reviews passed; nothing in CI or review looks at whether a branch
+  descends from `main`.
+- **Fix / prevention:** Always `git checkout main && git pull` immediately before
+  `git checkout -b`. Never run `git checkout -b` from an unverified current
+  branch. Before opening a PR, check what it actually contains —
+  `git log --oneline main..HEAD` must show only that PR's own commits; a foreign
+  commit in that list means the branch point is wrong and the branch must be
+  rebased onto `main` before review.
