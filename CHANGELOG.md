@@ -46,6 +46,16 @@ between releases as a running list.
 
 ### Added
 
+- `sane-runtime` now logs one structured line per HTTP request, matching
+  `scan-bridge`'s schema, so a scan reads as two corresponding lines
+  across the two containers. Previously only failures were logged: a
+  successful request produced nothing, and the container's log after a
+  completed scan showed only its startup line — leaving no way to tell
+  "the request never arrived" (socket or permissions) from "it arrived
+  and the scanner is slow". `duration_ms` covers the full multipart
+  response, so `POST /scan` reports the real scan time rather than the
+  time to the first header.
+
 - Add the project homepage as a Zensical custom home template (Issue
   #60): landing page and documentation now live on one site, the same
   way zensical.org itself does it. Only `docs/en/index.md` opts in via

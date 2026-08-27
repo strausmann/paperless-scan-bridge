@@ -150,6 +150,30 @@ deliberately out of scope here.
 
 `/metrics` is out of scope for this task (Task 12).
 
+## Logging
+
+One structured line per request, on top of the error-path logging the
+handlers already do:
+
+```json
+{"level":"INFO","msg":"http request","method":"POST","path":"/scan",
+ "status":200,"bytes":3974798,"duration_ms":20871}
+```
+
+The schema matches `scan-bridge`'s own request log deliberately, so a
+single scan reads as two corresponding lines across the two containers
+and you can see which side spent the time. The level follows the status
+(5xx error, 4xx warn, else info), so filtering at warn still shows every
+failure.
+
+`duration_ms` covers the **whole** handler including the multipart
+response body — for `POST /scan` that is the actual scan, not the time
+to the first header.
+
+There is no `source_ip` field: this server is reached only over a Unix
+socket (ADR 0009), where `RemoteAddr` carries no meaningful peer
+address.
+
 ## Testing
 
 ```bash
