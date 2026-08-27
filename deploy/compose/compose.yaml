@@ -112,7 +112,7 @@
 # internal/destinations/paperless/paperless.go's
 # defaultTokenSecretName expects -- no new secret-loading mechanism,
 # per design doc sec. 11 item 5. The referenced file
-# (deploy/secrets/paperless_api_token) is gitignored; only a
+# lives outside the checkout (see the secrets: block); only a
 # CHANGE_ME placeholder (deploy/secrets/paperless_api_token.example)
 # is committed, mirroring this repo's existing .env/.env.example
 # convention -- the operator copies it and swaps in the real token
@@ -261,16 +261,20 @@ services:
       # pre-create or own-fix for them (read-only, world-readable in
       # the checkout).
       - ./deploy/config/config.toml:/etc/scan-bridge/config.toml:ro
-      # deploy/profiles/default.yaml is gitignored and site-specific:
-      # copy deploy/profiles/default.yaml.example to it and set your
-      # own Paperless base_url before the first deploy. Long syntax with
-      # create_host_path: false on purpose -- the short syntax would
-      # silently create a DIRECTORY at this path when the file is
-      # missing, and scan-bridge would then fail its profile load with a
+      # Site-specific, therefore deliberately OUTSIDE the git checkout.
+      # Dockhand's git-stack sync mirrors the stack directory against the
+      # tracked file list on EVERY deploy and deletes anything not in it,
+      # so a gitignored file inside the checkout is removed before compose
+      # even starts -- deploy then fails with "bind source path does not
+      # exist". Copy deploy/profiles/default.yaml.example to the path below
+      # and set your own Paperless base_url before the first deploy.
+      # Long syntax with create_host_path: false on purpose -- the short
+      # syntax would silently create a DIRECTORY at this path when the file
+      # is missing, and scan-bridge would then fail its profile load with a
       # confusing "is a directory" error. This way `docker compose up`
       # fails immediately, naming the missing file.
       - type: bind
-        source: ./deploy/profiles/default.yaml
+        source: /docker/stacks/paperless-scan-bridge-config/profiles/default.yaml
         target: /etc/scan-bridge/profiles.yaml
         read_only: true
         bind:
@@ -301,9 +305,12 @@ secrets:
     # above, added so it can dial sane-runtime's root-owned socket), so
     # the smallest thing that works is root-owned and group-readable:
     #
-    #   chown root:root deploy/secrets/paperless_api_token
-    #   chmod 0640      deploy/secrets/paperless_api_token
+    #   chown root:root /docker/stacks/paperless-scan-bridge-config/secrets/paperless_api_token
+    #   chmod 0640      /docker/stacks/paperless-scan-bridge-config/secrets/paperless_api_token
     #
     # Do NOT use 0644 — that makes the API token world-readable on the
     # host for no benefit.
-    file: ./deploy/secrets/paperless_api_token
+    # Outside the git checkout, same reason as the profile mount above:
+    # Dockhand's sync deletes gitignored files in the stack directory on
+    # every deploy. A secret has no business in the checkout anyway.
+    file: /docker/stacks/paperless-scan-bridge-config/secrets/paperless_api_token
