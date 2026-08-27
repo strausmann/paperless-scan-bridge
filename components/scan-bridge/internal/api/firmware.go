@@ -27,10 +27,11 @@ type FirmwareMirror interface {
 	// another's tag.
 	Open(name string) (io.ReadSeekCloser, firmware.Release, time.Time, error)
 	// OpenAt does the same for a named generation, which may be older
-	// than the current one.
-	OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error)
+	// than the current one. The generation is Release.Dir(), not the
+	// bare tag.
+	OpenAt(generation, name string) (io.ReadSeekCloser, time.Time, error)
 	// Manifest returns the manifest as the bridge publishes it, with
-	// version-qualified binary paths, plus the release it describes.
+	// generation-qualified binary paths, plus the release it describes.
 	Manifest() ([]byte, firmware.Release, error)
 	// TriggerRefresh queues a refresh and returns immediately.
 	TriggerRefresh() bool
@@ -48,7 +49,7 @@ type firmwareRefreshResponse struct {
 
 // handleFirmwareManifest serves the update manifest of the current
 // release, with each build's `ota.path` rewritten to the
-// version-qualified path below. Only the path — never the MD5 beside
+// generation-qualified path below. Only the path — never the MD5 beside
 // it, which is the digest CI computed from the binary it shipped.
 func (s *Server) handleFirmwareManifest(w http.ResponseWriter, r *http.Request) {
 	body, rel, err := s.Firmware.Manifest()
@@ -81,9 +82,9 @@ func (s *Server) handleFirmwareManifest(w http.ResponseWriter, r *http.Request) 
 // reason the operator can see. The mirror keeps the previous generation
 // on disk precisely so this URL keeps returning the same bytes.
 func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Request) {
-	tag, name := r.PathValue("version"), r.PathValue("name")
+	gen, name := r.PathValue("generation"), r.PathValue("name")
 
-	f, modTime, err := s.Firmware.OpenAt(tag, name)
+	f, modTime, err := s.Firmware.OpenAt(gen, name)
 	if err != nil {
 		if errors.Is(err, firmware.ErrNotCached) {
 			s.writeFirmwareFileNotFound(w, r)
@@ -93,7 +94,7 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 		// not a missing file. Reporting it as 404 would hide a failing
 		// disk behind an update that simply never arrives.
 		s.Logger.LogAttrs(r.Context(), slog.LevelError, "firmware file unreadable",
-			slog.String("version", tag), slog.String("name", name), slog.Any("err", err))
+			slog.String("generation", gen), slog.String("name", name), slog.Any("err", err))
 		s.writeJSON(w, r, http.StatusInternalServerError, errorResponse{
 			Error: "firmware_unreadable",
 		})
@@ -102,7 +103,9 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", firmwareContentType(name))
-	w.Header().Set("X-Firmware-Version", tag)
+	// The generation, not the bare tag: on this route that is what the
+	// caller asked for, and a tag alone would not identify the bytes.
+	w.Header().Set("X-Firmware-Version", gen)
 	http.ServeContent(w, r, name, modTime, f)
 }
 

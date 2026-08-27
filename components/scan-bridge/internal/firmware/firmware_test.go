@@ -144,6 +144,18 @@ func (g *fakeGitHub) handleDownload(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// genDir returns the on-disk directory of the release the mirror is
+// currently serving. Generations are content-addressed (Release.Dir),
+// so a test cannot spell the path from the tag alone.
+func genDir(t *testing.T, m *Mirror) string {
+	t.Helper()
+	cur, ok := m.Current()
+	if !ok {
+		t.Fatal("no release is being served")
+	}
+	return filepath.Join(m.cacheDir, cur.Dir())
+}
+
 func newTestMirror(t *testing.T, g *fakeGitHub) *Mirror {
 	t.Helper()
 	m, err := New(Options{
@@ -289,6 +301,88 @@ func TestStagingLeftoversAreSweptOnAShortCircuitAndOnLoad(t *testing.T) {
 	}
 }
 
+// The cold-cache variant: killed during the very first download, so
+// there is no state file for Load to adopt and the early return would
+// skip the sweep. On a box with unreliable power that is one
+// near-complete directory per boot until a refresh finally succeeds.
+func TestStagingLeftoversAreSweptWithNoStateFile(t *testing.T) {
+	dir := t.TempDir()
+	orphan := filepath.Join(dir, stagingPrefix+"first-attempt")
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	m, err := New(Options{CacheDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatalf("Load on a cold cache = %v, want nil", err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("staging leftover survived a cold-cache Load: %v", err)
+	}
+}
+
+// Re-running the release workflow replaces the assets of an existing
+// tag, and an ESPHome build is not bit-reproducible, so the replacement
+// genuinely differs. A generation keyed by the tag alone would take the
+// new bytes in place -- and a panel that had already read the previous
+// manifest would fetch them under the URL it saved and discard them on
+// the MD5 check. Content-addressed, both generations coexist.
+func TestReplacedAssetsAtTheSameTagGetTheirOwnGeneration(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	first, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+	oldBytes := string(g.assets["cyd-scan-panel.ota.bin"])
+
+	// Same tag, different bytes: `gh release upload --clobber`.
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("clobbered-ota-bytes")
+	second, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	if second.Tag != first.Tag {
+		t.Fatalf("tags differ (%q vs %q); this test is about an UNCHANGED tag", first.Tag, second.Tag)
+	}
+	if second.Dir() == first.Dir() {
+		t.Fatalf("both generations share the directory %q; the old bytes were overwritten", first.Dir())
+	}
+
+	// The URL a panel saved before the clobber still returns what its
+	// manifest described.
+	f, _, err := m.OpenAt(first.Dir(), "cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("OpenAt on the pre-clobber generation: %v", err)
+	}
+	got, err := io.ReadAll(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != oldBytes {
+		t.Errorf("pre-clobber URL returned %q, want %q", got, oldBytes)
+	}
+
+	// And the current one serves the replacement.
+	f, _, _, err = m.Open("cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	got, err = io.ReadAll(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "clobbered-ota-bytes" {
+		t.Errorf("current generation returned %q", got)
+	}
+}
+
 // Retention is by tag, not by mtime. A daemon killed between the rename
 // and the publish leaves a fully downloaded but never-advertised
 // directory that is NEWER than the generation panels actually hold a
@@ -297,30 +391,32 @@ func TestStagingLeftoversAreSweptOnAShortCircuitAndOnLoad(t *testing.T) {
 func TestPruneKeepsThePublishedPredecessorNotTheNewestOrphan(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
-	if _, err := m.Refresh(t.Context()); err != nil {
+	first, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
 
-	// An orphan from a crashed refresh, newer than v1.0.0.
-	orphan := filepath.Join(m.cacheDir, "v1.5.0")
+	// An orphan from a crashed refresh, newer than the predecessor.
+	orphan := filepath.Join(m.cacheDir, "v1.5.0-000000000000")
 	if err := os.MkdirAll(orphan, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
 	g.tag = "v2.0.0"
 	g.assets["cyd-scan-panel.ota.bin"] = []byte("third-generation-bytes")
-	if _, err := m.Refresh(t.Context()); err != nil {
+	second, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(m.cacheDir, "v1.0.0")); err != nil {
+	if _, err := os.Stat(filepath.Join(m.cacheDir, first.Dir())); err != nil {
 		t.Errorf("the published predecessor was pruned: %v", err)
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Errorf("the never-published orphan survived: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(m.cacheDir, "v2.0.0")); err != nil {
-		t.Errorf("v2.0.0 missing: %v", err)
+	if _, err := os.Stat(filepath.Join(m.cacheDir, second.Dir())); err != nil {
+		t.Errorf("the current generation is missing: %v", err)
 	}
 }
 
@@ -494,7 +590,7 @@ func TestLoadRejectsAnIncompleteCache(t *testing.T) {
 		t.Fatalf("Refresh: %v", err)
 	}
 	// Remove a file the state file still claims.
-	if err := os.Remove(filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")); err != nil {
+	if err := os.Remove(filepath.Join(genDir(t, m), "cyd-scan-panel.ota.bin")); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 
@@ -529,19 +625,21 @@ func TestLoadOnEmptyCacheDirIsNotAnError(t *testing.T) {
 func TestRefreshKeepsThePreviousRelease(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
-	if _, err := m.Refresh(t.Context()); err != nil {
+	first, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
 
 	g.tag = "v2.0.0"
 	g.assets["cyd-scan-panel.ota.bin"] = []byte("newer-ota-image-bytes")
-	if _, err := m.Refresh(t.Context()); err != nil {
+	second, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
-	for _, tag := range []string{"v1.0.0", "v2.0.0"} {
-		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
-			t.Errorf("%s missing after the second refresh: %v", tag, err)
+	for _, dir := range []string{first.Dir(), second.Dir()} {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, dir)); err != nil {
+			t.Errorf("%s missing after the second refresh: %v", dir, err)
 		}
 	}
 	if cur, _ := m.Current(); cur.Tag != "v2.0.0" {
@@ -823,7 +921,7 @@ func TestManifestRewritesOtaPathToTheVersionedRoute(t *testing.T) {
 	if len(doc.Builds) != 1 {
 		t.Fatalf("builds = %d, want 1", len(doc.Builds))
 	}
-	if want := "/firmware/v1.0.0/cyd-scan-panel.ota.bin"; doc.Builds[0].OTA.Path != want {
+	if want := "/firmware/" + rel.Dir() + "/cyd-scan-panel.ota.bin"; doc.Builds[0].OTA.Path != want {
 		t.Errorf("ota.path = %q, want %q", doc.Builds[0].OTA.Path, want)
 	}
 	// The digest is CI's, computed from the binary it shipped. Rewriting
@@ -854,18 +952,20 @@ func TestManifestOnColdCache(t *testing.T) {
 func TestPreviousGenerationStaysServableAfterANewRelease(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
-	if _, err := m.Refresh(t.Context()); err != nil {
+	first, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
 	oldBytes := string(g.assets["cyd-scan-panel.ota.bin"])
 
 	g.tag = "v2.0.0"
 	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-ota-bytes")
-	if _, err := m.Refresh(t.Context()); err != nil {
+	second, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
-	f, _, err := m.OpenAt("v1.0.0", "cyd-scan-panel.ota.bin")
+	f, _, err := m.OpenAt(first.Dir(), "cyd-scan-panel.ota.bin")
 	if err != nil {
 		t.Fatalf("OpenAt on the previous generation: %v", err)
 	}
@@ -879,7 +979,7 @@ func TestPreviousGenerationStaysServableAfterANewRelease(t *testing.T) {
 	}
 
 	// The current one is obviously still there, and is a different file.
-	f, _, err = m.OpenAt("v2.0.0", "cyd-scan-panel.ota.bin")
+	f, _, err = m.OpenAt(second.Dir(), "cyd-scan-panel.ota.bin")
 	if err != nil {
 		t.Fatalf("OpenAt on the current generation: %v", err)
 	}
@@ -891,23 +991,23 @@ func TestPruneKeepsTheCurrentAndPreviousGeneration(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
 
+	var dirs []string
 	for i, tag := range []string{"v1.0.0", "v2.0.0", "v3.0.0"} {
 		g.tag = tag
 		g.assets["cyd-scan-panel.ota.bin"] = fmt.Appendf(nil, "ota-generation-%d", i)
-		if _, err := m.Refresh(t.Context()); err != nil {
+		rel, err := m.Refresh(t.Context())
+		if err != nil {
 			t.Fatalf("Refresh %s: %v", tag, err)
 		}
-		// os.ReadDir orders by name and prune orders by mtime; a
-		// same-second mtime would make the choice arbitrary.
-		time.Sleep(10 * time.Millisecond)
+		dirs = append(dirs, rel.Dir())
 	}
 
-	if _, err := os.Stat(filepath.Join(m.cacheDir, "v1.0.0")); !os.IsNotExist(err) {
-		t.Errorf("v1.0.0 survived two later releases: %v", err)
+	if _, err := os.Stat(filepath.Join(m.cacheDir, dirs[0])); !os.IsNotExist(err) {
+		t.Errorf("the first generation survived two later releases: %v", err)
 	}
-	for _, tag := range []string{"v2.0.0", "v3.0.0"} {
-		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
-			t.Errorf("%s missing: %v", tag, err)
+	for _, dir := range dirs[1:] {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, dir)); err != nil {
+			t.Errorf("%s missing: %v", dir, err)
 		}
 	}
 }
@@ -942,7 +1042,7 @@ func TestOpenAtUnknownGeneration(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	if _, _, err := m.OpenAt("v9.9.9", ManifestName); !errors.Is(err, ErrNotCached) {
+	if _, _, err := m.OpenAt("v9.9.9-000000000000", ManifestName); !errors.Is(err, ErrNotCached) {
 		t.Errorf("OpenAt on an unknown tag = %v, want ErrNotCached", err)
 	}
 }
@@ -1060,13 +1160,14 @@ func TestOpenAtReportsIOErrorsRatherThanNotFound(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod cannot make a file unreadable")
 	}
-	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	victim := filepath.Join(genDir(t, m), "cyd-scan-panel.ota.bin")
 	if err := os.Chmod(victim, 0o000); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(victim, 0o644) })
 
-	_, _, err = m.OpenAt("v1.0.0", "cyd-scan-panel.ota.bin")
+	cur, _ := m.Current()
+	_, _, err = m.OpenAt(cur.Dir(), "cyd-scan-panel.ota.bin")
 	if err == nil {
 		t.Fatal("OpenAt on an unreadable file succeeded")
 	}
@@ -1077,7 +1178,7 @@ func TestOpenAtReportsIOErrorsRatherThanNotFound(t *testing.T) {
 
 // A best-effort rewrite is worse than none: it would publish a manifest
 // whose paths are still relative, silently breaking the one invariant
-// the version-qualified route exists for. Every shape below is a hard
+// the generation-qualified route exists for. Every shape below is a hard
 // failure instead, and it fails at refresh time so the release never
 // becomes current.
 func TestRefreshRejectsAnUnrenderableManifest(t *testing.T) {
@@ -1224,7 +1325,7 @@ func TestRefreshRepairsACorruptedCacheAtTheSameTag(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
-	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	victim := filepath.Join(genDir(t, m), "cyd-scan-panel.ota.bin")
 	if err := os.WriteFile(victim, []byte("truncated"), 0o644); err != nil {
 		t.Fatalf("corrupt: %v", err)
 	}
@@ -1254,7 +1355,7 @@ func TestLoadRejectsACorruptedCache(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	victim := filepath.Join(m.cacheDir, "v1.0.0", "cyd-scan-panel.ota.bin")
+	victim := filepath.Join(genDir(t, m), "cyd-scan-panel.ota.bin")
 	if err := os.WriteFile(victim, []byte("truncated"), 0o644); err != nil {
 		t.Fatalf("corrupt: %v", err)
 	}
@@ -1325,7 +1426,7 @@ func TestRefreshRestoresTheOldGenerationIfThePublishFails(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
-	dir := filepath.Join(m.cacheDir, "v1.0.0")
+	dir := genDir(t, m)
 
 	// Corrupt a file so the same tag takes the full download path and
 	// the swap therefore targets the generation being served.
@@ -1398,7 +1499,7 @@ func TestRefreshRepairsInPlaceWithoutLeavingLeftovers(t *testing.T) {
 	if _, err := m.Refresh(t.Context()); err != nil {
 		t.Fatalf("first Refresh: %v", err)
 	}
-	dir := filepath.Join(m.cacheDir, "v1.0.0")
+	dir := genDir(t, m)
 	original := readDirContents(t, dir)
 
 	if err := os.WriteFile(filepath.Join(dir, "cyd-scan-panel.ota.bin"), []byte("truncated"), 0o644); err != nil {
@@ -1430,18 +1531,20 @@ func TestRefreshRepairsInPlaceWithoutLeavingLeftovers(t *testing.T) {
 func TestPruneRemovesAParkedGeneration(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
-	if _, err := m.Refresh(t.Context()); err != nil {
+	first, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 
-	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-v1.0.0")
+	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-v1.0.0-abcdef012345")
 	if err := os.MkdirAll(parked, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
 	g.tag = "v2.0.0"
 	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-bytes")
-	if _, err := m.Refresh(t.Context()); err != nil {
+	second, err := m.Refresh(t.Context())
+	if err != nil {
 		t.Fatalf("second Refresh: %v", err)
 	}
 
@@ -1449,9 +1552,9 @@ func TestPruneRemovesAParkedGeneration(t *testing.T) {
 		t.Errorf("parked generation survived prune: %v", err)
 	}
 	// The two real generations are untouched.
-	for _, tag := range []string{"v1.0.0", "v2.0.0"} {
-		if _, err := os.Stat(filepath.Join(m.cacheDir, tag)); err != nil {
-			t.Errorf("%s missing: %v", tag, err)
+	for _, dir := range []string{first.Dir(), second.Dir()} {
+		if _, err := os.Stat(filepath.Join(m.cacheDir, dir)); err != nil {
+			t.Errorf("%s missing: %v", dir, err)
 		}
 	}
 }

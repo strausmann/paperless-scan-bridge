@@ -44,8 +44,8 @@ GitHub Releases into a local cache, verify every file against the release's own
 
 | Route | Purpose |
 | --- | --- |
-| `GET /firmware/manifest.json` | the update manifest, with version-qualified binary paths |
-| `GET /firmware/{version}/{name}` | a file of a specific mirrored generation |
+| `GET /firmware/manifest.json` | the update manifest, with generation-qualified binary paths |
+| `GET /firmware/{generation}/{name}` | a file of a specific mirrored generation |
 | `GET /firmware/{name}` | the same file of whichever generation is current |
 | `POST /firmware/refresh` | queue an immediate check; returns `202` at once |
 
@@ -67,7 +67,7 @@ than implementation detail:
    60-second task watchdog and reboot the panel on the button press. The route
    queues the work and returns immediately.
 
-3. **The manifest points at version-qualified paths, and the previous
+3. **The manifest points at generation-qualified paths, and the previous
    generation stays on disk.** A panel reads the manifest on its own schedule
    but installs when a person clicks, which can be hours later, carrying the
    MD5 it read at check time. A bare path would hand that click whatever the
@@ -207,4 +207,4 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   FreeRTOS task (`xTaskCreate`); a relative `ota.path` is resolved against the
   manifest's own URL, while an absolute one is resolved against the host alone
   — which is exactly why the bridge rewrites the path to an absolute,
-  version-qualified one, and why nothing else in the manifest has to change
+  generation-qualified one, and why nothing else in the manifest has to change

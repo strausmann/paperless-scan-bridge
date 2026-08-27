@@ -50,7 +50,7 @@ between releases as a running list.
   mirrors the panel firmware from this repository's GitHub Releases,
   verifies every file against the release's own `SHA256SUMS`, and serves
   it on unauthenticated routes: `GET /firmware/manifest.json`,
-  `GET /firmware/{version}/{name}`, `GET /firmware/{name}` and
+  `GET /firmware/{generation}/{name}`, `GET /firmware/{name}` and
   `POST /firmware/refresh`. The panel polls its bridge every 6 hours and
   has a **Check for Update** button; the bridge asks GitHub every 5 —
   deliberately sooner, so it has normally already looked by the time the
@@ -72,10 +72,12 @@ between releases as a running list.
   synchronous `http_request` on its main loop, where a blocking wait is
   a watchdog reboot. See ADR 0024 and the new ADR 0025.
 
-  The manifest points at version-qualified paths and the previous
-  release stays cached, so an install clicked hours after the check
-  still downloads the binary that check's MD5 describes rather than
-  whatever landed since. The cache is re-verified against its recorded
+  The manifest points at generation-qualified paths — the release tag
+  plus a digest of its checksums — and the previous generation stays
+  cached, so an install clicked hours after the check still downloads
+  the binary that check's MD5 describes rather than whatever landed
+  since. The digest is in the path because `gh release upload
+  --clobber` lets one tag carry different binaries at different times. The cache is re-verified against its recorded
   checksums before a refresh skips a download and when it is adopted at
   startup, so a file damaged after it was mirrored is repaired rather
   than served forever behind an unchanged release tag. And because the refresh route is

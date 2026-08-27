@@ -416,8 +416,8 @@ paths:
       description: >-
         The manifest the panel's `update:` entity polls. Mirrored from
         the release, with one change: each build's `ota.path` is
-        rewritten to the absolute, version-qualified
-        `/firmware/{version}/{name}` this bridge serves that generation
+        rewritten to the absolute, generation-qualified
+        `/firmware/{generation}/{name}` this bridge serves that content
         at.
 
 
@@ -487,7 +487,7 @@ paths:
                   The bridge has not mirrored a release yet. POST
                   /firmware/refresh, or wait for the periodic refresh.
 
-  /firmware/{version}/{name}:
+  /firmware/{generation}/{name}:
     get:
       operationId: getFirmwareFileAtVersion
       tags: [firmware]
@@ -503,13 +503,19 @@ paths:
 
         Unauthenticated, for the same reasons as the routes above.
       parameters:
-        - name: version
+        - name: generation
           in: path
           required: true
-          description: A mirrored release tag.
+          description: >-
+            A mirrored generation: the release tag plus a short digest of
+            that release's own checksums. Not the tag alone —
+            `gh release upload --clobber` means one tag can carry
+            different binaries at different times, and a URL that
+            silently changed what it returned would fail the panel's MD5
+            check.
           schema:
             type: string
-          example: v1.2.0
+          example: v1.2.0-9f2c1a4b7e30
         - name: name
           in: path
           required: true
@@ -576,7 +582,7 @@ paths:
       description: >-
         Serves one file of whichever panel-firmware release is current
         (ADR 0024, ADR 0025). This is the "give me the newest" shape, for
-        an operator with `curl`; the panel uses the version-qualified
+        an operator with `curl`; the panel uses the generation-qualified
         route above, which does not shift underneath it.
 
 

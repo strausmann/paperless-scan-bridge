@@ -29,7 +29,7 @@
 //
 // The one thing the mirror does not pass through untouched is the
 // manifest's `ota.path`, which Manifest() rewrites to a
-// version-qualified route so an install clicked hours after a check
+// generation-qualified route so an install clicked hours after a check
 // still gets the binary that check's MD5 describes. The `md5` itself is
 // never rewritten — see Manifest() for why that distinction is the
 // whole of ADR 0024's constraint.
@@ -107,7 +107,7 @@ const (
 	// ManifestName is the ESP Web Tools / ESPHome update manifest. It
 	// is the one mirrored file the bridge does not serve byte-for-byte:
 	// Manifest() rewrites each build's `ota.path` to the
-	// version-qualified route, because ESPHome resolves a relative path
+	// generation-qualified route, because ESPHome resolves a relative path
 	// against the manifest's own URL and would otherwise send every
 	// panel to the newest generation regardless of which manifest it
 	// read. The `md5` beside it is never touched. See Manifest().
@@ -159,7 +159,7 @@ const (
 	// one in between, that click would download a binary the held MD5
 	// does not describe and fail -- safely, but visibly, and exactly in
 	// the moments right after a release. Keeping the predecessor,
-	// together with the version-qualified path the served manifest
+	// together with the generation-qualified path the served manifest
 	// points at, makes the URL the panel captured stay valid and keep
 	// returning the same bytes. See prune, which names both tags
 	// explicitly rather than inferring them.
@@ -185,6 +185,35 @@ type Release struct {
 	// API response, so a log line or an operator's curl leads
 	// somewhere readable.
 	ReleaseURL string `json:"release_url,omitempty"`
+}
+
+// Dir is the cache directory this release occupies, and the first
+// segment of the generation-qualified URLs its manifest points at.
+//
+// Tag plus a digest of the release's own checksums, because a tag does
+// not identify bytes. `release.yml` attaches assets with
+// `gh release upload --clobber`, which deletes the existing ones before
+// uploading, so re-running that job replaces the binaries under an
+// unchanged tag — and an ESPHome build is not bit-reproducible, so the
+// replacement genuinely differs. Keyed by tag alone, the new bytes
+// would land on top of the old ones, and a panel that had already read
+// the previous manifest would download them under the URL it saved and
+// discard them on the MD5 check.
+//
+// Content-addressed, the two generations simply coexist and the normal
+// retention rule keeps the predecessor reachable until it ages out.
+func (r Release) Dir() string {
+	names := make([]string, 0, len(r.Sums))
+	for name := range r.Sums {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	h := sha256.New()
+	for _, name := range names {
+		_, _ = fmt.Fprintf(h, "%s:%s\n", name, r.Sums[name])
+	}
+	return r.Tag + "-" + hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // Options configures New. Every field except CacheDir has a default.
@@ -295,6 +324,14 @@ func cmpOr(v, fallback string) string {
 // manifest must only ever name files the mirror can actually serve. The
 // caller should log it and carry on; the next refresh rebuilds.
 func (m *Mirror) Load() error {
+	// Unconditionally, and before anything can return: a process killed
+	// during its very FIRST download leaves a .staging-* directory and
+	// no state file at all, so a cleanup that ran only after a
+	// successful adopt would never reach it. On a box with unreliable
+	// power that is one near-complete directory per boot, on a
+	// persistent volume, until some refresh finally succeeds.
+	m.pruneStaging()
+
 	b, err := os.ReadFile(filepath.Join(m.cacheDir, stateFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -327,11 +364,6 @@ func (m *Mirror) Load() error {
 	}
 
 	m.publish(&rel)
-	// A process killed mid-download left its staging directory in a
-	// persistent volume; nothing else on the startup path would remove
-	// it, and a refresh that short-circuits on an unchanged tag never
-	// reaches prune.
-	m.pruneStaging()
 	m.logger.Info("firmware cache adopted",
 		slog.String("tag", rel.Tag),
 		slog.Int("files", len(rel.Files)))
@@ -372,7 +404,7 @@ func (m *Mirror) Open(name string) (io.ReadSeekCloser, Release, time.Time, error
 		return nil, Release{}, time.Time{}, ErrNotCached
 	}
 
-	p := filepath.Join(m.cacheDir, cur.Tag, name)
+	p := filepath.Join(m.cacheDir, cur.Dir(), name)
 	f, err := os.Open(p) //nolint:gosec // name is allowlisted above
 	if err != nil {
 		return nil, Release{}, time.Time{}, fmt.Errorf("firmware: open %q: %w", p, err)
@@ -386,7 +418,7 @@ func (m *Mirror) Open(name string) (io.ReadSeekCloser, Release, time.Time, error
 }
 
 // OpenAt returns a file from a specific mirrored generation, which is
-// what the version-qualified paths in the served manifest point at.
+// what the generation-qualified paths in the served manifest point at.
 //
 // Unlike Open it is not restricted to the current release: the whole
 // point is that a manifest a panel read hours ago keeps resolving to
@@ -396,11 +428,11 @@ func (m *Mirror) Open(name string) (io.ReadSeekCloser, Release, time.Time, error
 // Both components are validated with the same rules that governed them
 // on the way in, so a request cannot name a directory or a file the
 // mirror would not itself have created.
-func (m *Mirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
-	if validateTag(tag) != nil || validateAssetName(name) != nil {
+func (m *Mirror) OpenAt(generation, name string) (io.ReadSeekCloser, time.Time, error) {
+	if validateTag(generation) != nil || validateAssetName(name) != nil {
 		return nil, time.Time{}, ErrNotCached
 	}
-	p := filepath.Join(m.cacheDir, tag, name)
+	p := filepath.Join(m.cacheDir, generation, name)
 	f, err := os.Open(p) //nolint:gosec // both path components validated above
 	if err != nil {
 		// Only "it is not there" is a 404. A permission problem or a
@@ -426,7 +458,7 @@ func (m *Mirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) 
 
 // Manifest returns the update manifest as the bridge publishes it: the
 // mirrored file with each build's `ota.path` rewritten to the absolute,
-// version-qualified path this bridge serves that generation at.
+// generation-qualified path this bridge serves that generation at.
 //
 // Only `path` is touched. The `md5` beside it is the digest CI computed
 // from the binary it shipped, and rewriting a digest is precisely what
@@ -447,7 +479,7 @@ func (m *Mirror) Manifest() ([]byte, Release, error) {
 		return nil, Release{}, ErrNotCached
 	}
 
-	raw, err := os.ReadFile(filepath.Join(m.cacheDir, rel.Tag, ManifestName)) //nolint:gosec // rel.Tag was validated on the way in
+	raw, err := os.ReadFile(filepath.Join(m.cacheDir, rel.Dir(), ManifestName)) //nolint:gosec // rel.Tag was validated on the way in
 	if err != nil {
 		return nil, Release{}, fmt.Errorf("firmware: read manifest of %s: %w", rel.Tag, err)
 	}
@@ -459,7 +491,7 @@ func (m *Mirror) Manifest() ([]byte, Release, error) {
 }
 
 // renderManifest rewrites every build's `ota.path` to the
-// version-qualified route and fails if it cannot.
+// generation-qualified route and fails if it cannot.
 //
 // Strict on purpose. A best-effort rewrite that skipped a build it did
 // not recognise would publish a manifest whose paths are still relative
@@ -511,7 +543,7 @@ func renderManifest(raw []byte, rel Release) ([]byte, error) {
 				"firmware: manifest of %s: builds[%d].ota.path names %q, which the release does not carry",
 				rel.Tag, i, name)
 		}
-		ota["path"] = "/firmware/" + rel.Tag + "/" + name
+		ota["path"] = "/firmware/" + rel.Dir() + "/" + name
 	}
 
 	out, err := json.Marshal(doc)
@@ -556,7 +588,7 @@ func (m *Mirror) verifyCached(rel Release) error {
 	if len(rel.Sums) == 0 {
 		return errors.New("firmware: cached release carries no checksums")
 	}
-	dir := filepath.Join(m.cacheDir, rel.Tag)
+	dir := filepath.Join(m.cacheDir, rel.Dir())
 	for _, name := range rel.Files {
 		want, ok := rel.Sums[name]
 		if !ok {
@@ -728,9 +760,9 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		assets[a.Name] = a.BrowserDownloadURL
 	}
 
-	previousTag := ""
+	previousDir := ""
 	if cur, ok := m.Current(); ok {
-		previousTag = cur.Tag
+		previousDir = cur.Dir()
 	}
 
 	if cur, ok := m.Current(); ok && cur.Tag == latest.TagName {
@@ -809,7 +841,7 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	// Render the manifest while everything is still in staging. A
-	// release whose manifest cannot be rewritten to version-qualified
+	// release whose manifest cannot be rewritten to generation-qualified
 	// paths is one the panel could not safely install from, so it must
 	// not reach the cache at all — the same "verify, then publish"
 	// ordering as the checksums, one level up. The rendered bytes are
@@ -823,22 +855,20 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		return Release{}, err
 	}
 
-	dest := filepath.Join(m.cacheDir, latest.TagName)
+	dest := filepath.Join(m.cacheDir, rel.Dir())
 
 	// A directory may already exist here: a refresh that died between
-	// rename and state write, or -- since the verification above can
-	// send an UNCHANGED tag down this path -- the generation currently
-	// being served. Deleting it first and then renaming would destroy a
-	// working cache if the rename failed, leaving m.current pointing at
-	// nothing and every request 500ing.
-	//
-	// So the old directory is moved aside, not removed, and only
-	// discarded once the new one is in place. The parking name carries
-	// the staging prefix so prune sweeps it up if the process dies
-	// mid-swap; validateTag rejects leading dots, so it can never
-	// collide with a real tag.
+	// the rename and the publish. It cannot be the generation currently
+	// being served -- Dir() is content-addressed, so identical bytes
+	// would have taken the short-circuit above -- but its contents are
+	// unverified either way. Deleting it first and then renaming would
+	// destroy whatever was there if the rename failed, so it is moved
+	// aside and discarded only once the new one is in place. The
+	// parking name carries the staging prefix so prune sweeps it up if
+	// the process dies mid-swap; validateTag rejects leading dots, so it
+	// can never collide with a real generation.
 	//nolint:gocritic // the seam is deliberate; see renameFile
-	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-"+latest.TagName)
+	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-"+rel.Dir())
 	_ = os.RemoveAll(parked)
 	hadOld := false
 	if _, err := os.Stat(dest); err == nil {
@@ -887,7 +917,7 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	// Only now is the old directory unreferenced.
-	m.prune(rel.Tag, previousTag)
+	m.prune(rel.Dir(), previousDir)
 
 	m.logger.Info("firmware mirrored",
 		slog.String("tag", rel.Tag),

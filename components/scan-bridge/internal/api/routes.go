@@ -42,7 +42,7 @@ func (s *Server) Router() http.Handler {
 	//
 	// The manifest gets its own handler because the bridge does not
 	// serve it byte-for-byte: each build's `ota.path` is rewritten to
-	// the version-qualified route below, so the binary a panel
+	// the generation-qualified route below, so the binary a panel
 	// downloads is the one the manifest it read describes, even if a
 	// newer release landed in between. The `md5` next to it is never
 	// touched (ADR 0024).
@@ -56,12 +56,12 @@ func (s *Server) Router() http.Handler {
 	if s.Firmware != nil {
 		mux.HandleFunc("GET /firmware/manifest.json", s.handleFirmwareManifest)
 		mux.HandleFunc("GET /firmware/{name}", s.handleFirmwareFile)
-		mux.HandleFunc("GET /firmware/{version}/{name}", s.handleFirmwareVersionedFile)
+		mux.HandleFunc("GET /firmware/{generation}/{name}", s.handleFirmwareVersionedFile)
 		mux.HandleFunc("POST /firmware/refresh", s.handleFirmwareRefresh)
 	} else {
 		mux.Handle("GET /firmware/manifest.json", s.notImplemented("firmware mirror is disabled"))
 		mux.Handle("GET /firmware/{name}", s.notImplemented("firmware mirror is disabled"))
-		mux.Handle("GET /firmware/{version}/{name}", s.notImplemented("firmware mirror is disabled"))
+		mux.Handle("GET /firmware/{generation}/{name}", s.notImplemented("firmware mirror is disabled"))
 		mux.Handle("POST /firmware/refresh", s.notImplemented("firmware mirror is disabled"))
 	}
 

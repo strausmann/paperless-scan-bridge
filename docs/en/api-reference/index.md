@@ -20,7 +20,7 @@ itself:
   the same `501` envelope when the mirror is switched off. See ADR 0025
   for why they carry no token. Note that `GET /firmware/manifest.json`
   is the one response the bridge does not mirror byte-for-byte: each
-  build's `ota.path` is rewritten to the version-qualified route. The
+  build's `ota.path` is rewritten to the generation-qualified route. The
   `md5` beside it never is.
 
 <div id="scalar-mount"></div>

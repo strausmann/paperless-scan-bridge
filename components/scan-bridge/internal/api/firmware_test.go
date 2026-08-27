@@ -55,11 +55,11 @@ func (f *fakeMirror) Open(name string) (io.ReadSeekCloser, firmware.Release, tim
 	return nil, firmware.Release{}, time.Time{}, firmware.ErrNotCached
 }
 
-func (f *fakeMirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
+func (f *fakeMirror) OpenAt(dir, name string) (io.ReadSeekCloser, time.Time, error) {
 	if f.openAtErr != nil {
 		return nil, time.Time{}, f.openAtErr
 	}
-	if !f.cached || tag != f.rel.Tag {
+	if !f.cached || dir != f.rel.Dir() {
 		return nil, time.Time{}, firmware.ErrNotCached
 	}
 	fh, _, modTime, err := f.Open(name)
@@ -75,7 +75,7 @@ func (f *fakeMirror) Manifest() ([]byte, firmware.Release, error) {
 	}
 	body := fmt.Appendf(nil,
 		`{"name":"CYD Scan Panel","version":%q,"builds":[{"ota":{"md5":"deadbeef","path":"/firmware/%s/cyd-scan-panel.ota.bin"}}]}`,
-		f.rel.Tag, f.rel.Tag)
+		f.rel.Tag, f.rel.Dir())
 	return body, f.rel, nil
 }
 
@@ -94,6 +94,14 @@ func newFirmwareServer(t *testing.T, mirror FirmwareMirror) http.Handler {
 		s.Firmware = mirror
 	}
 	return s.Router()
+}
+
+// firmwareURL is the versioned path for the fake's ota image.
+// Generations are content-addressed, so the segment cannot be spelled
+// from the tag.
+func firmwareURL(t *testing.T, m *fakeMirror) string {
+	t.Helper()
+	return "/firmware/" + m.rel.Dir() + "/cyd-scan-panel.ota.bin"
 }
 
 func newCachedMirror(t *testing.T) *fakeMirror {
@@ -275,11 +283,12 @@ func TestFirmwareRoutesDisabled(t *testing.T) {
 	}
 }
 
-// The manifest must send the panel to a version-qualified path, so the
+// The manifest must send the panel to a generation-qualified path, so the
 // binary it downloads is the one the manifest it read describes even if
 // a newer release lands in between.
 func TestFirmwareManifestPointsAtTheVersionedRoute(t *testing.T) {
-	h := newFirmwareServer(t, newCachedMirror(t))
+	m := newCachedMirror(t)
+	h := newFirmwareServer(t, m)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/firmware/manifest.json", nil))
@@ -287,17 +296,18 @@ func TestFirmwareManifestPointsAtTheVersionedRoute(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if want := "/firmware/v1.2.3/cyd-scan-panel.ota.bin"; !strings.Contains(rec.Body.String(), want) {
+	if want := firmwareURL(t, m); !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("manifest body %q does not point at %q", rec.Body.String(), want)
 	}
 }
 
 func TestFirmwareVersionedFileServed(t *testing.T) {
-	h := newFirmwareServer(t, newCachedMirror(t))
+	m := newCachedMirror(t)
+	h := newFirmwareServer(t, m)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
-		"/firmware/v1.2.3/cyd-scan-panel.ota.bin", nil))
+		firmwareURL(t, m), nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
@@ -305,18 +315,22 @@ func TestFirmwareVersionedFileServed(t *testing.T) {
 	if rec.Body.String() != "ota" {
 		t.Errorf("body = %q", rec.Body.String())
 	}
-	if v := rec.Header().Get("X-Firmware-Version"); v != "v1.2.3" {
-		t.Errorf("X-Firmware-Version = %q, want v1.2.3", v)
+	// On this route the header carries the generation directory, which
+	// is what the caller asked for -- the tag alone would not identify
+	// the bytes.
+	if v, want := rec.Header().Get("X-Firmware-Version"), m.rel.Dir(); v != want {
+		t.Errorf("X-Firmware-Version = %q, want %q", v, want)
 	}
 }
 
 func TestFirmwareVersionedFileUnknownIs404(t *testing.T) {
-	h := newFirmwareServer(t, newCachedMirror(t))
+	m := newCachedMirror(t)
+	h := newFirmwareServer(t, m)
 
 	for _, p := range []string{
-		"/firmware/v9.9.9/cyd-scan-panel.ota.bin",
-		"/firmware/v1.2.3/nope.bin",
-		"/firmware/v1.2.3/..%2Fstate.json",
+		"/firmware/v9.9.9-000000000000/cyd-scan-panel.ota.bin",
+		"/firmware/" + m.rel.Dir() + "/nope.bin",
+		"/firmware/" + m.rel.Dir() + "/..%2Fstate.json",
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
@@ -349,7 +363,7 @@ func TestFirmwareVersionedFileIOErrorIs500(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
-		"/firmware/v1.2.3/cyd-scan-panel.ota.bin", nil))
+		firmwareURL(t, m), nil))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
