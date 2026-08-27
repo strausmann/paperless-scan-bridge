@@ -27,6 +27,9 @@ der Site:
   Browser über USB flashen (Chrome/Edge, Web Serial).
 - **[Panel verwalten](../manage/index.md)** — ein Panel über Bluetooth
   ins WLAN bringen (Chrome/Edge, Web Bluetooth).
+- **[Firmware herunterladen](../install/index.md#firmware-herunterladen)**
+  — die `.bin` fürs Upload-Formular des Dashboards, der funktionierende
+  Update-Weg, solange das Selbst-Update kaputt ist.
 
 Diese Seite ist die Hardware-Referenz dahinter: was das Panel ist, wie es
 sich nach der Einrichtung verhält und was es weiterhin nicht kann.
@@ -122,9 +125,9 @@ Dazu kommt eine Einschränkung, die Sie direkt betrifft: **Das
 Selbst-Update über das gehostete Manifest funktioniert auf dieser
 Hardware nicht.** Der TLS-Kontext lässt sich neben WLAN, Bluetooth-Stack,
 LVGL und dem eigenen Dashboard nicht mehr anlegen. Aktualisiert wird
-vorerst über das Upload-Formular im Dashboard; die Einzelheiten und der
-beschlossene Ausweg stehen auf der Seite
-[Panel installieren](../install/index.md).
+vorerst über das Upload-Formular im Dashboard —
+[die Datei dafür gibt es hier](../install/index.md#firmware-herunterladen).
+Einzelheiten und der beschlossene Ausweg stehen auf derselben Seite.
 
 Die vollständige, aktuelle Liste führt die Firmware-README unter „Scope
 and known limitations".

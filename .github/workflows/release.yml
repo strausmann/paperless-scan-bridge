@@ -12,7 +12,14 @@ permissions:
 
 jobs:
   release:
+    name: Cut the release
     runs-on: ubuntu-latest
+    outputs:
+      # Empty when semantic-release decided there was nothing to
+      # release, which is the normal outcome of a quiet week rather than
+      # a failure -- its exit status is 0 either way, so the tag has to
+      # be compared before and after.
+      tag: ${{ steps.tag.outputs.tag }}
     # Disable husky in CI so the semantic-release flow isn't intercepted by git hooks.
     env:
       HUSKY: 0
@@ -25,6 +32,10 @@ jobs:
         with:
           node-version: 'lts/*'
       - run: npm install
+
+      - name: Tag before
+        id: before
+        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
       # RELEASE_TOKEN (a fine-grained PAT), not the default GITHUB_TOKEN.
       # GitHub deliberately does not start new workflow runs for refs created
       # with the automatic GITHUB_TOKEN (loop protection). @semantic-release/github
@@ -43,3 +54,69 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: npx semantic-release
+
+      - name: Tag after
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          after="$(git describe --tags --abbrev=0 2>/dev/null || echo none)"
+          if [ "$after" = "${{ steps.before.outputs.tag }}" ] || [ "$after" = "none" ]; then
+            echo "no new release this run"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "released $after"
+            echo "tag=$after" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The panel firmware, attached to the release it belongs to.
+  #
+  # Until this landed the firmware existed in exactly one place: the
+  # published docs site, holding whichever build came off main last and
+  # identified by a commit SHA. Neither v1.0.0 nor v1.1.0 carries a
+  # firmware asset, and there is no way to obtain the build that shipped
+  # with either -- so "roll back to the version that worked" had nothing
+  # to roll back to.
+  #
+  # The images are NOT handled here. RELEASE_TOKEN (see above) means the
+  # tag semantic-release creates does reach ci.yml's `tags: ['v*']`
+  # trigger, so the versioned image is built there. An earlier draft of
+  # this file dispatched ci.yml explicitly; that was written before
+  # RELEASE_TOKEN existed and is now redundant plumbing.
+  firmware:
+    name: Build the panel firmware for the release
+    needs: release
+    if: needs.release.outputs.tag != ''
+    uses: ./.github/workflows/esphome-firmware.yml
+    with:
+      version: ${{ needs.release.outputs.tag }}
+
+  attach:
+    name: Attach firmware to the release
+    needs: [release, firmware]
+    if: needs.release.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: ${{ needs.firmware.outputs.artifact-name }}
+          path: dist
+
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          # --clobber so a re-run replaces the assets rather than failing
+          # on "already exists", which would make a retry impossible
+          # after a transient upload error.
+          gh release upload "$TAG" \
+            dist/cyd-scan-panel.factory.bin \
+            dist/cyd-scan-panel.ota.bin \
+            dist/manifest.json \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber

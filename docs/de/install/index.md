@@ -84,6 +84,57 @@ und die Rastergröße liegen in einer eigenen Flash-Partition, die ein
 Update nicht anfasst. Nur ein USB-Flash von dieser Seite löscht sie,
 weil der Installer den gesamten Chip leert.
 
+### Firmware herunterladen
+
+**[:material-download: cyd-scan-panel.ota.bin](/firmware/cyd-scan-panel.ota.bin)**
+— genau diese Datei will das Upload-Formular des Dashboards.
+
+Die andere daneben,
+[`cyd-scan-panel.factory.bin`](/firmware/cyd-scan-panel.factory.bin),
+ist das vollständige Flash-Image, das die Schaltfläche oben auf dieser
+Seite über USB schreibt. Es **löscht die Konfiguration des Panels**.
+Nicht ins Upload-Formular legen.
+
+```bash
+curl -fsSLO https://scan-bridge.strausmann.de/firmware/cyd-scan-panel.ota.bin
+```
+
+Gegen die MD5 prüfen, die das
+[Manifest](/firmware/manifest.json) für genau diesen Build angibt:
+
+```bash
+md5sum cyd-scan-panel.ota.bin
+curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
+```
+
+!!! warning "Dieser Pfad hält einen Build, und der wird überschrieben"
+
+    Unter `/firmware/` liegt immer der zuletzt von `main` gebaute Stand,
+    bezeichnet durch eine Commit-SHA statt durch eine Version. Der
+    nächste Doku-Deploy ersetzt ihn. Es gibt hier kein Archiv und keinen
+    Weg, über diese URL zu einem älteren Build zurückzukehren.
+
+    Ab dem nächsten Release hängen dieselben Dateien zusätzlich an jedem
+    [GitHub-Release][releases] — mit ihrem Versions-Tag benannt, dauerhaft
+    aufbewahrt und mit einer `SHA256SUMS` daneben:
+
+    ```bash
+    sha256sum -c SHA256SUMS --ignore-missing
+    ```
+
+    Ältere Releases tragen keine Firmware-Assets; diese Builds existieren
+    nirgends mehr.
+
+| | [`/firmware/`](/firmware/manifest.json) | [GitHub-Release][releases] |
+| --- | --- | --- |
+| Enthält | den neuesten Build | den Build eines Versions-Tags |
+| Benannt nach | Commit-SHA | `v1.2.3` |
+| Aufbewahrt | bis zum nächsten Deploy | dauerhaft |
+| Prüfen mit | MD5 aus dem Manifest | `SHA256SUMS` |
+| Verfügbar | jetzt | ab dem nächsten Release |
+
+  [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
+
 !!! warning "Das Selbst-Update funktioniert auf dieser Hardware noch nicht"
 
     Das Panel wurde dafür gebaut, `manifest.json` über HTTPS abzurufen

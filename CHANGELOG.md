@@ -46,6 +46,20 @@ between releases as a running list.
 
 ### Added
 
+- Panel firmware is attached to every GitHub Release —
+  `cyd-scan-panel.factory.bin`, `cyd-scan-panel.ota.bin`, `manifest.json`
+  and a `SHA256SUMS` to check a download against. Until now the firmware
+  existed in exactly one place: the published docs site, holding whatever
+  came off `main` last and identified by a commit SHA. No copy of the
+  build that shipped with `v1.0.0` or `v1.1.0` existed anywhere, so
+  "roll back to the version that worked" had nothing to roll back to.
+  Both install pages now carry a **direct download link** to
+  `cyd-scan-panel.ota.bin` — the file the dashboard's upload form
+  wants — plus the `curl` line, the MD5 check against the manifest, and
+  a warning that this path holds one build and is overwritten by the
+  next deploy. The CYD hardware pages link straight to it in both
+  languages, since that is where someone looking for the panel's
+  firmware actually starts.
 - Scan scratch space moves to **tmpfs** in the reference stack, so
   scanned pages never reach the host's disk. Every scan writes raw TIFF
   pages, has them read back and deletes them again within the same

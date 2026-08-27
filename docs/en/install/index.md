@@ -79,6 +79,57 @@ Wi-Fi, Bridge URL, Bridge Token and the grid size live in a separate
 flash partition that an update does not touch. Only a USB flash from
 this page wipes them, because the installer erases the whole chip.
 
+### Download the firmware
+
+**[:material-download: cyd-scan-panel.ota.bin](/firmware/cyd-scan-panel.ota.bin)**
+— this is the file the dashboard's upload form wants.
+
+The other one next to it,
+[`cyd-scan-panel.factory.bin`](/firmware/cyd-scan-panel.factory.bin), is
+the full flash image the button at the top of this page writes over USB.
+It **erases the panel's configuration**. Do not put it in the upload
+form.
+
+```bash
+curl -fsSLO https://scan-bridge.strausmann.de/firmware/cyd-scan-panel.ota.bin
+```
+
+Check it against the MD5 the
+[manifest](/firmware/manifest.json) publishes for that exact build:
+
+```bash
+md5sum cyd-scan-panel.ota.bin
+curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
+```
+
+!!! warning "This path holds one build, and it is overwritten"
+
+    `/firmware/` always carries whatever came off `main` last,
+    identified by a commit SHA rather than a version. The next
+    documentation deploy replaces it. There is no archive here and no
+    way to go back to an earlier build from this URL.
+
+    From the next release onwards the same files are also attached to
+    every [GitHub Release][releases], identified by their version tag,
+    kept permanently, and with a `SHA256SUMS` beside them:
+
+    ```bash
+    sha256sum -c SHA256SUMS --ignore-missing
+    ```
+
+    Releases before that carry no firmware assets — those builds no
+    longer exist anywhere.
+
+| | [`/firmware/`](/firmware/manifest.json) | [GitHub Release][releases] |
+| --- | --- | --- |
+| Holds | the newest build | the build that shipped with a tag |
+| Named by | commit SHA | `v1.2.3` |
+| Kept | until the next deploy | permanently |
+| Verify with | MD5 from the manifest | `SHA256SUMS` |
+| Available | now | from the next release on |
+
+  [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
+
 !!! warning "Self-update does not work on this hardware yet"
 
     The panel was built to poll `manifest.json` over HTTPS and report a
