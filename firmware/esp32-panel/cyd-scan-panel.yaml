@@ -1244,6 +1244,25 @@ script:
       # visible count (which the geometry lambdas in relayout_grid
       # already positioned correctly for the current grid_rows/
       # grid_cols, whether or not they end up hidden here).
+              # Both labels are bounded to the button and ellipsize what does
+              # not fit. The name label used to carry neither a width nor a
+              # long_mode: an LVGL label with no width grows to fit its text,
+              # so a long profile name spilled past both edges of its button
+              # and drew across its neighbours -- which reads as the name
+              # repeating over itself. `long_mode: DOT` needs a bounded width
+              # to have anything to truncate against, which is why the two go
+              # together.
+              #
+              # The width is a percentage, not the 96px the sub-label used to
+              # hardcode. Button width follows grid_cols (1-3 columns, so 320
+              # down to ~106px) and relayout_grid resizes the buttons at
+              # runtime; a percentage follows the parent on its own, whereas a
+              # fixed 96 was already wrong at one column and would need nine
+              # more widget updates in relayout_grid to stay right.
+              #
+              # text_align: CENTER because align: TOP_MID only centres the
+              # label box. Now that the box spans the button, the text inside
+              # it would otherwise sit left.
       - lvgl.label.update:
           id: slot0_label
           text: !lambda "return id(slot_name_0);"
@@ -1733,13 +1752,17 @@ lvgl:
                   id: slot0_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot0_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1762,13 +1785,17 @@ lvgl:
                   id: slot1_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot1_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1791,13 +1818,17 @@ lvgl:
                   id: slot2_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot2_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1820,13 +1851,17 @@ lvgl:
                   id: slot3_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot3_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1849,13 +1884,17 @@ lvgl:
                   id: slot4_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot4_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1878,13 +1917,17 @@ lvgl:
                   id: slot5_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot5_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1907,13 +1950,17 @@ lvgl:
                   id: slot6_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot6_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1936,13 +1983,17 @@ lvgl:
                   id: slot7_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot7_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
@@ -1965,13 +2016,17 @@ lvgl:
                   id: slot8_label
                   align: TOP_MID
                   y: 6
+                  width: 92%
+                  long_mode: DOT
+                  text_align: CENTER
                   text: ""
               - label:
                   id: slot8_sub_label
                   align: BOTTOM_MID
                   y: -6
-                  width: 96
+                  width: 92%
                   long_mode: DOT
+                  text_align: CENTER
                   text: ""
             on_click:
               then:
