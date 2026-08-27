@@ -605,11 +605,12 @@ paths:
           in: path
           required: true
           description: >-
-            A file name of the mirrored release, e.g. `manifest.json` or
-            `cyd-scan-panel.ota.bin`.
+            A file name of the mirrored release, e.g.
+            `cyd-scan-panel.ota.bin` or `cyd-scan-panel.factory.bin`.
+            Not `manifest.json` — see the note above.
           schema:
             type: string
-          example: manifest.json
+          example: cyd-scan-panel.ota.bin
       security: []
       responses:
         "200":
@@ -637,6 +638,18 @@ paths:
                 hint: >-
                   GET /firmware/manifest.json names the files of the
                   mirrored release.
+        "500":
+          description: >-
+            The file is there but unreadable — a permission problem, a
+            failing disk. Reported rather than folded into the `404`,
+            because a broken cache that answers "not found" is an update
+            that never arrives with nothing in the log to explain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
         "501":
           description: >-
             The mirror is disabled (`firmware.enabled = false`).
@@ -652,7 +665,10 @@ paths:
             The bridge has not mirrored a release yet. `503` and not
             `404` on purpose: the resource exists in principle and is
             expected shortly, so a client should come back rather than
-            conclude the endpoint does not exist.
+            conclude the endpoint does not exist. Decided after the open
+            fails, never before it is attempted: probing first would
+            answer `503` for a request a refresh completing mid-flight
+            could have served, and one `503` costs the panel six hours.
           content:
             application/json:
               schema:
