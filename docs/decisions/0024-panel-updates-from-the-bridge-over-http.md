@@ -111,7 +111,9 @@ Also unchanged from ADR 0023, and re-affirmed here:
   chooses to update. This is the **same residual risk ADR 0023 accepted**,
   relocated from the public internet path to the local network — a smaller
   population of potential attackers, not a larger one. It remains bounded by the
-  manual-install constraint, and it is stated on the published `/install/` page.
+  manual-install constraint, and both language versions of the published
+  `/install/` page are updated in the same change — they now state that
+  self-update does not work today, why, and what replaces it.
 - **Negative:** `scan-bridge` gains a responsibility that is not scanning. Kept
   as small as possible: serve two files, do not build them, do not decide when
   to update.
