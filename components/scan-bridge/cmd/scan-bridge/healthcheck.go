@@ -55,7 +55,15 @@ func runHealthcheck(args []string, stdout io.Writer) error {
 	// failure -- {"error":"sane_runtime_unreachable"} says which half
 	// is down. Bounded anyway: a wrong --url could point at something
 	// that streams.
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if readErr != nil {
+		// Not fatal: the status code already decides ready vs not, and
+		// a probe that failed only because the body could not be read
+		// should still report the status it did get. But saying so
+		// beats a silently empty reason, which reads as "the bridge
+		// answered 503 with nothing to say".
+		body = []byte("<body unreadable: " + readErr.Error() + ">")
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthcheck: %s returned %d: %s",

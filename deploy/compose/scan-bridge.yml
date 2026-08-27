@@ -49,6 +49,20 @@ x-common: &common
       max-file: "3"
 
 services:
+  # A fresh named volume is created root-owned, and scan-bridge runs as
+  # UID 65532. Without this one-shot the daemon starts and then cannot
+  # write a single scan -- the failure surfaces mid-scan rather than at
+  # startup, which is the worst place for it. busybox because it is the
+  # smallest thing that can chown, and it exits immediately.
+  init-permissions:
+    image: busybox:1.37
+    user: "0:0"
+    command: >-
+      sh -c "mkdir -p /data && chown -R 65532:65532 /data && chmod 0755 /data"
+    volumes:
+      - scan-bridge-data:/data
+    restart: "no"
+
   # The three services talk over Unix sockets in a shared volume rather
   # than TCP (ADR 0009). A named volume, not a bind mount: nothing on
   # the host needs to read these, and a named volume avoids the
@@ -78,8 +92,13 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    environment:
-      SCAN_PROCESSOR_SOCKET: /run/scan-processor/proc.sock
+    # No SCAN_PROCESSOR_SOCKET override. An earlier draft set
+    # /run/scan-processor/proc.sock here, which is a filename this
+    # project uses nowhere: both scan-processor and the bridge's client
+    # default to /run/scan-processor/scan-processor.sock, so the
+    # processor listened on one path while the bridge dialled another
+    # and every scan failed on connect. Two defaults that already agree
+    # need no third opinion.
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - scan-processor-socket:/run/scan-processor
@@ -156,6 +175,8 @@ services:
       - paperless_api_token
       - bridge_token
     depends_on:
+      init-permissions:
+        condition: service_completed_successfully
       sane-runtime:
         condition: service_started
       scan-processor:
@@ -174,11 +195,22 @@ secrets:
   # File-based, not environment: an env var is visible in `docker
   # inspect` and in the process list of anything that can read /proc.
   #
-  # Mode matters and has bitten this project once already: the file has
-  # to be readable by the container's UID (65532). 0600 owned by your
-  # user on the host means the daemon starts and every upload fails
-  # with an unhelpful permission error. 0640 with a group the container
-  # can reach, or 0644 for a token you rotate, is what works.
+  # Ownership AND mode matter, and this has cost this project an
+  # afternoon already. Compose passes the host file's uid/gid and mode
+  # straight into the container, and scan-bridge runs as UID 65532 with
+  # supplementary groups 0 and 10010 only. So a file owned by your host
+  # user at 0600 is unreadable inside: the daemon starts, and every
+  # request that needs the secret fails with a permission error that
+  # names neither the file nor the reason.
+  #
+  # 0644 is what actually works without owning the files as 65532 --
+  # world-readable, which for a file that only exists inside your own
+  # host's docker directory is the pragmatic trade. If you would rather
+  # not, `sudo chown 65532:65532` them and use 0400.
+  #
+  # bridge_token is the plaintext bearer token, not its hash. The
+  # daemon hashes it on load and never keeps the plaintext; the panel
+  # and any other client send the same plaintext.
   paperless_api_token:
     file: ${PAPERLESS_API_TOKEN_FILE:-../secrets/paperless_api_token}
   bridge_token:

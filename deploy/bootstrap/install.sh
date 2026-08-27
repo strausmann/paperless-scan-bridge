@@ -110,17 +110,30 @@ install_docker() {
   run apt-get install -y --no-install-recommends ca-certificates curl
   run install -m 0755 -d /etc/apt/keyrings
 
+  local codename arch distro
+  # shellcheck source=/dev/null  # /etc/os-release is generated per host
+  distro="$(. /etc/os-release && echo "${ID}")"
+  # shellcheck source=/dev/null
+  codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
+  arch="$(dpkg --print-architecture)"
+
+  # Docker publishes separate repositories per distribution and the
+  # keys differ. An earlier version hardcoded the ubuntu path while the
+  # script claimed to support Debian too: on Debian that installs the
+  # Ubuntu key and then fails to find a matching suite, which reads as
+  # a broken script rather than a wrong repository.
+  case "$distro" in
+    ubuntu|debian) ;;
+    *) die "unsupported distribution '${distro}' — this script targets Debian and Ubuntu" ;;
+  esac
+
   if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-    run curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    run curl -fsSL "https://download.docker.com/linux/${distro}/gpg" -o /etc/apt/keyrings/docker.asc
     run chmod a+r /etc/apt/keyrings/docker.asc
   fi
 
-  local codename arch
-  # shellcheck source=/dev/null  # /etc/os-release is generated per host
-  codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
-  arch="$(dpkg --print-architecture)"
   run tee /etc/apt/sources.list.d/docker.list >/dev/null <<EOF
-deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${codename} stable
+deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${distro} ${codename} stable
 EOF
 
   run apt-get update -qq
@@ -165,7 +178,15 @@ install_nfs_mount() {
   # tee -a rather than a redirect: `run` executes an argv, and a shell
   # redirect inside it would need an eval, which is how a path with a
   # space in it turns into two fstab fields.
-  printf '%s\n' "$line" | run tee -a "$FSTAB" >/dev/null
+  #
+  # The dry run prints the line itself. Sending tee's output to
+  # /dev/null unconditionally hid the one thing a reviewer of a --dry-run
+  # actually needs to see: what is about to be written to /etc/fstab.
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    printf '      would append to %s:\n        %s\n' "$FSTAB" "$line"
+  else
+    printf '%s\n' "$line" | tee -a "$FSTAB" >/dev/null
+  fi
   run systemctl daemon-reload
   did "added to ${FSTAB} (a timestamped backup sits next to it)"
 

@@ -69,9 +69,6 @@ less install.sh          # lesen, was gleich passiert
 sudo bash install.sh
 ```
 
-    Die URL liefert heute 404. Sie steht hier, damit die Form des
-    Schritts überprüfbar ist — nicht zum Ausführen.
-
 Das Skript installiert Docker samt Compose-Plugin, trägt den NFS-Mount
 in `/etc/fstab` ein, legt die udev-Regel an, die dem Container stabilen
 Zugriff auf den Scanner gibt, und lädt die Container-Images. Sonst
@@ -110,9 +107,9 @@ Projekt veröffentlicht und verwendet keine `latest`-Tags.
 ## 5. Prüfen
 
 ```bash
-curl -s http://ihr-pi-host:8080/health
-curl -s http://ihr-pi-host:8080/ready
-curl -s http://ihr-pi-host:8080/profiles
+curl -s http://ihr-host:18080/health
+curl -s http://ihr-host:18080/ready
+curl -s http://ihr-host:18080/profiles
 ```
 
 `/health` meldet, dass der Prozess lebt. `/ready` liefert `200`, sobald
@@ -122,7 +119,7 @@ listet die konfigurierten Scan-Profile.
 ## 6. Erster Scan
 
 ```bash
-curl -X POST http://ihr-pi-host:8080/scan \
+curl -X POST http://ihr-host:18080/scan \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"profile": "default"}'

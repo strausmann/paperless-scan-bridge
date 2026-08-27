@@ -106,24 +106,52 @@
   "customManagers": [
     {
       "description": [
-        "Pinned tool versions in ci.yml's env block. Renovate has no",
-        "manager for 'a version string in a workflow env var', so they",
-        "are matched by name. HADOLINT_SHA256 sits next to",
-        "HADOLINT_VERSION and is NOT updated here -- a bot that bumps a",
-        "version but not its checksum produces a PR that fails the",
-        "sha256sum check, which is the safe direction to fail in but",
-        "still needs a human to finish."
+        "One manager per tool, because depNameTemplate and",
+        "datasourceTemplate are per-manager: an earlier draft matched all",
+        "three version variables in one entry and labelled every hit",
+        "golangci/golangci-lint on github-releases, so a yamllint or",
+        "hadolint bump would have been proposed against the wrong project.",
+        "HADOLINT_SHA256 sits next to HADOLINT_VERSION and is deliberately",
+        "NOT updated -- a bot that bumps a version but not its checksum",
+        "produces a PR that fails the sha256sum check, which fails in the",
+        "safe direction but still needs a human to finish."
       ],
       "customType": "regex",
       "managerFilePatterns": [
         "/^\\.github/workflows/ci\\.yml$/"
       ],
       "matchStrings": [
-        "GOLANGCI_LINT_VERSION:\\s*(?<currentValue>v[\\d.]+)",
-        "YAMLLINT_VERSION:\\s*(?<currentValue>[\\d.]+)",
-        "HADOLINT_VERSION:\\s*(?<currentValue>v[\\d.]+)"
+        "GOLANGCI_LINT_VERSION:\\s*(?<currentValue>v[\\d.]+)"
       ],
       "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": [
+        "yamllint comes from PyPI, not from a GitHub release."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "YAMLLINT_VERSION:\\s*(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "yamllint",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "description": [
+        "hadolint. HADOLINT_SHA256 beside it stays manual -- see above."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "HADOLINT_VERSION:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "hadolint/hadolint",
       "datasourceTemplate": "github-releases"
     },
     {

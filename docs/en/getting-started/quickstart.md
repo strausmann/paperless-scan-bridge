@@ -82,7 +82,9 @@ $EDITOR deploy/compose/.env
 # the two secrets, as files -- an env var shows up in `docker inspect`
 printf '%s' 'YOUR_PAPERLESS_TOKEN' > deploy/secrets/paperless_api_token
 openssl rand -hex 32               > deploy/secrets/bridge_token
-chmod 0640 deploy/secrets/*
+# 0644, not 0640: compose passes the host file's ownership into the
+# container, and scan-bridge runs as UID 65532, not as you.
+chmod 0644 deploy/secrets/*
 ```
 
 At minimum you set the Paperless-ngx URL, the API token, and the NFS
@@ -111,8 +113,8 @@ not publish or use `latest` tags.
 ## 5. Verify
 
 ```bash
-curl -s http://your-pi-host:8080/health
-curl -s http://your-pi-host:8080/profiles
+curl -s http://your-host:18080/ready
+curl -s http://your-host:18080/profiles
 ```
 
 `/health` reports process liveness. `/profiles` lists the configured
@@ -121,7 +123,7 @@ scan profiles. Both endpoints work today.
 ## 6. First scan
 
 ```bash
-curl -X POST http://your-pi-host:8080/scan \
+curl -X POST http://your-host:18080/scan \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"profile": "default"}'
