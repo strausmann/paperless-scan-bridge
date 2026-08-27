@@ -91,20 +91,39 @@ substitutions:
   screen_height: "240"
   panel_rotation: "0"
   touch_swap_xy: "true"
-  # Measured, not guessed: a tap on the physical top-left corner of the
-  # reference unit reads raw [3820, 3820], near the ADC maximum on both
-  # axes. Unmirrored, that same tap mapped to (316, 237) — the opposite
-  # corner — so every press on the profile button landed on empty
-  # screen and did nothing. Mirroring both axes maps it to (4, 3).
+  # Measured on the reference unit, all four corners:
   #
-  # Still a starting point, not a finished calibration: the far
-  # endpoints (280 / 340) are the original placeholders and have not
-  # been measured on this unit. Re-measure per panel — README.md
-  # "Touch calibration" has the procedure.
-  touch_x_min: "280"
-  touch_x_max: "3860"
-  touch_y_min: "340"
-  touch_y_max: "3860"
+  #   top-left     [3820, 3820]      top-right    [3750,  216]
+  #   bottom-left  [ 290, 3777]      bottom-right [ 388,  309]
+  #
+  # Those readings settle three things that were previously assumed:
+  #
+  #   * raw_x tracks the screen's VERTICAL axis (high at the top) and
+  #     raw_y the HORIZONTAL one (high at the left) — so `swap_xy: true`
+  #     is correct. A single corner could not show this, because
+  #     top-left sits on the diagonal where both raw axes read alike.
+  #   * Both axes are inverted, hence both mirrors. Unmirrored, a tap on
+  #     the top-left corner mapped to (316, 237) — diagonally opposite
+  #     the finger — so every press on a profile button landed on empty
+  #     screen and did nothing.
+  #   * The endpoints below are the per-edge MEANS of those readings,
+  #     not their extremes -- each edge is read twice (the left edge by
+  #     the top-left and bottom-left taps, and so on) and the two never
+  #     agree: 216 vs 309, 3820 vs 3777. Averaging splits that error
+  #     instead of loading it all onto one corner. So x_min is
+  #     (216+309)/2 and x_max (3820+3777)/2 -- from raw_y, because
+  #     swap_xy means the x bounds come from the raw axis that carries
+  #     the horizontal. With them the corners map to (0,0), (320,2),
+  #     (2,240) and (316,237); the first two are a pixel or so outside
+  #     the screen before clamping, which is the expected cost of
+  #     averaging.
+  #
+  # Still per-unit: resistive panels vary, so re-measure for a new board.
+  # README.md "Touch calibration" has the procedure.
+  touch_x_min: "262"
+  touch_x_max: "3798"
+  touch_y_min: "339"
+  touch_y_max: "3785"
   # Both axes read inverted on the reference unit, so both are mirrored
   # below. ESPHome refuses a descending calibration range ("x_min must
   # be smaller than x_max. To mirror the direction use the 'transform'

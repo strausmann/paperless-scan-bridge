@@ -159,7 +159,8 @@ on both axes. Unmirrored that maps to **(316, 237)**: on a 320x240
 screen that is 4 pixels from the bottom-right corner, i.e.
 diagonally opposite the finger. Every press on the profile button landed
 on empty screen and nothing happened. Both axes are mirrored in
-`substitutions:` for that reason; the same tap now maps to **(4, 3)**.
+`substitutions:` for that reason; with the calibration below that same
+tap now maps to **(0, 0)**.
 
 If your computed point does not match where you touched, the calibration
 is wrong for your unit.
@@ -170,9 +171,20 @@ did not fire, the tap was dropped rather than mislocated — see
 
 ### Correcting it
 
-Tap each corner of the screen in turn and note the raw pairs. The
-smallest and largest `raw_y` you see become `x_min`/`x_max`; the
-smallest and largest `raw_x` become `y_min`/`y_max`.
+Tap all four corners in turn and note the raw pairs. Each edge is read
+**twice** — the left edge by the top-left and bottom-left taps, and so
+on — and the two reads never agree exactly. Average the pair for each
+edge; `raw_y` gives `x_min`/`x_max` and `raw_x` gives `y_min`/`y_max`.
+
+Average rather than take the extreme. On the reference unit the two
+reads of the same edge differ by up to 93 counts, which is the panel's
+edge nonlinearity plus how squarely a fingertip lands. Taking the
+extreme makes one corner exact and pushes the whole error onto the
+opposite one; averaging splits it, so neither corner is favoured. The
+cost is that the two outermost corners now compute a pixel or two
+outside the screen and are clamped — harmless, and the reason the
+worked example below lands on `(0, 0)` rather than a small positive
+number.
 
 If a corner reads near the **maximum** where you expected the minimum,
 that axis is inverted — set `touch_mirror_x` / `touch_mirror_y`. Do not
@@ -182,7 +194,20 @@ direction use the 'transform' options"*.
 
 Two corners on the **same diagonal** (top-left and bottom-right) cannot
 tell you whether `swap_xy` is right — both axes move together. Use an
-off-diagonal pair (top-right, bottom-left) to check that.
+off-diagonal pair (top-right, bottom-left) to check that. On the
+reference unit those readings were:
+
+| Corner | Raw |
+| --- | --- |
+| top-left | `[3820, 3820]` |
+| top-right | `[3750, 216]` |
+| bottom-left | `[290, 3777]` |
+| bottom-right | `[388, 309]` |
+
+`raw_x` is high at the top and low at the bottom, so it carries the
+**vertical** axis; `raw_y` is high at the left, so it carries the
+**horizontal** one. That is what `swap_xy: true` expresses, and it is
+why one corner is not enough to confirm it.
 
 Put the values in the `substitutions:` block and re-flash — over USB or
 OTA, both work.
@@ -231,10 +256,10 @@ Nine substitutions in `cyd-scan-panel.yaml` drive it:
 | `screen_height` | `240` | `320` |
 | `panel_rotation` | `0` | `90` |
 | `touch_swap_xy` | `true` | `false` |
-| `touch_x_min` | `280` | `340` |
-| `touch_x_max` | `3860` | `3860` |
-| `touch_y_min` | `340` | `280` |
-| `touch_y_max` | `3860` | `3860` |
+| `touch_x_min` | `262` | `339` |
+| `touch_x_max` | `3798` | `3785` |
+| `touch_y_min` | `339` | `262` |
+| `touch_y_max` | `3785` | `3798` |
 
 `screen_width`/`screen_height` feed `display.dimensions` **and** the
 grid geometry lambdas that lay out the 9 button slots (`relayout_grid`
@@ -261,10 +286,10 @@ substitutions:
   screen_height: "320"
   panel_rotation: "90"
   touch_swap_xy: "false"
-  touch_x_min: "340"
-  touch_x_max: "3860"
-  touch_y_min: "280"
-  touch_y_max: "3860"
+  touch_x_min: "339"
+  touch_x_max: "3785"
+  touch_y_min: "262"
+  touch_y_max: "3798"
 
 packages:
   base: !include cyd-scan-panel.yaml
@@ -275,11 +300,13 @@ esphome run cyd-scan-panel-portrait.yaml
 ```
 
 The `touch_x_min`/`touch_x_max`/`touch_y_min`/`touch_y_max` values above
-are the landscape placeholders with the axes swapped — a reasonable
-starting point given the calibration is a placeholder either way (see
-"Touch calibration" above), **not** a verified portrait calibration.
-Redo the calibration procedure after flashing a portrait build, same as
-for a landscape one.
+are the **landscape calibration with the axes swapped**. The landscape
+figures are measured on the reference unit (see "Touch calibration"
+above), so this is a better starting point than the placeholders it
+replaces — but swapping measured axes is not the same as measuring, and
+it is **not** a verified portrait calibration. Redo the procedure after
+flashing a portrait build, same as for a landscape one, and note that
+the calibration is per-unit regardless of orientation.
 
 **What B4 does not do:** the header row (WiFi/Bridge status) and the
 footer row (paging buttons, status label) are still laid out for a

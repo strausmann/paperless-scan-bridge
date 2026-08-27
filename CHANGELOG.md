@@ -228,13 +228,20 @@ between releases as a running list.
   to re-run those once configured. The grid stayed empty and the bridge
   indicator stayed grey, which reads as "I configured it and it does not
   work". Both entities now re-check on change.
-- Scan panel: the touchscreen was inverted on both axes, so a tap on the
-  profile button landed on the opposite corner and did nothing. Measured
-  on the reference unit: the physical top-left corner reads raw
-  `[3820, 3820]`, which the previous calibration mapped to `(316, 237)`.
-  Both axes are now mirrored via `transform`, putting that tap at
-  `(4, 3)`. The far calibration endpoints are still the original
-  placeholders and should be re-measured per unit.
+- Scan panel: the touchscreen was inverted on both axes, so a tap on a
+  profile button landed on the opposite corner and did nothing — the
+  physical top-left corner reads raw `[3820, 3820]`, which the previous
+  calibration mapped to `(316, 237)`, four pixels from the *bottom*-right.
+  Both axes are now mirrored via `transform`, and the calibration
+  endpoints are measured on the reference unit instead of the original
+  placeholders: all four corners were read, so `swap_xy` is confirmed
+  rather than assumed (`raw_x` is high at the top, `raw_y` high at the
+  left). The endpoints are the per-edge means of those readings, not
+  their extremes — each edge is measured twice and the two reads differ
+  by up to 93 counts, so averaging splits that error instead of loading
+  it onto one corner. The four corners now map to (0,0), (320,2), (2,240)
+  and (316,237). Still per-unit: resistive panels vary, so re-measure for
+  a new board — the firmware README has the procedure.
 - Scan panel: the status line stayed on `idle` for the whole of a scan
   instead of showing `Scanning: <profile>...`, and the progress spinner
   never appeared. Both were set correctly — but `lvgl.label.update` only
