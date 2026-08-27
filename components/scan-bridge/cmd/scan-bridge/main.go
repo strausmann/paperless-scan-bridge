@@ -11,6 +11,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -77,6 +79,20 @@ func main() {
 // run is the testable entry point. It reads the supplied args,
 // honours --version, builds the daemon, and blocks until shutdown.
 func run(args []string, stdout, stderr io.Writer) error {
+	// `healthcheck` as a bare subcommand, checked before flag parsing
+	// because flag stops at the first non-flag argument anyway.
+	//
+	// This exists for the container healthcheck. The image is
+	// distroless: no shell, no curl, no wget, so `test: ["CMD", "curl",
+	// ...]` cannot work. Before this, deploy/compose used
+	// `["CMD", "/scan-bridge", "healthcheck"]` and the argument was
+	// simply ignored -- every probe started a SECOND daemon inside the
+	// container, which then failed to bind the port. Caught by running
+	// the image rather than by reading it.
+	if len(args) > 0 && args[0] == "healthcheck" {
+		return runHealthcheck(args[1:], stdout)
+	}
+
 	fs := flag.NewFlagSet("scan-bridge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -156,6 +172,27 @@ func run(args []string, stdout, stderr io.Writer) error {
 	defer func() { _ = procClient.Close() }()
 
 	secrets := config.NewSecretResolver(secretsDir, os.LookupEnv)
+
+	// The bearer token, from the same secret store everything else uses.
+	//
+	// Without this the published compose stack mounted a bridge_token
+	// secret that nothing read, and authentication fell back to
+	// whatever token_hash happened to be in config.toml -- which in the
+	// shipped example is a throwaway value committed to a public
+	// repository. Anyone who can read the repo could authenticate.
+	//
+	// A value in config.toml still wins: an operator who set one there
+	// meant it, and silently overriding it from a file they may not
+	// know about would be worse than not looking. Absence of the secret
+	// is not an error either -- ip_allowlist mode has no token at all.
+	if cfg.Auth.TokenHash == "" {
+		if plaintext, err := secrets.Resolve("bridge_token"); err == nil && plaintext != "" {
+			sum := sha256.Sum256([]byte(plaintext))
+			cfg.Auth.TokenHash = hex.EncodeToString(sum[:])
+			logger.Info("bearer token loaded from the bridge_token secret",
+				"component", "scan-bridge")
+		}
+	}
 
 	apiServer := &api.Server{
 		Profiles: profileSet,

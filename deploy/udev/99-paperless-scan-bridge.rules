@@ -1,0 +1,25 @@
+# udev rules for paperless-scan-bridge.
+#
+# Installed to /etc/udev/rules.d/ by deploy/bootstrap/install.sh. This
+# is one of the three host modifications the container-first principle
+# permits (CLAUDE.md); the others are Docker itself and the NFS mount.
+#
+# What this is for: sane-runtime runs unprivileged, so the USB device
+# node it is handed has to be readable without root. The container gets
+# /dev/bus/usb passed through, but the node inside it inherits the
+# host's ownership -- without a rule the scanner is root:root 0664 and
+# an unprivileged process cannot claim the interface.
+#
+# MODE 0664 with GROUP scanner, not 0666: world-writable would let any
+# process on the Pi drive the scanner, and the whole point of not using
+# --privileged is that the blast radius stays small (ADR 0008).
+#
+# After editing:  sudo udevadm control --reload-rules && sudo udevadm trigger
+# To check:       ls -l /dev/bus/usb/*/*   (the scanner should be group scanner)
+
+# Kodak ScanMate i1120 -- the reference device (avision backend).
+SUBSYSTEM=="usb", ATTR{idVendor}=="040a", ATTR{idProduct}=="6013", MODE="0664", GROUP="scanner", ENV{libsane_matched}="yes"
+
+# Additional scanners go here, one line each, and their model page under
+# docs/en/hardware/ should be added in the same change. See
+# HARDWARE_COMPATIBILITY.md for the verification levels.

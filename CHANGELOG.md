@@ -46,6 +46,27 @@ between releases as a running list.
 
 ### Added
 
+- Scan scratch space moves to **tmpfs** in the reference stack, so
+  scanned pages never reach the host's disk. Every scan writes raw TIFF
+  pages, has them read back and deletes them again within the same
+  request — on a named volume that is a write-erase cycle per scan for
+  data that never needs to survive a reboot, which is the access pattern
+  an SD card tolerates worst. Sized by `SCAN_BRIDGE_SCRATCH_SIZE`. The
+  documentation also stops presenting a Raspberry Pi as a requirement:
+  it is the reference and the cheap way to put a host next to the
+  scanner, but any Linux Docker host within USB reach works, and an
+  existing one is the better choice when there is one.
+
+- The deployment tooling Phase 1 has been promising since Phase 0 now
+  exists: `deploy/bootstrap/install.sh` (Docker, the NFS mount, the udev
+  rule — the three host modifications the container-first principle
+  permits, and nothing else, all idempotent and with a `--dry-run`),
+  `deploy/compose/scan-bridge.yml` (the published Topology B stack,
+  pulling pinned GHCR images), `deploy/udev/99-paperless-scan-bridge.rules`,
+  a `Tiltfile` for the development loop, and `renovate.json`. `scan-bridge`
+  also gains a real `healthcheck` subcommand: the image is distroless, so
+  there is no curl for a container healthcheck to run, and the binary
+  already in the image is the only thing that can probe `/ready`.
 - Scan profiles gain `png` as a fourth output format (roadmap Epic A3)
   and `max_pages` to cap how many sheets one scan pulls through the
   feeder (Epic A5). `png` is lossless where `jpeg` is not — a scanned
