@@ -80,3 +80,22 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   plan-vs-ADR audit** — enumerate every ADR (by scope/topic the plan touches) and
   mark each consistent / conflicting, not just the first conflicts noticed. Guard
   added as a checklist step in `.claude/rules/decision-process.md`.
+
+## 2026-08-27 — A commit SHA was quoted in a public review reply without checking it
+
+- **What happened:** Replying to a Copilot finding on PR #82, the reply cited the
+  fix as `0b0e2d4`. The actual commit was `15992f3`. The SHA was written from
+  expectation, in the same command that created the commit, so it was never read
+  back from `git log`. A correction had to be posted publicly.
+- **Root cause:** The commit and the reply about the commit were composed in one
+  step. Anything referring to an artifact that the same step produces cannot have
+  been verified against it: the artifact does not exist yet when the
+  reference is written.
+- **Impact:** A wrong SHA in a review thread on a public repository. Cosmetic in
+  effect, but it points a reader at a commit that does not exist, and it is
+  exactly the class of unverified claim R1 exists to prevent.
+- **Fix / prevention:** Never write an identifier for an artifact in the same step
+  that creates it. Commit first, read the SHA back (`git log --oneline -1`), then
+  compose any text that cites it. Generalized: a reference to a SHA, URL, line
+  number, file path or version in public text must be copied from a command's
+  output, never from memory or expectation.
