@@ -5,11 +5,18 @@
 # does not — Go modules, GitHub Actions, and Dockerfile base images
 # inside the three custom container components.
 #
-# Per-component gomod and docker entries are added by each component's
-# own Phase 1 session, once that component ships a go.mod and a
-# Dockerfile. Listing them here before the manifests exist makes
-# Dependabot emit a "manifest file not found" error on every run, so
-# we keep the file lean until the targets are real.
+# All three components now ship a go.mod and a Dockerfile, so all three
+# have gomod and docker entries below. Until 2026-08-27 only
+# scan-bridge did, which meant sane-runtime and scan-processor received
+# no dependency or base-image updates at all -- the entries were meant
+# to be added by each component's own session and were forgotten when
+# those components landed.
+#
+# The project tracks the current stable Go release. Dependabot's gomod
+# updater proposes the `go` directive as it moves, and the docker
+# updater proposes the `golang:` base image; both have to be accepted
+# together with GOLANGCI_LINT_VERSION in ci.yml, which is coupled to
+# the Go version (see the note there).
 #
 # `labels:` entries are still omitted, but the original reason no
 # longer applies: the type:*, scope:* and needs-triage taxonomy exists
@@ -74,4 +81,56 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: "build(scan-bridge)"
+      include: scope
+
+  # Go modules for sane-runtime.
+  - package-ecosystem: gomod
+    directory: /components/sane-runtime
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(sane-runtime)"
+      include: scope
+
+  # Dockerfile base images for sane-runtime.
+  - package-ecosystem: docker
+    directory: /components/sane-runtime
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build(sane-runtime)"
+      include: scope
+
+  # Go modules for scan-processor.
+  - package-ecosystem: gomod
+    directory: /components/scan-processor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(scan-processor)"
+      include: scope
+
+  # Dockerfile base images for scan-processor.
+  - package-ecosystem: docker
+    directory: /components/scan-processor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build(scan-processor)"
       include: scope

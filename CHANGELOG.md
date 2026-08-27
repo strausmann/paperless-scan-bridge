@@ -259,6 +259,18 @@ between releases as a running list.
 
 ### Changed
 
+- Go moves from 1.25 to **1.27**, the current stable release, across all
+  five places that declare it: `go.work`, the three `go.mod` files and
+  the three Dockerfiles. Two couplings had to move with it and are now
+  written down rather than rediscovered — `golangci-lint` parses source
+  with the `go/types` of the release it was itself built with, so a
+  lagging binary panics with `file requires newer Go version` instead of
+  quietly missing checks (bumped to v2.13.1, the release that added
+  go1.27 support); and `golang:1.27-alpine3.21` does not exist upstream
+  at all, so `scan-bridge`'s Alpine base moves to 3.24. Dependabot now
+  covers `gomod` and `docker` for all three components instead of only
+  `scan-bridge`, so the next Go release arrives as a pull request.
+
 - CYD scan-control panel firmware (`firmware/esp32-panel/`) is now
   **secret-free**: Wi-Fi credentials, the bridge URL and the bearer
   token are no longer build-time `!secret` values. Wi-Fi is provisioned
