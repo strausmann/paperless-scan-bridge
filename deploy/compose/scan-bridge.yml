@@ -9,6 +9,16 @@
 # it is a development stack. This file is what someone with a Pi, a NAS
 # and a Paperless-ngx instance runs.
 #
+# The host is any Linux machine that runs Docker and can see the
+# scanner over USB. A Raspberry Pi is the cheap way to put one next to
+# the scanner wherever the scanner needs to stand; it is not a
+# requirement, and if you already run a Docker host within cable reach,
+# use that instead. Nothing here is Pi-specific except the arm64 half
+# of the image build, which an x86 host simply ignores.
+#
+# What IS specific to a Pi: scanned pages never touch its SD card. The
+# scratch mount below is tmpfs for that reason -- see the note on it.
+#
 # Topology B (NFS direct) because it is the simplest of the three:
 # one storage tier, backup implicit via Synology snapshots. The cost is
 # that inotify does not work over NFS, so Paperless-ngx has to poll —
@@ -99,7 +109,30 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - sane-socket:/run/sane-runtime:ro
       - scan-processor-socket:/run/scan-processor:ro
+      # Persistent state only -- small, and it has to survive a
+      # restart. The job store (Phase 1.4) lands here.
       - scan-bridge-data:/var/lib/scan-bridge
+      # Scan scratch on tmpfs, i.e. RAM. This is the one mount that
+      # decides whether the host's disk survives.
+      #
+      # Every scan writes its raw TIFF pages here, scan-processor reads
+      # them back, and scan-bridge deletes the directory when the
+      # request finishes (`keep_scan_output = false`, the default). So
+      # nothing accumulates -- but on a named volume, every one of those
+      # pages would be written to the host's disk and erased again. On a
+      # Raspberry Pi booting from an SD card that is exactly the write
+      # pattern SD cards handle worst, and the data has no reason to be
+      # on durable storage at all: it is deleted before the HTTP
+      # response is sent.
+      #
+      # Sizing: this holds one job's uncompressed pages at once. Raise
+      # it for high-resolution duplex batches; a scan that overruns it
+      # fails with "no space left on device" rather than silently
+      # producing a short document.
+      - type: tmpfs
+        target: /var/lib/scan-bridge/scans
+        tmpfs:
+          size: ${SCAN_BRIDGE_SCRATCH_SIZE:-1g}
       # The NFS share the bootstrap script mounted. Documents land here
       # and Paperless-ngx picks them up from its consume folder.
       - ${NFS_MOUNT_POINT:?set NFS_MOUNT_POINT in .env}:/mnt/documents

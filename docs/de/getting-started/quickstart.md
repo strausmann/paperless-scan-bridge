@@ -13,14 +13,39 @@
 
 ## Voraussetzungen
 
-- Raspberry Pi 4 oder 5 mit Ubuntu Server 24.04 LTS (arm64)
+- **Ein Linux-Host mit Docker, in USB-Reichweite des Scanners.** Jede
+  amd64- oder arm64-Maschine. Ein Raspberry Pi 4 oder 5 mit Ubuntu
+  Server 24.04 ist die Referenz und der günstige Weg, einen Host genau
+  dorthin zu stellen, wo der Scanner stehen soll — aber er ist **eine
+  Möglichkeit, keine Voraussetzung**. Wer ohnehin einen Docker-Host in
+  Kabelreichweite betreibt, nimmt den und lässt den Pi weg.
 - Ein SANE-kompatibler USB-Scanner — siehe
   [Hardware-Übersicht](../hardware/index.md)
 - Eine Synology-NAS mit aktiviertem NFS
 - Ein Docker-Host für Paperless-ngx (darf die NAS selbst sein)
 
-Der Pi braucht nur Docker, einen NFS-Mount und USB-Berechtigungen. Alles
+Der Host braucht Docker, einen NFS-Mount und USB-Berechtigungen. Alles
 andere läuft in Containern.
+
+!!! info "Gescannte Seiten landen nie auf der Platte des Hosts"
+
+    Jeder Scan schreibt rohe TIFF-Seiten, lässt sie von
+    `scan-processor` zurücklesen und löscht sie wieder, bevor die
+    HTTP-Antwort rausgeht — sie existieren für die Dauer einer Anfrage
+    und keine Sekunde länger. Der Referenz-Stack legt diesen
+    Zwischenspeicher auf **tmpfs**, er liegt also im RAM und erreicht
+    dauerhaften Speicher nie.
+
+    Am wichtigsten ist das auf einem Pi, der von SD-Karte bootet: ein
+    Schreib-Lösch-Zyklus pro Scan ist genau das Zugriffsmuster, das
+    diese Karten am schlechtesten vertragen. Es ist aber überall die
+    richtige Vorgabe, denn die Daten haben keinen Grund, auf eine Platte
+    geschrieben zu werden, von der sie gleich wieder verschwinden.
+    Größen: `SCAN_BRIDGE_SCRATCH_SIZE` und `SCAN_PROCESSOR_TMPFS_SIZE`
+    in der `.env`; beide fassen je einen Auftrag, und ein Überlauf
+    scheitert laut, statt ein zu kurzes Dokument zu erzeugen.
+
+    Fertige Dokumente gehen auf die NFS-Freigabe, nicht auf den Host.
 
 ## 1. Synology-Freigabe vorbereiten
 

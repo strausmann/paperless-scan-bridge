@@ -46,6 +46,17 @@ between releases as a running list.
 
 ### Added
 
+- Scan scratch space moves to **tmpfs** in the reference stack, so
+  scanned pages never reach the host's disk. Every scan writes raw TIFF
+  pages, has them read back and deletes them again within the same
+  request — on a named volume that is a write-erase cycle per scan for
+  data that never needs to survive a reboot, which is the access pattern
+  an SD card tolerates worst. Sized by `SCAN_BRIDGE_SCRATCH_SIZE`. The
+  documentation also stops presenting a Raspberry Pi as a requirement:
+  it is the reference and the cheap way to put a host next to the
+  scanner, but any Linux Docker host within USB reach works, and an
+  existing one is the better choice when there is one.
+
 - The deployment tooling Phase 1 has been promising since Phase 0 now
   exists: `deploy/bootstrap/install.sh` (Docker, the NFS mount, the udev
   rule — the three host modifications the container-first principle

@@ -12,14 +12,37 @@
 
 ## Prerequisites
 
-- Raspberry Pi 4 or 5 running Ubuntu Server 24.04 LTS (arm64)
+- **A Linux host running Docker, within USB reach of the scanner.**
+  Any amd64 or arm64 machine. A Raspberry Pi 4 or 5 on Ubuntu Server
+  24.04 is the reference, and it is the cheap way to put a host wherever
+  the scanner has to stand — but it is one option, not a requirement.
+  If you already run a Docker host within cable reach of where the
+  scanner will live, use that and skip the Pi entirely.
 - A SANE-compatible USB scanner — see the
   [hardware list](../hardware/index.md)
 - A Synology NAS with NFS enabled
 - A Docker host for Paperless-ngx (can be the NAS)
 
-The Pi only needs Docker, an NFS mount, and USB permissions. Everything
-else runs in containers.
+The host needs Docker, an NFS mount and USB permissions. Everything else
+runs in containers.
+
+!!! info "Scanned pages never touch the host's disk"
+
+    Every scan writes raw TIFF pages, has them read back by
+    `scan-processor`, and deletes them again before the HTTP response is
+    sent — they exist for the duration of one request and no longer. The
+    reference stack puts that scratch space on **tmpfs**, so it lives in
+    RAM and never reaches durable storage.
+
+    That matters most on a Pi booting from an SD card, where a
+    write-erase cycle per scan is the access pattern those cards
+    tolerate worst — but it is the right default everywhere, because the
+    data has no reason to be written to a disk it is about to be erased
+    from. Sizes are `SCAN_BRIDGE_SCRATCH_SIZE` and
+    `SCAN_PROCESSOR_TMPFS_SIZE` in `.env`; each holds one job at a time,
+    and an overrun fails loudly rather than producing a short document.
+
+    Finished documents go to the NFS share, not to the host.
 
 ## 1. Prepare the Synology share
 

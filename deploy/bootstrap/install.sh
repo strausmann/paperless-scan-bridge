@@ -3,10 +3,14 @@ set -euo pipefail
 
 # paperless-scan-bridge host bootstrap.
 #
-# Prepares a fresh Raspberry Pi (or any Debian/Ubuntu host) for the
-# container stack. Deliberately small: the container-first principle in
-# CLAUDE.md permits exactly three host modifications, and this script
-# does those three and nothing else.
+# Prepares a Debian or Ubuntu host for the container stack. A Raspberry
+# Pi is the reference and the cheap way to put a host wherever the
+# scanner needs to stand, but nothing here is Pi-specific -- if you
+# already run a Docker host within USB reach, run this on that instead.
+#
+# Deliberately small: the container-first principle in CLAUDE.md permits
+# exactly three host modifications, and this script does those three and
+# nothing else.
 #
 #   1. Docker Engine + the compose plugin, from Docker's own repository
 #   2. the Synology NFS share, mounted via /etc/fstab
