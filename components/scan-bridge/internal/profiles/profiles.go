@@ -309,7 +309,9 @@ func Load(path string) (*Set, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open profiles %q: %w", path, err)
 	}
-	defer f.Close()
+	// Read-only; see the note in procclient for why this is dropped
+	// here rather than in .golangci.yml.
+	defer func() { _ = f.Close() }()
 
 	return Parse(f)
 }

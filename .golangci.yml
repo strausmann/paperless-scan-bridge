@@ -52,14 +52,15 @@ linters:
         # -- a failed Close there can mean unflushed data.
         - (io.Closer).Close
         - (io.ReadCloser).Close
-        # *os.File does not match the interface forms above -- errcheck
-        # matches the concrete type. Read-side only in practice: both
-        # write-side Close calls in this repository were found by this
-        # linter on its first run and are now checked explicitly
-        # (dispatch.writePagePart, procclient.writeDocumentPart), which
-        # is the case that matters -- a dropped Close on a writer means
-        # a truncated scan page or a truncated PDF reported as success.
-        - (*os.File).Close
+        #
+        # (*os.File).Close is deliberately NOT excluded. It was, on the
+        # first draft of this file, and review was right to object:
+        # errcheck matches the concrete type, so excluding it would have
+        # silenced the write side too -- the exact bug class this
+        # linter's first run had just found (a dropped Close on
+        # os.Create means a truncated PDF reported as success). The four
+        # read-side call sites drop the error at the call site instead,
+        # where a reader can see it is a reader.
   exclusions:
     rules:
       # Tests build their requests with httptest and net/http helpers

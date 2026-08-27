@@ -220,7 +220,10 @@ func writePagePart(mw *multipart.Writer, path string) error {
 	if err != nil {
 		return fmt.Errorf("open page: %w", err)
 	}
-	defer f.Close()
+	// Read-only: nothing is buffered, so Close cannot report lost data.
+	// Dropped at the call site rather than by a linter exclusion, which
+	// would have covered the write side too.
+	defer func() { _ = f.Close() }()
 
 	part, err := mw.CreatePart(map[string][]string{"Content-Type": {"image/tiff"}})
 	if err != nil {

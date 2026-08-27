@@ -5,9 +5,14 @@
 # `test-molecule` are still placeholders because deploy/ansible/ holds
 # nothing but a .gitkeep.
 #
-# ci.yml calls these targets rather than repeating their commands, so
-# what runs locally and what runs in CI cannot drift apart. Until
-# 2026-08-27 the Go targets printed "TODO Phase 1" and CI printed
+# ci.yml calls test-shell, test-yaml and test-docker directly, so those
+# three cannot drift between a laptop and a runner. The Go jobs run the
+# same commands through a matrix instead -- one module per leg, so a
+# failure names the module, and golangci-lint-action keeps its own
+# caching and inline annotations. `make lint-go` and `make test-go`
+# remain the local entry point and run the identical commands.
+#
+# Until 2026-08-27 the Go targets printed "TODO Phase 1" and CI printed
 # "placeholder", which meant three modules and 26 test files were never
 # built, linted or tested anywhere (issue #86).
 #
