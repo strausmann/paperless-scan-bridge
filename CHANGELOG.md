@@ -46,6 +46,16 @@ between releases as a running list.
 
 ### Added
 
+- The scan panel now reports **Reset Reason**, **Uptime**, **Loop Time**
+  and three heap sensors on its own dashboard. Reported symptom: under
+  heavy tapping the profile buttons vanish, the Wi-Fi and Bridge
+  indicators go bad, and everything repairs itself seconds later — which
+  is exactly what the panel's boot sequence looks like from outside, but
+  a reboot's plausible causes (watchdog, panic, brownout) call for
+  opposite fixes and could not be told apart. `reset_reason` separates
+  them in one reading, without a cable or a local toolchain. No
+  behaviour change.
+
 - Add `title_template` to scan profiles: an optional per-profile pattern
   that produces the document title a destination receives, with
   `{profile}`, `{document_type}`, `{scan_id}`, `{date}`, `{time}` and
@@ -229,6 +239,17 @@ between releases as a running list.
   the shipped config uses `!secret` anymore.
 
 ### Fixed
+
+- The scan panel no longer starts a scan when a finger merely travels
+  across the display. Its buttons used `on_press`, which ESPHome maps to
+  LVGL's `LV_EVENT_PRESSED` — fired the instant a finger lands on a
+  widget, with no release required and again each time a still-pressed
+  finger re-enters it. Dragging across the profile grid therefore fired
+  a scan under every button crossed. All eleven handlers now use
+  `on_click` (`LV_EVENT_CLICKED`: pressed *and* released on the same
+  widget). This matters more than the usual button nitpick — a scan
+  pulls a sheet through the feeder, runs about twenty seconds and
+  uploads a document, so it has to come from a deliberate tap.
 
 - Scan panel: setting Bridge URL and Bridge Token from the dashboard did
   nothing visible until the next poll or a reboot. A freshly flashed
