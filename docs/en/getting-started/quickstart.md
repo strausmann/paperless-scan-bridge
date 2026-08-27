@@ -1,12 +1,14 @@
 # Quickstart
 
-!!! warning "Not yet runnable"
+!!! info "The tooling on this page exists now"
 
-    The bootstrap script (`deploy/bootstrap/install.sh`) and the compose
-    stacks (`deploy/compose/`) referenced on this page are Phase 1
-    deliverables and are not in the repository yet. This page documents the
-    intended flow so the shape of the setup is reviewable before the code
-    lands.
+    `deploy/bootstrap/install.sh` and `deploy/compose/scan-bridge.yml`
+    are in the repository. What has **not** been done is a run of this
+    page end to end on a fresh Pi: the pipeline itself is proven against
+    the reference hardware, and the bootstrap script is proven by its own
+    `--dry-run` and by `docker compose config`, but nobody has yet taken
+    an unprepared machine from nothing to a scan by following these six
+    steps. Expect to hit something. Please report it.
 
 ## Prerequisites
 
@@ -33,15 +35,12 @@ Download the script, read it, then run it. It modifies `/etc/fstab` and
 worth the convenience — a truncated download would execute as a
 half-script.
 
-```bash title="Not yet — deploy/bootstrap/install.sh does not exist"
+```bash
 ssh pi@your-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # read what it is about to do
 sudo bash install.sh
 ```
-
-    The URL above 404s today. It is shown so the shape of the step is
-    reviewable, not so it can be run.
 
 The script installs Docker and the compose plugin, adds the NFS mount to
 `/etc/fstab`, installs the udev rule that gives the container stable
@@ -56,6 +55,11 @@ cd paperless-scan-bridge
 
 cp deploy/compose/.env.example deploy/compose/.env
 $EDITOR deploy/compose/.env
+
+# the two secrets, as files -- an env var shows up in `docker inspect`
+printf '%s' 'YOUR_PAPERLESS_TOKEN' > deploy/secrets/paperless_api_token
+openssl rand -hex 32               > deploy/secrets/bridge_token
+chmod 0640 deploy/secrets/*
 ```
 
 At minimum you set the Paperless-ngx URL, the API token, and the NFS
@@ -70,9 +74,13 @@ mount point.
 
 ## 4. Bring up the bridge
 
-```bash title="Not yet — deploy/compose/ does not exist"
+```bash
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
+
+`PSB_VERSION` in `.env` has no default: compose refuses to start
+without it rather than reaching for `latest` (ADR 0011), so an unpinned
+deployment cannot happen by forgetting.
 
 Pin an explicit image version in your compose file. This project does
 not publish or use `latest` tags.

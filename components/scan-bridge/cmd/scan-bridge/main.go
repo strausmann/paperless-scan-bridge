@@ -77,6 +77,20 @@ func main() {
 // run is the testable entry point. It reads the supplied args,
 // honours --version, builds the daemon, and blocks until shutdown.
 func run(args []string, stdout, stderr io.Writer) error {
+	// `healthcheck` as a bare subcommand, checked before flag parsing
+	// because flag stops at the first non-flag argument anyway.
+	//
+	// This exists for the container healthcheck. The image is
+	// distroless: no shell, no curl, no wget, so `test: ["CMD", "curl",
+	// ...]` cannot work. Before this, deploy/compose used
+	// `["CMD", "/scan-bridge", "healthcheck"]` and the argument was
+	// simply ignored -- every probe started a SECOND daemon inside the
+	// container, which then failed to bind the port. Caught by running
+	// the image rather than by reading it.
+	if len(args) > 0 && args[0] == "healthcheck" {
+		return runHealthcheck(args[1:], stdout)
+	}
+
 	fs := flag.NewFlagSet("scan-bridge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 

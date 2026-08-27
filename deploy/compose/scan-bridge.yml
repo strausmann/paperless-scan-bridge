@@ -1,0 +1,157 @@
+# paperless-scan-bridge — reference stack, storage Topology B.
+#
+# The published deployment: pulls pinned images from GHCR, reads its
+# settings from a sibling .env, and writes documents straight to the
+# Synology NFS share the bootstrap script mounted.
+#
+# This is NOT the repository-root compose.yaml. That one builds the
+# three images from source and hardcodes the maintainer's host paths;
+# it is a development stack. This file is what someone with a Pi, a NAS
+# and a Paperless-ngx instance runs.
+#
+# Topology B (NFS direct) because it is the simplest of the three:
+# one storage tier, backup implicit via Synology snapshots. The cost is
+# that inotify does not work over NFS, so Paperless-ngx has to poll —
+# roughly ten seconds of latency at the scanner. See the Storage
+# topologies page for A and C, which trade setup effort for that
+# latency.
+#
+#   cp .env.example .env && $EDITOR .env
+#   docker compose -f scan-bridge.yml up -d
+#   curl -s http://localhost:${SCAN_BRIDGE_PORT:-18080}/ready
+#
+# No `latest` anywhere (ADR 0011). PSB_VERSION in .env pins all three
+# images to one release; Renovate proposes the bumps.
+
+name: paperless-scan-bridge
+
+x-common: &common
+  restart: unless-stopped
+  # Every service reads the host clock rather than guessing UTC: a
+  # document's date comes out of the scan timestamp, and a container an
+  # hour off files last night's post under tomorrow.
+  volumes:
+    - /etc/localtime:/etc/localtime:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # The three services talk over Unix sockets in a shared volume rather
+  # than TCP (ADR 0009). A named volume, not a bind mount: nothing on
+  # the host needs to read these, and a named volume avoids the
+  # ownership dance a bind mount needs on a fresh machine.
+  sane-runtime:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/sane-runtime:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-sane-runtime
+    # USB passthrough by device-cgroup permission, never --privileged
+    # (ADR 0008). The whole bus is passed through because the scanner's
+    # bus/device numbers change on every replug; the udev rule from
+    # deploy/udev/ is what keeps the node readable without root.
+    devices:
+      - "/dev/bus/usb:/dev/bus/usb"
+    environment:
+      SANE_RUNTIME_SOCKET: /run/sane-runtime/sane.sock
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - sane-socket:/run/sane-runtime
+
+  scan-processor:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-processor:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-scan-processor
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SCAN_PROCESSOR_SOCKET: /run/scan-processor/proc.sock
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - scan-processor-socket:/run/scan-processor
+      # read_only above makes the whole filesystem immutable, so the
+      # scratch space ImageMagick and tesseract need has to be declared.
+      # tmpfs, not a volume: these are intermediate TIFFs for one job,
+      # and writing them to the SD card wears it out for nothing.
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: ${SCAN_PROCESSOR_TMPFS_SIZE:-512m}
+
+  scan-bridge:
+    <<: *common
+    image: ghcr.io/strausmann/paperless-scan-bridge/scan-bridge:${PSB_VERSION:?set PSB_VERSION in .env}
+    container_name: psb-scan-bridge
+    # The image runs as nonroot (65532). These two supplementary groups
+    # are what let it dial the other two services' sockets, which are
+    # owned by their own users. Without them the bridge starts fine and
+    # every scan fails with "permission denied" on connect.
+    group_add:
+      - "0"
+      - "10010"
+    ports:
+      - "${SCAN_BRIDGE_PORT:-18080}:8080"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - sane-socket:/run/sane-runtime:ro
+      - scan-processor-socket:/run/scan-processor:ro
+      - scan-bridge-data:/var/lib/scan-bridge
+      # The NFS share the bootstrap script mounted. Documents land here
+      # and Paperless-ngx picks them up from its consume folder.
+      - ${NFS_MOUNT_POINT:?set NFS_MOUNT_POINT in .env}:/mnt/documents
+      # Long syntax with create_host_path: false on purpose. The short
+      # syntax silently creates a DIRECTORY when the file is missing,
+      # and the daemon then fails with "is a directory" -- which reads
+      # like a bug rather than "you forgot to copy the example".
+      - type: bind
+        source: ${PSB_CONFIG_FILE:-../config/config.toml}
+        target: /etc/scan-bridge/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PSB_PROFILES_FILE:-../profiles/default.yaml}
+        target: /etc/scan-bridge/profiles.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - paperless_api_token
+      - bridge_token
+    depends_on:
+      sane-runtime:
+        condition: service_started
+      scan-processor:
+        condition: service_started
+    healthcheck:
+      # /ready, not /health: health only says the process is up, ready
+      # says profiles loaded AND sane-runtime answered. A container
+      # reporting healthy while no scan can succeed is worse than none.
+      test: ["CMD", "/usr/local/bin/scan-bridge", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+secrets:
+  # File-based, not environment: an env var is visible in `docker
+  # inspect` and in the process list of anything that can read /proc.
+  #
+  # Mode matters and has bitten this project once already: the file has
+  # to be readable by the container's UID (65532). 0600 owned by your
+  # user on the host means the daemon starts and every upload fails
+  # with an unhelpful permission error. 0640 with a group the container
+  # can reach, or 0644 for a token you rotate, is what works.
+  paperless_api_token:
+    file: ${PAPERLESS_API_TOKEN_FILE:-../secrets/paperless_api_token}
+  bridge_token:
+    file: ${BRIDGE_TOKEN_FILE:-../secrets/bridge_token}
+
+volumes:
+  sane-socket:
+  scan-processor-socket:
+  scan-bridge-data:

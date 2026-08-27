@@ -46,6 +46,17 @@ between releases as a running list.
 
 ### Added
 
+- The deployment tooling Phase 1 has been promising since Phase 0 now
+  exists: `deploy/bootstrap/install.sh` (Docker, the NFS mount, the udev
+  rule — the three host modifications the container-first principle
+  permits, and nothing else, all idempotent and with a `--dry-run`),
+  `deploy/compose/scan-bridge.yml` (the published Topology B stack,
+  pulling pinned GHCR images), `deploy/udev/99-paperless-scan-bridge.rules`,
+  a `Tiltfile` for the development loop, and `renovate.json`. `scan-bridge`
+  also gains a real `healthcheck` subcommand: the image is distroless, so
+  there is no curl for a container healthcheck to run, and the binary
+  already in the image is the only thing that can probe `/ready`.
+
 - Multi-arch container builds via `docker buildx bake` for all three
   components (linux/amd64 + linux/arm64, the reference deployment is a
   Pi 5), pushed to GHCR on `main` and built-and-discarded on pull

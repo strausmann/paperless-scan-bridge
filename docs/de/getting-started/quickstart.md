@@ -1,12 +1,15 @@
 # Schnellstart
 
-!!! warning "Noch nicht schlüsselfertig"
+!!! info "Das Werkzeug auf dieser Seite existiert jetzt"
 
-    Das Bootstrap-Skript (`deploy/bootstrap/install.sh`) und die
-    Compose-Stacks (`deploy/compose/`), auf die diese Seite verweist,
-    sind Phase-1-Lieferungen und liegen noch nicht im Repository. Die
-    Seite dokumentiert den vorgesehenen Ablauf, damit die Form des
-    Setups überprüfbar ist, bevor der Code da ist.
+    `deploy/bootstrap/install.sh` und `deploy/compose/scan-bridge.yml`
+    liegen im Repository. Was **noch nicht** passiert ist: ein
+    Durchlauf dieser Seite von vorn bis hinten auf einem frischen Pi.
+    Die Pipeline selbst ist gegen die Referenz-Hardware belegt, und das
+    Bootstrap-Skript durch seinen eigenen `--dry-run` und durch
+    `docker compose config` — aber niemand hat bislang eine
+    unvorbereitete Maschine anhand dieser sechs Schritte bis zum Scan
+    gebracht. Rechnen Sie damit, irgendwo anzuecken. Bitte melden.
 
 ## Voraussetzungen
 
@@ -34,7 +37,7 @@ und `/etc/udev/rules.d/` als root — es direkt in eine Shell zu pipen ist
 die Bequemlichkeit nicht wert: Ein abgebrochener Download würde als
 halbes Skript ausgeführt.
 
-```bash title="Noch nicht — deploy/bootstrap/install.sh existiert nicht"
+```bash
 ssh pi@ihr-pi-host
 curl -fsSLO https://raw.githubusercontent.com/strausmann/paperless-scan-bridge/main/deploy/bootstrap/install.sh
 less install.sh          # lesen, was gleich passiert
@@ -72,7 +75,7 @@ NFS-Mountpunkt.
 
 ## 4. Bridge starten
 
-```bash title="Noch nicht — deploy/compose/ existiert nicht"
+```bash
 docker compose -f deploy/compose/scan-bridge.yml up -d
 ```
 

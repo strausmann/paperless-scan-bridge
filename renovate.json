@@ -1,0 +1,159 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(build)"
+  ],
+  "timezone": "Europe/Berlin",
+  "schedule": [
+    "before 06:00 on monday"
+  ],
+  "prConcurrentLimit": 5,
+  "labels": [
+    "type:chore"
+  ],
+  "commitMessageTopic": "{{depName}}",
+  "description": [
+    "Renovate and Dependabot both run here and must not overlap: two",
+    "bots proposing the same bump means two PRs, two CI runs and a",
+    "guaranteed conflict on the second merge. The split follows",
+    "AGENTS.md -- Renovate owns container image tags and the pinned",
+    "tool versions that live in workflow env blocks; Dependabot owns Go",
+    "modules, GitHub Actions and the docs pip requirements. The",
+    "ignorePaths and the disabled managers below are what enforce it.",
+    "Removing either means duplicate PRs, not more coverage.",
+    "Note what is NOT in ignorePaths: .github/workflows/. It was, on",
+    "the first draft, and it silently disabled both customManagers",
+    "below -- they match files in exactly that directory. There is no",
+    "overlap to guard against there anyway: Dependabot's",
+    "github-actions ecosystem bumps `uses:` references, and Renovate's",
+    "github-actions manager is not in enabledManagers, so the only",
+    "thing Renovate touches in a workflow is the two pinned tool",
+    "versions the custom managers name explicitly."
+  ],
+  "ignorePaths": [
+    "components/*/go.mod",
+    "components/*/go.sum",
+    "components/*/Dockerfile",
+    "requirements-docs.txt"
+  ],
+  "enabledManagers": [
+    "docker-compose",
+    "dockerfile",
+    "custom.regex"
+  ],
+  "packageRules": [
+    {
+      "description": [
+        "The three images this repository publishes are built by our own",
+        "CI from the commit being released; a bot proposing a bump for",
+        "them would be proposing that we deploy a version of ourselves,",
+        "which release.yml already handles."
+      ],
+      "matchPackageNames": [
+        "ghcr.io/strausmann/paperless-scan-bridge/**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": [
+        "Digest pinning for production-track images (AGENTS.md). A tag",
+        "is mutable; a digest is the only thing that makes 'we deployed",
+        "v1.2.3' reproducible a year later."
+      ],
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "automerge": false,
+      "groupName": "container digests"
+    },
+    {
+      "description": [
+        "Zensical is alpha and ships several releases per week. Its bump",
+        "PRs are the scheduled checkpoint for the i18n and blog",
+        "workarounds in issue #13, so they are deliberately NOT grouped",
+        "with anything else -- each one gets read on its own. Handled by",
+        "Dependabot's pip entry; listed here so a future reader does not",
+        "add a second manager for it."
+      ],
+      "matchPackageNames": [
+        "zensical"
+      ],
+      "enabled": false
+    },
+    {
+      "description": [
+        "golangci-lint is coupled to the Go version: it parses source",
+        "with the go/types of the release it was built with, so a",
+        "lagging binary panics rather than missing checks. Its bump has",
+        "to be read together with whatever Go version is current, never",
+        "merged unseen."
+      ],
+      "matchPackageNames": [
+        "golangci/golangci-lint"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "needs-triage"
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "description": [
+        "Pinned tool versions in ci.yml's env block. Renovate has no",
+        "manager for 'a version string in a workflow env var', so they",
+        "are matched by name. HADOLINT_SHA256 sits next to",
+        "HADOLINT_VERSION and is NOT updated here -- a bot that bumps a",
+        "version but not its checksum produces a PR that fails the",
+        "sha256sum check, which is the safe direction to fail in but",
+        "still needs a human to finish."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "GOLANGCI_LINT_VERSION:\\s*(?<currentValue>v[\\d.]+)",
+        "YAMLLINT_VERSION:\\s*(?<currentValue>[\\d.]+)",
+        "HADOLINT_VERSION:\\s*(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": [
+        "ESPHome is pinned exactly in the firmware workflow. A minor",
+        "bump routinely changes generated C++ and has broken this",
+        "firmware's build before, so it is never automerged."
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/esphome-firmware\\.yml$/"
+      ],
+      "matchStrings": [
+        "ESPHOME_VERSION:\\s*(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "esphome",
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "description": [
+      "Security fixes do not wait for Monday. This is the one thing",
+      "allowed to open a PR off-schedule."
+    ],
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ],
+    "labels": [
+      "type:security"
+    ]
+  }
+}
