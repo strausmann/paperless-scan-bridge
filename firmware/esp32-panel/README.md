@@ -182,7 +182,20 @@ direction use the 'transform' options"*.
 
 Two corners on the **same diagonal** (top-left and bottom-right) cannot
 tell you whether `swap_xy` is right — both axes move together. Use an
-off-diagonal pair (top-right, bottom-left) to check that.
+off-diagonal pair (top-right, bottom-left) to check that. On the
+reference unit those readings were:
+
+| Corner | Raw |
+| --- | --- |
+| top-left | `[3820, 3820]` |
+| top-right | `[3750, 216]` |
+| bottom-left | `[290, 3777]` |
+| bottom-right | `[388, 309]` |
+
+`raw_x` is high at the top and low at the bottom, so it carries the
+**vertical** axis; `raw_y` is high at the left, so it carries the
+**horizontal** one. That is what `swap_xy: true` expresses, and it is
+why one corner is not enough to confirm it.
 
 Put the values in the `substitutions:` block and re-flash — over USB or
 OTA, both work.

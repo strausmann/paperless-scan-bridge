@@ -228,6 +228,12 @@ between releases as a running list.
   to re-run those once configured. The grid stayed empty and the bridge
   indicator stayed grey, which reads as "I configured it and it does not
   work". Both entities now re-check on change.
+- Scan panel: touch calibration now uses the measured extremes of the
+  reference unit rather than the original placeholders, and `swap_xy` is
+  confirmed rather than assumed. All four corners were read: `raw_x` is
+  high at the top and `raw_y` high at the left, so the axes are indeed
+  swapped and both inverted. The four corners now map to (0,0), (320,2),
+  (2,240) and (316,237).
 - Scan panel: the touchscreen was inverted on both axes, so a tap on the
   profile button landed on the opposite corner and did nothing. Measured
   on the reference unit: the physical top-left corner reads raw
