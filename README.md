@@ -86,7 +86,7 @@ docker compose -f deploy/compose/scan-bridge.yml up -d
 For step-by-step instructions including Synology share configuration,
 hardware verification, Home Assistant blueprint import, and storage
 topology choice, see the
-[Quickstart guide](https://scan-bridge.strausmann.de/getting-started/quickstart/).
+[Quickstart guide](https://scan-bridge.strausmann.de/en/getting-started/quickstart/).
 
 ## Architecture at a glance
 
@@ -145,13 +145,13 @@ built from `docs/` using [Zensical](https://zensical.org).
 
 Key entry points:
 
-- [Quickstart guide](https://scan-bridge.strausmann.de/getting-started/quickstart/)
+- [Quickstart guide](https://scan-bridge.strausmann.de/en/getting-started/quickstart/)
 - [Architecture deep-dive](ARCHITECTURE.md)
 - [Hardware compatibility list](HARDWARE_COMPATIBILITY.md)
-- [Storage topology comparison](https://scan-bridge.strausmann.de/architecture/storage-topologies/)
+- [Storage topology comparison](https://scan-bridge.strausmann.de/en/architecture/storage-topologies/)
 - [Backup and disaster recovery](DISASTER_RECOVERY.md)
 - [Threat model](THREAT_MODEL.md)
-- [Troubleshooting guide](https://scan-bridge.strausmann.de/operations/troubleshooting/)
+- [Troubleshooting guide](https://scan-bridge.strausmann.de/en/operations/troubleshooting/)
 
 The site is English-first. A German version is served under `/de/` and
 is being filled in gradually — Zensical has no native multi-language

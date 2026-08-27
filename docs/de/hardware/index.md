@@ -19,7 +19,7 @@ besonders gerätespezifisch — oft fehlt sie ganz.
 
 | Modell | USB-ID | SANE-Backend | Stufe | Anmerkungen |
 | --- | --- | --- | --- | --- |
-| [Kodak ScanMate i1120](/hardware/kodak-scanmate-i1120/) *(englisch)* | `040a:6013` | `avision` | A | Referenzgerät. ADF + Duplex, 75–600 DPI. Hardware-Tasten nur teilweise nutzbar. |
+| [Kodak ScanMate i1120](/en/hardware/kodak-scanmate-i1120/) *(englisch)* | `040a:6013` | `avision` | A | Referenzgerät. ADF + Duplex, 75–600 DPI. Hardware-Tasten nur teilweise nutzbar. |
 
 Die vollständige Liste — inklusive bekannt inkompatibler Geräte,
 ungetesteter Kandidaten, Auslöse-Hardware und Speicher-Backends — steht

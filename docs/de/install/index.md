@@ -13,7 +13,9 @@ Versions-String im Installer.
 Panel per USB an diesen Rechner anschließen, dann:
 
 <esp-web-install-button manifest="/firmware/manifest.json">
-  <button class="md-button md-button--primary" slot="activate">CYD-Scan-Panel-Firmware installieren</button>
+  <button class="md-button md-button--primary" slot="activate">
+    CYD-Scan-Panel-Firmware installieren
+  </button>
   <span slot="unsupported">
     Dieser Browser kann nicht flashen. Web Serial gibt es nur in Chrome
     oder Edge auf dem Desktop — Firefox und Safari implementieren es
@@ -25,7 +27,6 @@ Panel per USB an diesen Rechner anschließen, dann:
     etwas nicht.
   </span>
 </esp-web-install-button>
-
 
 Beim Nachfragen den seriellen Port auswählen. Der Installer löscht den
 Chip, schreibt das Factory-Image und bietet danach im selben Tab die
@@ -69,7 +70,39 @@ Flashen. Sobald es gesetzt ist, wird die obere Leiste grün
 
 Die vollständige Anleitung, die Zustandstabelle der Anzeige und die
 bekannten Grenzen stehen in der englischen Doku:
-[CYD scan-control panel](/hardware/cyd-scan-panel/).
+[CYD scan-control panel](/en/hardware/cyd-scan-panel/).
+
+## Später aktualisieren
+
+Nach dem Flashen brauchen Sie diese Seite nicht mehr. Das Panel prüft
+`manifest.json` — dieselbe Datei, die der Button oben nutzt — alle sechs
+Stunden und meldet einen neueren Build als **Firmware Update** auf seinem
+eigenen Dashboard unter `http://<panel-ip>/`. Installieren ist dort ein
+Klick; kein Dateidialog, kein Kabel.
+
+Das Upload-Formular weiter unten auf diesem Dashboard funktioniert
+weiterhin und ist der Rettungsweg, wenn das Panel das Internet nicht
+erreicht.
+
+!!! warning "Was ein Over-the-Air-Update schützt — und was nicht"
+
+    Das Manifest trägt die MD5-Summe der Firmware, und das Panel prüft
+    sie **beim Schreiben**. Ein abgebrochener oder veränderter Download
+    wird verworfen, die laufende Firmware bleibt — ein unterbrochenes
+    Update kann das Panel also nicht unbrauchbar machen.
+
+    Was fehlt, ist die Prüfung des TLS-Zertifikats: Die Firmware läuft
+    mit abgeschaltetem `verify_ssl`. Wer sich aktiv in den Netzwerkpfad
+    schaltet, könnte deshalb ein gefälschtes Manifest **und** eine dazu
+    passende Binärdatei ausliefern, und die MD5-Prüfung ginge durch.
+
+    Deshalb **meldet** das Panel Updates, installiert aber nie eines von
+    selbst: Das entscheidende Zeitfenster ist der Moment, in dem Sie auf
+    Installieren klicken — nicht alle sechs Stunden. Ob sich die
+    Zertifikatsprüfung für diesen Build einschalten lässt, ist eine offene
+    Frage; sie ist in ADR 0023 im Repository festgehalten und muss an
+    echter Hardware getestet werden, nicht an einer Konfiguration, die
+    bloß validiert.
 
 ## Voraussetzungen
 
