@@ -19,9 +19,13 @@ type FirmwareMirror interface {
 	// Current reports the release being served; ok is false on a cold
 	// cache.
 	Current() (firmware.Release, bool)
-	// Open returns a file of that release and its modification time,
-	// or firmware.ErrNotCached.
-	Open(name string) (io.ReadSeekCloser, time.Time, error)
+	// Open returns a file of the current release, the release it
+	// actually came from, and its modification time — or
+	// firmware.ErrNotCached. The release comes back with the file
+	// rather than from a second Current() call so a refresh landing
+	// between the two cannot label one generation's bytes with
+	// another's tag.
+	Open(name string) (io.ReadSeekCloser, firmware.Release, time.Time, error)
 	// OpenAt does the same for a named generation, which may be older
 	// than the current one.
 	OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error)
@@ -109,13 +113,16 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	rel, ok := s.Firmware.Current()
-	if !ok {
+	if _, ok := s.Firmware.Current(); !ok {
 		s.writeFirmwareNotCached(w, r)
 		return
 	}
 
-	f, modTime, err := s.Firmware.Open(name)
+	// rel comes back from Open, not from the Current() above: those are
+	// two separate reads of the published pointer, and a refresh
+	// landing between them would put one generation's tag on another
+	// generation's bytes.
+	f, rel, modTime, err := s.Firmware.Open(name)
 	if err != nil {
 		if errors.Is(err, firmware.ErrNotCached) {
 			s.writeFirmwareFileNotFound(w, r)

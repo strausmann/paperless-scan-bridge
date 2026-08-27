@@ -435,6 +435,15 @@ paths:
         makes the published digest describe the file actually served
         (ADR 0024). `parts` is left relative — it is read by ESP Web
         Tools during a USB install from the docs site, never from here.
+
+
+        The rewrite is strict, and it runs at mirror time as well as per
+        request: a manifest with no builds, a build without an
+        `ota.path`, a path that is an absolute URL, or a path naming a
+        file the release does not carry is rejected, and such a release
+        never becomes current. A best-effort rewrite would publish paths
+        that are still relative and break the guarantee silently, which
+        is worse than failing.
       security: []
       responses:
         "200":

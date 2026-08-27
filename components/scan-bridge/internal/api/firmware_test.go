@@ -39,20 +39,20 @@ func (f *fakeMirror) Current() (firmware.Release, bool) {
 	return f.rel, true
 }
 
-func (f *fakeMirror) Open(name string) (io.ReadSeekCloser, time.Time, error) {
+func (f *fakeMirror) Open(name string) (io.ReadSeekCloser, firmware.Release, time.Time, error) {
 	if !f.cached {
-		return nil, time.Time{}, firmware.ErrNotCached
+		return nil, firmware.Release{}, time.Time{}, firmware.ErrNotCached
 	}
 	for _, n := range f.rel.Files {
 		if n == name {
 			fh, err := os.Open(filepath.Join(f.dir, name))
 			if err != nil {
-				return nil, time.Time{}, err
+				return nil, firmware.Release{}, time.Time{}, err
 			}
-			return fh, time.Unix(0, 0), nil
+			return fh, f.rel, time.Unix(0, 0), nil
 		}
 	}
-	return nil, time.Time{}, firmware.ErrNotCached
+	return nil, firmware.Release{}, time.Time{}, firmware.ErrNotCached
 }
 
 func (f *fakeMirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, error) {
@@ -62,7 +62,8 @@ func (f *fakeMirror) OpenAt(tag, name string) (io.ReadSeekCloser, time.Time, err
 	if !f.cached || tag != f.rel.Tag {
 		return nil, time.Time{}, firmware.ErrNotCached
 	}
-	return f.Open(name)
+	fh, _, modTime, err := f.Open(name)
+	return fh, modTime, err
 }
 
 func (f *fakeMirror) Manifest() ([]byte, firmware.Release, error) {

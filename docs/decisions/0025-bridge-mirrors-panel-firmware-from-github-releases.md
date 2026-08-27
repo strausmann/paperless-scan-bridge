@@ -82,6 +82,13 @@ Because the manifest's `ota.path` is rewritten, the mirror is not byte-verbatim
 — but the only field it touches is a path. `parts`, which ESP Web Tools reads
 during a USB install from the docs site, is left relative and untouched.
 
+The rewrite is **strict, and it runs before publishing**: a manifest with no
+builds, a build without an `ota.path`, an absolute URL, or a path naming a file
+the release does not carry causes the release to be rejected rather than
+mirrored. A best-effort rewrite that skipped shapes it did not recognise would
+publish relative paths and break rule 3 with nothing to show for it — the same
+argument as rule 1, applied to the manifest's contents rather than its timing.
+
 The routes carry **no bearer token**. The panel must be able to update its way
 out of a broken configuration before an operator has entered one, and the bytes
 are a public release asset anybody can fetch from GitHub with no credential —

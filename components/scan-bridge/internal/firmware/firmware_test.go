@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,12 +37,35 @@ type fakeGitHub struct {
 
 	downloads atomic.Int64
 	apiCalls  atomic.Int64
+
+	// mu guards tag/assets/sums. Only the concurrency test below needs
+	// it; every other test mutates them between requests.
+	mu sync.Mutex
 }
+
+// setRelease swaps the served release atomically, giving the binary a
+// content that is derivable from the tag so a reader can check that the
+// bytes and the reported generation agree.
+func (g *fakeGitHub) setRelease(tag string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.tag = tag
+	g.assets["cyd-scan-panel.ota.bin"] = otaBytesFor(tag)
+}
+
+func otaBytesFor(tag string) []byte { return []byte("ota-image-bytes-of-" + tag) }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	t.Helper()
+	// The manifest matches the shape .github/workflows/esphome-firmware.yml
+	// actually writes, so a test that changes it is changing something
+	// real rather than a placeholder.
 	g := &fakeGitHub{t: t, tag: "v1.0.0", assets: map[string][]byte{
-		ManifestName:                 []byte(`{"name":"CYD Scan Panel","version":"v1.0.0"}`),
+		ManifestName: []byte(`{"name":"CYD Scan Panel","version":"v1.0.0","new_install_prompt_erase":true,` +
+			`"builds":[{"chipFamily":"ESP32",` +
+			`"parts":[{"path":"cyd-scan-panel.factory.bin","offset":0}],` +
+			`"ota":{"md5":"0123456789abcdef0123456789abcdef","path":"cyd-scan-panel.ota.bin",` +
+			`"summary":"Release v1.0.0","release_url":"https://example.invalid/r/v1.0.0"}}]}`),
 		"cyd-scan-panel.ota.bin":     []byte("ota-image-bytes"),
 		"cyd-scan-panel.factory.bin": []byte("factory-image-bytes"),
 	}}
@@ -55,6 +79,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 
 // checksums renders the SHA256SUMS body the way the release workflow
 // does: `sha256sum ./*.bin ./manifest.json`, i.e. names prefixed "./".
+// checksums must be called with g.mu held.
 func (g *fakeGitHub) checksums() []byte {
 	if g.sums != nil {
 		return g.sums
@@ -69,6 +94,8 @@ func (g *fakeGitHub) checksums() []byte {
 
 func (g *fakeGitHub) handleLatest(w http.ResponseWriter, _ *http.Request) {
 	g.apiCalls.Add(1)
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	type asset struct {
 		Name string `json:"name"`
@@ -102,6 +129,8 @@ func (g *fakeGitHub) handleLatest(w http.ResponseWriter, _ *http.Request) {
 
 func (g *fakeGitHub) handleDownload(w http.ResponseWriter, r *http.Request) {
 	g.downloads.Add(1)
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	name := r.PathValue("name")
 	if name == ChecksumsName {
 		_, _ = w.Write(g.checksums())
@@ -153,9 +182,12 @@ func TestRefreshMirrorsAndServes(t *testing.T) {
 	// package's central invariant, from the caller's side: the manifest
 	// may only ever name files the mirror can actually serve.
 	for _, name := range rel.Files {
-		f, _, err := m.Open(name)
+		f, from, _, err := m.Open(name)
 		if err != nil {
 			t.Fatalf("Open(%q) after refresh: %v", name, err)
+		}
+		if from.Tag != rel.Tag {
+			t.Errorf("Open(%q) reported generation %q, want %q", name, from.Tag, rel.Tag)
 		}
 		_ = f.Close()
 	}
@@ -299,7 +331,7 @@ func TestOpenRejectsNamesOutsideTheRelease(t *testing.T) {
 	}
 
 	for _, name := range []string{"../state.json", "state.json", "nope.bin", "", "."} {
-		if _, _, err := m.Open(name); err == nil {
+		if _, _, _, err := m.Open(name); err == nil {
 			t.Errorf("Open(%q) succeeded; only files of the cached release may be served", name)
 		}
 	}
@@ -308,7 +340,7 @@ func TestOpenRejectsNamesOutsideTheRelease(t *testing.T) {
 func TestOpenOnColdCache(t *testing.T) {
 	g := newFakeGitHub(t)
 	m := newTestMirror(t, g)
-	if _, _, err := m.Open(ManifestName); err == nil {
+	if _, _, _, err := m.Open(ManifestName); err == nil {
 		t.Error("Open succeeded on a cold cache")
 	}
 	if _, ok := m.Current(); ok {
@@ -338,9 +370,12 @@ func TestLoadAdoptsAnExistingCache(t *testing.T) {
 	if !ok || cur.Tag != "v1.0.0" {
 		t.Fatalf("Current() = %+v, %v; a restart must keep serving the cached release", cur, ok)
 	}
-	f, _, err := restarted.Open(ManifestName)
+	f, from, _, err := restarted.Open(ManifestName)
 	if err != nil {
 		t.Fatalf("Open after Load: %v", err)
+	}
+	if from.Tag != "v1.0.0" {
+		t.Errorf("Open reported generation %q after Load", from.Tag)
 	}
 	_ = f.Close()
 }
@@ -931,4 +966,142 @@ func TestOpenAtReportsIOErrorsRatherThanNotFound(t *testing.T) {
 	if errors.Is(err, ErrNotCached) {
 		t.Errorf("OpenAt on an unreadable file = %v; a permission error is a broken cache, not a missing file", err)
 	}
+}
+
+// A best-effort rewrite is worse than none: it would publish a manifest
+// whose paths are still relative, silently breaking the one invariant
+// the version-qualified route exists for. Every shape below is a hard
+// failure instead, and it fails at refresh time so the release never
+// becomes current.
+func TestRefreshRejectsAnUnrenderableManifest(t *testing.T) {
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{"no builds", `{"name":"CYD Scan Panel"}`},
+		{"empty builds", `{"builds":[]}`},
+		{"builds not an array", `{"builds":{"ota":{"path":"cyd-scan-panel.ota.bin"}}}`},
+		{"build not an object", `{"builds":["nope"]}`},
+		{"no ota block", `{"builds":[{"parts":[{"path":"x.bin"}]}]}`},
+		{"ota without path", `{"builds":[{"ota":{"md5":"deadbeef"}}]}`},
+		{"empty path", `{"builds":[{"ota":{"path":""}}]}`},
+		{"path is an absolute URL", `{"builds":[{"ota":{"path":"https://example.invalid/x.bin"}}]}`},
+		{"path names a file the release does not carry", `{"builds":[{"ota":{"path":"never-shipped.bin"}}]}`},
+		{
+			name:     "one good build, one broken",
+			manifest: `{"builds":[{"ota":{"path":"cyd-scan-panel.ota.bin"}},{"ota":{"md5":"x"}}]}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newFakeGitHub(t)
+			g.assets[ManifestName] = []byte(tc.manifest)
+			m := newTestMirror(t, g)
+
+			if _, err := m.Refresh(t.Context()); err == nil {
+				t.Fatal("Refresh published a release whose manifest cannot be rendered")
+			}
+			if _, ok := m.Current(); ok {
+				t.Error("the release became current anyway")
+			}
+			// And nothing was left in the cache for a later Load to
+			// adopt.
+			entries, err := os.ReadDir(m.cacheDir)
+			if err != nil {
+				t.Fatalf("ReadDir: %v", err)
+			}
+			for _, e := range entries {
+				t.Errorf("cache dir holds %q after a rejected refresh", e.Name())
+			}
+		})
+	}
+}
+
+// Open must report the generation the bytes came from, so a handler
+// cannot label one generation's file with another's tag.
+func TestOpenReportsTheGenerationItServed(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-bytes")
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	f, from, _, err := m.Open("cyd-scan-panel.ota.bin")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	if from.Tag != "v2.0.0" {
+		t.Errorf("Open reported %q, want v2.0.0", from.Tag)
+	}
+	got, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "second-generation-bytes" {
+		t.Errorf("bytes = %q, do not match the reported generation", got)
+	}
+}
+
+// The generation Open reports and the bytes it returns must come from
+// one read of the published pointer. Reading them separately -- Current()
+// for the tag, Open() for the file -- lets a refresh land in between and
+// put one generation's tag on another generation's bytes.
+//
+// Sequential tests cannot observe that, so this one publishes releases
+// underneath a reader in a loop and checks the pair agrees every time.
+// Run with -race in CI.
+func TestOpenIsAtomicAcrossARefresh(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.setRelease("v1.0.0")
+	m := newTestMirror(t, g)
+	if _, err := m.Refresh(t.Context()); err != nil {
+		t.Fatalf("initial Refresh: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	publishing := make(chan struct{})
+	go func() {
+		defer close(publishing)
+		for i := 2; ; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			g.setRelease(fmt.Sprintf("v%d.0.0", i))
+			if _, err := m.Refresh(ctx); err != nil && ctx.Err() == nil {
+				t.Errorf("Refresh while publishing: %v", err)
+				return
+			}
+		}
+	}()
+
+	for range 300 {
+		f, from, _, err := m.Open("cyd-scan-panel.ota.bin")
+		if err != nil {
+			t.Fatalf("Open during a refresh: %v", err)
+		}
+		got, err := io.ReadAll(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if want := string(otaBytesFor(from.Tag)); string(got) != want {
+			t.Fatalf("Open reported generation %q but returned %q, want %q",
+				from.Tag, got, want)
+		}
+	}
+
+	cancel()
+	<-publishing
 }

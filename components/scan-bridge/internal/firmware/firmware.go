@@ -329,34 +329,40 @@ func (m *Mirror) Current() (Release, bool) {
 	return *m.current, true
 }
 
-// Open returns a file from the cached release along with its
-// modification time (for http.ServeContent's caching headers).
+// Open returns a file from the cached release, the release it came from,
+// and its modification time (for http.ServeContent's caching headers).
+//
+// The release is returned rather than left to a separate Current() call
+// because the two would not be atomic: a refresh landing between them
+// would let a handler label v2's bytes with v1's tag, or 404 a file the
+// generation it asked about does carry. One read of the published
+// pointer, one answer.
 //
 // name is matched against the cached release's file list rather than
 // being joined onto a path. That allowlist is what makes traversal
 // impossible: every name in it was validated as a plain base name when
 // it was downloaded, so a request for "../../etc/passwd" fails the
 // membership test long before it reaches the filesystem.
-func (m *Mirror) Open(name string) (io.ReadSeekCloser, time.Time, error) {
+func (m *Mirror) Open(name string) (io.ReadSeekCloser, Release, time.Time, error) {
 	m.mu.RLock()
 	cur := m.current
 	m.mu.RUnlock()
 
 	if cur == nil || !slices.Contains(cur.Files, name) {
-		return nil, time.Time{}, ErrNotCached
+		return nil, Release{}, time.Time{}, ErrNotCached
 	}
 
-	path := filepath.Join(m.cacheDir, cur.Tag, name)
-	f, err := os.Open(path) //nolint:gosec // name is allowlisted above
+	p := filepath.Join(m.cacheDir, cur.Tag, name)
+	f, err := os.Open(p) //nolint:gosec // name is allowlisted above
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("firmware: open %q: %w", path, err)
+		return nil, Release{}, time.Time{}, fmt.Errorf("firmware: open %q: %w", p, err)
 	}
 	info, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		return nil, time.Time{}, fmt.Errorf("firmware: stat %q: %w", path, err)
+		return nil, Release{}, time.Time{}, fmt.Errorf("firmware: stat %q: %w", p, err)
 	}
-	return f, info.ModTime(), nil
+	return f, *cur, info.ModTime(), nil
 }
 
 // OpenAt returns a file from a specific mirrored generation, which is
@@ -425,33 +431,74 @@ func (m *Mirror) Manifest() ([]byte, Release, error) {
 	if err != nil {
 		return nil, Release{}, fmt.Errorf("firmware: read manifest of %s: %w", rel.Tag, err)
 	}
+	out, err := renderManifest(raw, rel)
+	if err != nil {
+		return nil, Release{}, err
+	}
+	return out, rel, nil
+}
 
+// renderManifest rewrites every build's `ota.path` to the
+// version-qualified route and fails if it cannot.
+//
+// Strict on purpose. A best-effort rewrite that skipped a build it did
+// not recognise would publish a manifest whose paths are still relative
+// — silently breaking the one invariant this whole mechanism exists for,
+// with no error anywhere. Everything below is therefore a hard failure:
+// no builds, a build without an `ota.path`, a path naming a file this
+// release does not carry, or an absolute URL pointing somewhere the
+// bridge does not control.
+//
+// Refresh runs this before publishing, so a release whose manifest
+// cannot be rendered never becomes current in the first place — the
+// same "verify, then publish" ordering as the checksums.
+func renderManifest(raw []byte, rel Release) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, Release{}, fmt.Errorf("firmware: decode manifest of %s: %w", rel.Tag, err)
+		return nil, fmt.Errorf("firmware: decode manifest of %s: %w", rel.Tag, err)
 	}
-	builds, _ := doc["builds"].([]any)
-	for _, b := range builds {
+
+	builds, ok := doc["builds"].([]any)
+	if !ok || len(builds) == 0 {
+		return nil, fmt.Errorf("firmware: manifest of %s has no builds", rel.Tag)
+	}
+
+	for i, b := range builds {
 		build, ok := b.(map[string]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("firmware: manifest of %s: builds[%d] is not an object", rel.Tag, i)
 		}
 		ota, ok := build["ota"].(map[string]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("firmware: manifest of %s: builds[%d] has no ota block", rel.Tag, i)
 		}
 		p, ok := ota["path"].(string)
-		if !ok || p == "" || strings.Contains(p, "://") {
-			continue
+		if !ok || p == "" {
+			return nil, fmt.Errorf("firmware: manifest of %s: builds[%d].ota has no path", rel.Tag, i)
 		}
-		ota["path"] = "/firmware/" + rel.Tag + "/" + path.Base(p)
+		if strings.Contains(p, "://") {
+			return nil, fmt.Errorf(
+				"firmware: manifest of %s: builds[%d].ota.path %q is an absolute URL; the bridge only serves what it mirrored",
+				rel.Tag, i, p)
+		}
+		// The path has to name a file this release actually carries, or
+		// the manifest would advertise a download that 404s -- the same
+		// failure the staging-then-publish ordering exists to prevent,
+		// arriving through the manifest instead.
+		name := path.Base(p)
+		if !slices.Contains(rel.Files, name) {
+			return nil, fmt.Errorf(
+				"firmware: manifest of %s: builds[%d].ota.path names %q, which the release does not carry",
+				rel.Tag, i, name)
+		}
+		ota["path"] = "/firmware/" + rel.Tag + "/" + name
 	}
 
 	out, err := json.Marshal(doc)
 	if err != nil {
-		return nil, Release{}, fmt.Errorf("firmware: encode manifest of %s: %w", rel.Tag, err)
+		return nil, fmt.Errorf("firmware: encode manifest of %s: %w", rel.Tag, err)
 	}
-	return out, rel, nil
+	return out, nil
 }
 
 // throttleRemaining reports how much of the API-call floor is left,
@@ -642,6 +689,28 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		}
 	}
 
+	rel := Release{
+		Tag:         latest.TagName,
+		Files:       names,
+		RetrievedAt: time.Now().UTC(),
+		ReleaseURL:  latest.HTMLURL,
+	}
+
+	// Render the manifest while everything is still in staging. A
+	// release whose manifest cannot be rewritten to version-qualified
+	// paths is one the panel could not safely install from, so it must
+	// not reach the cache at all — the same "verify, then publish"
+	// ordering as the checksums, one level up. The rendered bytes are
+	// discarded; Manifest() rebuilds them per request, which is cheap
+	// and keeps a single source of truth.
+	rawManifest, err := os.ReadFile(filepath.Join(staging, ManifestName)) //nolint:gosec // staging is ours, ManifestName is a constant
+	if err != nil {
+		return Release{}, fmt.Errorf("firmware: read manifest of %s: %w", rel.Tag, err)
+	}
+	if _, err := renderManifest(rawManifest, rel); err != nil {
+		return Release{}, err
+	}
+
 	dest := filepath.Join(m.cacheDir, latest.TagName)
 	// A leftover directory for this tag can only come from a refresh
 	// that died between rename and state write; its contents are
@@ -658,12 +727,6 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		return Release{}, fmt.Errorf("firmware: chmod %q: %w", dest, err)
 	}
 
-	rel := Release{
-		Tag:         latest.TagName,
-		Files:       names,
-		RetrievedAt: time.Now().UTC(),
-		ReleaseURL:  latest.HTMLURL,
-	}
 	if err := m.writeState(rel); err != nil {
 		return Release{}, err
 	}
