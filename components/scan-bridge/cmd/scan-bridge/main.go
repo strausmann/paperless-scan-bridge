@@ -90,7 +90,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "scan-bridge %s (commit %s, built %s)\n",
+		_, _ = fmt.Fprintf(stdout, "scan-bridge %s (commit %s, built %s)\n",
 			version, commit, buildDate)
 		return nil
 	}
@@ -145,11 +145,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("metrics: %w", err)
 	}
 
+	// Both Close calls only release idle keep-alive connections on the
+	// way out of a process that is exiting anyway, so their errors are
+	// dropped -- but explicitly, so the linter's point stands and a
+	// future Close that does matter is not silently swallowed with it.
 	dispatchClient := dispatch.NewHTTPUnixClient(cfg.Paths.SaneSocket, cfg.Paths.OutputDir, dispatchClientTimeout)
-	defer dispatchClient.Close()
+	defer func() { _ = dispatchClient.Close() }()
 
 	procClient := procclient.NewHTTPUnixClient(cfg.Paths.ScanProcessorSocket, cfg.Paths.OutputDir, dispatchClientTimeout)
-	defer procClient.Close()
+	defer func() { _ = procClient.Close() }()
 
 	secrets := config.NewSecretResolver(secretsDir, os.LookupEnv)
 

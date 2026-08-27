@@ -220,7 +220,10 @@ func writePagePart(mw *multipart.Writer, path string) error {
 	if err != nil {
 		return fmt.Errorf("open page: %w", err)
 	}
-	defer f.Close()
+	// Read-only: nothing is buffered, so Close cannot report lost data.
+	// Dropped at the call site rather than by a linter exclusion, which
+	// would have covered the write side too.
+	defer func() { _ = f.Close() }()
 
 	part, err := mw.CreatePart(map[string][]string{"Content-Type": {"image/tiff"}})
 	if err != nil {
@@ -392,10 +395,18 @@ func writeDocumentPart(path string, r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("procclient: create document file %q: %w", path, err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, r); err != nil {
+		// See writePagePart in internal/dispatch for the same shape.
+		_ = f.Close()
 		return fmt.Errorf("procclient: write document file %q: %w", path, err)
+	}
+
+	// The assembled document is what reaches Paperless-ngx. A dropped
+	// Close error here means uploading a truncated PDF and reporting
+	// success for it.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("procclient: close document file %q: %w", path, err)
 	}
 	return nil
 }

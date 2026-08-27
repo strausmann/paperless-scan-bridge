@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -494,7 +495,11 @@ func TestRun_SlowRequestBodyTimesOutInsteadOfHanging(t *testing.T) {
 	}
 	buf := make([]byte, 4096)
 	n, readErr := conn.Read(buf)
-	if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+	// errors.As, not a type assertion: net.Error arrives wrapped from
+	// several places in net/http, and a bare assertion silently
+	// misses those -- which here would turn a real hang into a pass.
+	var netErr net.Error
+	if errors.As(readErr, &netErr) && netErr.Timeout() {
 		t.Fatalf("read timed out after our OWN %s deadline — the server's --read-timeout-seconds=%d did not fire (connection hung)",
 			ownDeadline, readTimeoutSeconds)
 	}

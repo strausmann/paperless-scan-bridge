@@ -69,7 +69,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "sane-runtime %s (commit %s, built %s)\n", version, commit, buildDate)
+		_, _ = fmt.Fprintf(stdout, "sane-runtime %s (commit %s, built %s)\n", version, commit, buildDate)
 		return nil
 	}
 

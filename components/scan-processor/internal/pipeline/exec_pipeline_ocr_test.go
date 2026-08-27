@@ -4,11 +4,54 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// writeFixtureBin writes an executable fixture script and does not
+// return until it can actually be executed.
+//
+// os.WriteFile closes the file before returning, so the obvious version
+// of this looks safe. It is not, and CI caught it on the first real run
+// of these tests (issue #86):
+//
+//	--- FAIL: TestExecPipeline_ProcessAutoLanguageNoRecognizableWordsOnPass1Warns
+//	    tesseract: fork/exec .../tesseract: text file busy
+//
+// The window in which the write descriptor is open is small but not
+// zero, and these tests exec fixtures concurrently. A fork issued by
+// one test inherits another's still-open write descriptor; O_CLOEXEC
+// closes it in the child, but only at exec -- and the kernel refuses
+// with ETXTBSY before that. This is Go's long-standing
+// golang/go#22315, and the accepted answer is to retry rather than to
+// find a lock that would prevent it.
+//
+// The probe runs the script with no arguments. Every fixture here uses
+// `set -u` and a positional parameter, so that exits non-zero straight
+// away -- which is fine: the only thing being distinguished is ETXTBSY
+// from "the kernel was willing to exec this at all".
+func writeFixtureBin(t *testing.T, path, script string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // fixture script needs to be executable
+		t.Fatalf("write fixture %s: %v", filepath.Base(path), err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := exec.Command(path).Run()
+		if !errors.Is(err, syscall.ETXTBSY) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fixture %s still ETXTBSY after 5s", filepath.Base(path))
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
 
 // TestAssembleAppliesConfidenceGate exercises applyConfidenceGate
 // through assemble() for the two code paths that need no external
@@ -207,9 +250,7 @@ fi
 
 test -f "$in"
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // fixture script needs to be executable
-		t.Fatalf("write tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, script)
 	return path
 }
 
@@ -369,9 +410,7 @@ if [ "$want_tsv" -eq 1 ]; then
   } > "${outbase}.tsv"
 fi
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec
-		t.Fatalf("write tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, script)
 
 	p := &ExecPipeline{
 		ConvertBin:   "/fixture-convert-never-invoked-for-this-request-shape",
@@ -469,9 +508,7 @@ if [ "$want_tsv" -eq 1 ]; then
   printf 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n' > "${outbase}.tsv"
 fi
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec
-		t.Fatalf("write tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, script)
 
 	p := &ExecPipeline{
 		ConvertBin:   "/fixture-convert-never-invoked-for-this-request-shape",
@@ -516,9 +553,7 @@ func failingTesseractFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tesseract")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil { //nolint:gosec
-		t.Fatalf("write failing tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, "#!/bin/sh\nexit 1\n")
 	return path
 }
 
@@ -611,9 +646,7 @@ if [ "$want_tsv" -eq 1 ]; then
   } > "${outbase}.tsv"
 fi
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec
-		t.Fatalf("write tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, script)
 
 	p := &ExecPipeline{
 		ConvertBin:   "/fixture-convert-never-invoked-for-this-request-shape",
@@ -711,9 +744,7 @@ if [ "$want_tsv" -eq 1 ]; then
   } > "${outbase}.tsv"
 fi
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec
-		t.Fatalf("write tesseract fixture: %v", err)
-	}
+	writeFixtureBin(t, path, script)
 
 	p := &ExecPipeline{
 		ConvertBin:   "/fixture-convert-never-invoked-for-this-request-shape",

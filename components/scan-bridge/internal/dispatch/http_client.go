@@ -290,10 +290,20 @@ func writePagePart(path string, r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("dispatch: create page file %q: %w", path, err)
 	}
-	defer f.Close()
 
 	if _, err := io.Copy(f, r); err != nil {
+		// Close before returning; the copy error is the interesting
+		// one, so a Close failure on this path is deliberately dropped.
+		_ = f.Close()
 		return fmt.Errorf("dispatch: write page file %q: %w", path, err)
+	}
+
+	// Not deferred, and not ignored. A write-side Close is where the
+	// final flush happens: dropping its error turns a truncated scan
+	// page into a silent success, and the caller assembles a PDF from
+	// whatever made it to disk.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("dispatch: close page file %q: %w", path, err)
 	}
 	return nil
 }

@@ -1,0 +1,49 @@
+# yamllint configuration.
+#
+# The point of this linter here is catching breakage -- a tab, a
+# duplicate key, a file that does not parse -- not enforcing a house
+# style retroactively. The first run flagged 300 findings across
+# 16 files, 244 of them in the ESPHome firmware config alone, and
+# reformatting working firmware to satisfy a linter is the wrong trade.
+extends: default
+
+rules:
+  # Prose wraps at 80; YAML values do not. A URL or a `run:` one-liner
+  # cannot be wrapped without changing what it means.
+  line-length: disable
+
+  # `true`, and AGENTS.md was corrected to match rather than the other
+  # way round. The repository was measured before deciding: with
+  # `indent-sequences: true` every tracked YAML file passes -- 0
+  # violations. With `false`, the form AGENTS.md used to prescribe,
+  # there are 148, including 303 sequence items in the ESPHome firmware
+  # config alone. Every upstream whose format gets copied here
+  # documents the indented form as well, so the documented rule was
+  # both unfollowed and swimming against its own ecosystem.
+  #
+  # `true` rather than `consistent`: consistent would let the next new
+  # file introduce the other style. Having measured, there is no reason
+  # not to pick.
+  indentation:
+    spaces: 2
+    indent-sequences: true
+
+  # `{ id: status_label, text: "idle" }` is used throughout the ESPHome
+  # config to keep one-line LVGL actions on one line. Readable, and the
+  # alternative is several hundred lines of expansion.
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # `on:` in a GitHub workflow is a key, not the boolean it looks like.
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+
+  # Not used consistently here, and adding it everywhere would touch
+  # every file for no benefit.
+  document-start: disable
+
+  # Comments in the ESPHome config are frequently indented to line up
+  # with the block they explain rather than with the following key.
+  comments-indentation: disable

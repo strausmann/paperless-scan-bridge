@@ -132,7 +132,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if *showVersion {
-		fmt.Fprintf(stdout, "scan-processor %s (commit %s, built %s)\n", version, commit, buildDate)
+		_, _ = fmt.Fprintf(stdout, "scan-processor %s (commit %s, built %s)\n", version, commit, buildDate)
 		return nil
 	}
 

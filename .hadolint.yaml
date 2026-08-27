@@ -1,0 +1,24 @@
+# hadolint configuration.
+#
+# The only rule this repository's Dockerfiles trip is DL3008, four
+# times, and it is ignored deliberately rather than satisfied.
+ignored:
+  # DL3008 -- "Pin versions in apt get install".
+  #
+  # On Debian this makes builds LESS reproducible, not more. A point
+  # release drops the previous package version from the mirror, so
+  # `apt-get install sane-utils=1.2.1-7` starts failing the day
+  # 1.2.1-7+deb12u1 lands -- and it lands for security fixes, which are
+  # exactly the updates we want to receive. The control that actually
+  # holds is the base image, and all three components pin theirs by tag
+  # (ADR 0011); production-track images additionally pin by digest.
+  #
+  # Applies to sane-runtime, scan-processor and the two research
+  # fixtures under docs/research/fixtures/. scan-bridge is distroless
+  # and installs nothing.
+  - DL3008
+
+# Default is `info`, which fails on warnings. Kept: with DL3008 out of
+# the way there is nothing left, and a linter that tolerates warnings
+# accumulates them.
+failure-threshold: info

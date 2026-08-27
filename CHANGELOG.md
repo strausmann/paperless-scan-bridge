@@ -46,6 +46,11 @@ between releases as a running list.
 
 ### Added
 
+- Multi-arch container builds via `docker buildx bake` for all three
+  components (linux/amd64 + linux/arm64, the reference deployment is a
+  Pi 5), pushed to GHCR on `main` and built-and-discarded on pull
+  requests. Closes three Phase 1 roadmap items at once. New:
+  `docker-bake.hcl`, `.golangci.yml`, `.yamllint.yml`, `.hadolint.yaml`.
 - The German site grows from six pages to eleven and finally gets the
   landing page. Until now `/de/` opened on the plain docs template while
   `/en/` had the hardware-chain hero, and Architecture, Storage
@@ -268,6 +273,22 @@ between releases as a running list.
   the shipped config uses `!secret` anymore.
 
 ### Fixed
+
+- CI now actually builds, lints and tests the Go code. Every job in
+  `ci.yml` was `echo "placeholder"`, and the `Makefile`'s `test-go`,
+  `lint`, `test-shell`, `test-yaml` and `test-docker` targets printed
+  `TODO Phase 1` — so three modules and 26 test files were never checked
+  anywhere, while every pull request reported "Lint: pass / Test: pass /
+  Build: pass". The linter's first run found two real defects: the
+  deferred `Close` on the files that receive a scanned page and an
+  assembled document was unchecked, so a failed final flush would have
+  written a truncated PDF and reported success for it. Both are checked
+  explicitly now. The first real test run caught a second problem the
+  suite had been carrying silently: `scan-processor`'s OCR fixtures
+  wrote an executable script and ran it immediately, which fails with
+  `text file busy` whenever a concurrent test forks inside the window
+  where the write descriptor is still open (golang/go#22315). The
+  fixtures now wait until the script is genuinely executable.
 
 - A long scan-profile name no longer draws outside its button on the
   panel. The name label had neither a width nor a `long_mode`, and an
