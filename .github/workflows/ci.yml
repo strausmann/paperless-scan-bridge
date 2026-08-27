@@ -78,7 +78,7 @@ jobs:
       #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
       # The project tracks the current stable Go release; see the note
       # on GOLANGCI_LINT_VERSION above, which has to move with it.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
@@ -117,7 +117,7 @@ jobs:
       #   go: ../../go.work requires go >= 1.27.0 (running go 1.25.0)
       # The project tracks the current stable Go release; see the note
       # on GOLANGCI_LINT_VERSION above, which has to move with it.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
           # go.mod, not go.sum: sane-runtime and scan-processor have no
