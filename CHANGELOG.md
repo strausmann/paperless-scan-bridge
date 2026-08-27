@@ -46,6 +46,18 @@ between releases as a running list.
 
 ### Added
 
+- Scan profiles gain `png` as a fourth output format (roadmap Epic A3)
+  and `max_pages` to cap how many sheets one scan pulls through the
+  feeder (Epic A5). `png` is lossless where `jpeg` is not — a scanned
+  form re-encoded as JPEG carries ringing around every letter — and like
+  `jpeg` it holds one page per file, so `page_grouping: combined` with
+  several pages is rejected rather than silently truncated. A
+  `max_pages` of `0` is the default and drains the ADF, exactly as
+  before; `1` is the single-sheet case. There is deliberately **no** separate
+  `single_sheet` flag: it would mean the same thing and only create a
+  contradiction to resolve. Everything below the profile already
+  supported the cap — `sane-runtime` turns it into `scanimage
+  --batch-count` — the bridge was simply sending a hardcoded `0`.
 - The panel now says which build it is running. Its dashboard header
   read `paperless-scan-bridge CYD scan-control panel (v2, Issue #9,
   secret-free, landscape)` — a description of the design, not of the

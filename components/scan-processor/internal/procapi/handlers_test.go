@@ -972,3 +972,48 @@ func TestHandleProcess_NegativeTimeoutReturns400(t *testing.T) {
 		t.Errorf("Process called %d times, want 0", fp.callCount())
 	}
 }
+
+// TestAllowedOutputFormatsCoversEveryPipelineFormat is the guard for the
+// bug this test was written after: png was added to pipeline.OutputFormat
+// and to every branch that switches on it, and this file's separate
+// allowlist was missed. The bridge sent output_format "png", the
+// pipeline could have handled it, and validateProcessRequest rejected
+// the request before the pipeline was ever reached -- so the feature
+// was unusable end to end while every other test passed.
+//
+// Two independent lists of the same set is the actual defect; until
+// they are one list, this test is what keeps them equal.
+func TestAllowedOutputFormatsCoversEveryPipelineFormat(t *testing.T) {
+	t.Parallel()
+
+	// Every format the pipeline declares. Adding one to pipeline.go
+	// without adding it here makes this fail, which is the point.
+	for _, f := range []pipeline.OutputFormat{
+		pipeline.OutputFormatPDF,
+		pipeline.OutputFormatJPEG,
+		pipeline.OutputFormatTIFF,
+		pipeline.OutputFormatPNG,
+	} {
+		if !allowedOutputFormats[string(f)] {
+			t.Errorf("pipeline declares OutputFormat %q but the HTTP allowlist rejects it — "+
+				"a profile using it fails at /process before the pipeline runs", f)
+		}
+	}
+}
+
+// TestValidateProcessRequestAcceptsPNG exercises the same thing through
+// the real validation path rather than the map, so a future refactor
+// that keeps the map but stops consulting it still fails.
+func TestValidateProcessRequestAcceptsPNG(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{}
+	req := processRequestPayload{
+		RequestID:    "req-png",
+		PageGrouping: string(pipeline.PageGroupingPerPage),
+		OutputFormat: string(pipeline.OutputFormatPNG),
+	}
+	if err := s.validateProcessRequest(req); err != nil {
+		t.Fatalf("validateProcessRequest(output_format=png) = %v, want nil", err)
+	}
+}

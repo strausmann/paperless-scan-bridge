@@ -728,3 +728,81 @@ func validProfileFixture() Profile {
 		TimeoutSeconds: 60,
 	}
 }
+
+// TestValidateProfileAcceptsEveryFormat guards the format allowlist in
+// both directions. png was added last (roadmap Epic A3) and is the one
+// most likely to be dropped by a future refactor of the switch, because
+// unlike pdf/jpeg/tiff it has no separate assembly branch downstream --
+// it falls through the same single-image path JPEG uses.
+func TestValidateProfileAcceptsEveryFormat(t *testing.T) {
+	t.Parallel()
+
+	for _, f := range []Format{FormatPDF, FormatJPEG, FormatTIFF, FormatPNG} {
+		t.Run(string(f), func(t *testing.T) {
+			t.Parallel()
+
+			p := validProfileFixture()
+			p.Format = f
+
+			if err := validateProfile(p); err != nil {
+				t.Fatalf("validateProfile(format=%q) = %v, want nil", f, err)
+			}
+		})
+	}
+}
+
+func TestValidateProfileRejectsUnknownFormat(t *testing.T) {
+	t.Parallel()
+
+	// "PNG" and "jpg" are the plausible typos: the allowlist is
+	// case-sensitive and spells JPEG out.
+	for _, f := range []Format{"PNG", "jpg", "webp", "bmp"} {
+		t.Run(string(f), func(t *testing.T) {
+			t.Parallel()
+
+			p := validProfileFixture()
+			p.Format = f
+
+			if err := validateProfile(p); err == nil {
+				t.Fatalf("validateProfile(format=%q) = nil, want rejection", f)
+			}
+		})
+	}
+}
+
+// TestValidateProfileMaxPages covers the feeder cap (roadmap Epic A5).
+// 0 is not "unset and therefore invalid" -- it is the documented "drain
+// the ADF" default every profile had before the field existed, so a
+// test asserting it validates is what keeps a future "required field"
+// tightening from silently breaking every shipped profile.
+func TestValidateProfileMaxPages(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		maxPages  int
+		wantValid bool
+	}{
+		{"zero drains the feeder", 0, true},
+		{"one is the single-sheet case", 1, true},
+		{"a plausible cap", 25, true},
+		{"negative is rejected", -1, false},
+		{"a typo'd negative is rejected", -50, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := validProfileFixture()
+			p.MaxPages = tc.maxPages
+
+			err := validateProfile(p)
+			if tc.wantValid && err != nil {
+				t.Fatalf("validateProfile(max_pages=%d) = %v, want nil", tc.maxPages, err)
+			}
+			if !tc.wantValid && err == nil {
+				t.Fatalf("validateProfile(max_pages=%d) = nil, want rejection", tc.maxPages)
+			}
+		})
+	}
+}

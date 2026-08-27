@@ -246,3 +246,59 @@ func TestPingHealthNon200(t *testing.T) {
 		t.Error("expected error from non-200 /health response")
 	}
 }
+
+// TestDispatchSendsProfileMaxPages is the regression guard for roadmap
+// Epic A5. Every piece of the feeder cap already existed -- sane-runtime
+// accepts max_pages and turns it into `scanimage --batch-count` -- and
+// the only thing missing was this client passing the profile's value
+// instead of a hardcoded 0. A refactor that reinstates that literal
+// would not fail any other test: the scan still succeeds, it just
+// silently drains the whole ADF for a profile that asked for one sheet.
+func TestDispatchSendsProfileMaxPages(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		maxPages int
+	}{
+		{"unset drains the feeder", 0},
+		{"single sheet", 1},
+		{"a bounded batch", 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := make(chan int, 1)
+			handler := http.NewServeMux()
+			handler.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
+				var payload scanRequestPayload
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Errorf("fake sane-runtime: decode request: %v", err)
+				}
+				got <- payload.MaxPages
+				// The dispatch fails after this point (no multipart
+				// body), which is fine: the assertion is about what
+				// was sent, and an error return does not unsend it.
+				w.WriteHeader(http.StatusInternalServerError)
+			})
+
+			sockPath := startFakeSaneRuntime(t, handler)
+			client := NewHTTPUnixClient(sockPath, t.TempDir(), 5*time.Second)
+			t.Cleanup(func() { _ = client.Close() })
+
+			req := testRequest("job-max-pages")
+			req.Profile.MaxPages = tc.maxPages
+			_, _ = client.Dispatch(context.Background(), req)
+
+			select {
+			case sent := <-got:
+				if sent != tc.maxPages {
+					t.Fatalf("max_pages sent = %d, want %d", sent, tc.maxPages)
+				}
+			default:
+				t.Fatal("fake sane-runtime never received a request")
+			}
+		})
+	}
+}
