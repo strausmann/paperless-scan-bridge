@@ -410,14 +410,10 @@ wifi:
     # even with a perfectly reachable bridge. `update.check` runs on its
     # own task, so this costs the connect handler nothing.
     #
-    # Guarded, because an unconfigured panel would otherwise resolve
-    # bridge.invalid on every single Wi-Fi connect and log the failure,
-    # having achieved nothing.
-    - if:
-        condition:
-          lambda: "return !id(bridge_url).state.empty();"
-        then:
-          - update.check: firmware_update
+    # check_now carries the "is there a Bridge URL" guard, so an
+    # unconfigured panel does not resolve bridge.invalid on every single
+    # Wi-Fi connect and log the failure, having achieved nothing.
+    - script.execute: check_now
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -599,8 +595,10 @@ text:
       # exists for -- someone has just typed the URL and is looking at
       # the dashboard -- so answering now beats answering within a
       # minute. Harmless before the network is up: update() checks
-      # network::is_connected() and skips.
-      - update.check: firmware_update
+      # network::is_connected() and skips. And harmless when the URL was
+      # CLEARED rather than set, which fires this same trigger:
+      # check_now declines.
+      - script.execute: check_now
   - platform: template
     name: "Bridge Token"
     id: bridge_token
@@ -1970,6 +1968,24 @@ script:
   # URL this firmware builds (`+ "/profiles"`, `+ "/ready"`,
   # `+ "/scan"`), so a Bridge URL that works for scanning works for
   # this.
+  # Every firmware check goes through here.
+  #
+  # There is exactly one precondition -- a Bridge URL must be set -- and
+  # putting it at each call site is how it gets forgotten: wifi.on_connect
+  # was guarded and bridge_url.on_value was not, so clearing the URL fired
+  # a check against the .invalid placeholder, the very thing the guard
+  # existed to prevent. One script, one guard, four callers.
+  - id: check_now
+    then:
+      - if:
+          condition:
+            lambda: "return !id(bridge_url).state.empty();"
+          then:
+            - update.check: firmware_update
+          else:
+            - lambda: |-
+                ESP_LOGD("panel.update", "check skipped: no Bridge URL");
+
   - id: apply_update_source
     mode: restart
     then:
@@ -2085,15 +2101,15 @@ script:
             # already hold a newer release than this panel, in which
             # case the check alone is enough.
             - delay: 8s
-            - update.check: firmware_update
+            - script.execute: check_now
             - lvgl.label.update: { id: status_label, text: "idle" }
             # Cumulative delays: 8s, then +82s = 90s, +570s = 660s.
             # mode: restart on this script means a second press starts
             # the sequence over rather than stacking timers.
             - delay: 82s
-            - update.check: firmware_update
+            - script.execute: check_now
             - delay: 570s
-            - update.check: firmware_update
+            - script.execute: check_now
 
 # Polling intervals are a responsiveness decision, not just a freshness
 # one. ESPHome's http_request is synchronous: while a poll is in flight
