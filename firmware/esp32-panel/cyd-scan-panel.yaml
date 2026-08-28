@@ -404,12 +404,20 @@ wifi:
     # the time on_boot runs (same reasoning as the grid_rows/grid_cols
     # globals below). By the time Wi-Fi associates it certainly has.
     - script.execute: apply_update_source
-    # And ask immediately. A PollingComponent fires its first tick one
-    # whole interval after setup, so without this the earliest check
-    # after a boot is 60s away -- and the panel sits on UNKNOWN for that
-    # minute with a perfectly reachable bridge. `update.check` runs on
-    # its own task, so this costs the connect handler nothing.
-    - update.check: firmware_update
+    # And ask immediately -- but only if there is somewhere to ask. A
+    # PollingComponent fires its first tick one whole interval after
+    # setup, so without this the earliest check after a boot is 60s away
+    # even with a perfectly reachable bridge. `update.check` runs on its
+    # own task, so this costs the connect handler nothing.
+    #
+    # Guarded, because an unconfigured panel would otherwise resolve
+    # bridge.invalid on every single Wi-Fi connect and log the failure,
+    # having achieved nothing.
+    - if:
+        condition:
+          lambda: "return !id(bridge_url).state.empty();"
+        then:
+          - update.check: firmware_update
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -587,6 +595,12 @@ text:
       # the bridge to a new host left the panel checking the old one
       # until the next reboot.
       - script.execute: apply_update_source
+      # And ask straight away. This is the moment the whole fast cadence
+      # exists for -- someone has just typed the URL and is looking at
+      # the dashboard -- so answering now beats answering within a
+      # minute. Harmless before the network is up: update() checks
+      # network::is_connected() and skips.
+      - update.check: firmware_update
   - platform: template
     name: "Bridge Token"
     id: bridge_token
@@ -809,6 +823,19 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"
+  # Whether the firmware-update poller is currently running.
+  # PollingComponent exposes no way to ask, and `adaptive_update_poll`
+  # has to know: it stops the poller outright when there is no Bridge
+  # URL, and must then start it again when one appears -- which the
+  # interval-value comparison alone cannot detect, because a stopped
+  # poller still reports its last interval.
+  #
+  # true, not false: PollingComponent::call_setup starts the poller, so
+  # that is the state the first supervisor tick actually finds.
+  - id: update_poll_running
+    type: bool
+    restore_value: false
+    initial_value: "true"
   - id: grid_rows
     type: int
     restore_value: false
@@ -2103,6 +2130,22 @@ interval:
     interval: 60s
     then:
       - lambda: |-
+          // No Bridge URL means there is nothing to poll. Without this
+          // the panel would resolve bridge.invalid once a minute,
+          // forever, on any freshly flashed unit -- the fast cadence
+          // makes an unconfigured panel the NOISIEST one, which is
+          // backwards. Stop outright and wait for a URL; entering one
+          // triggers a check directly (see the text entity below), so
+          // nothing waits on this supervisor to notice.
+          if (id(bridge_url).state.empty()) {
+            if (id(update_poll_running)) {
+              ESP_LOGI("panel.update", "update polling stopped: no Bridge URL");
+              id(firmware_update).stop_poller();
+              id(update_poll_running) = false;
+            }
+            return;
+          }
+
           // Written as products, not as 60000 / 1800000: a typo in a
           // six-digit literal is invisible, and these two numbers are
           // the whole behaviour of this block.
@@ -2112,12 +2155,19 @@ interval:
               id(firmware_update).state == update::UPDATE_STATE_UNKNOWN
                   ? kUnknownMs
                   : kSettledMs;
-          if (id(firmware_update).get_update_interval() != want) {
+
+          // The running flag is checked too, not just the interval: a
+          // stopped poller still reports whatever interval it last had,
+          // so comparing values alone would leave it stopped forever
+          // after a Bridge URL was filled in.
+          if (!id(update_poll_running) ||
+              id(firmware_update).get_update_interval() != want) {
             ESP_LOGI("panel.update", "check cadence -> %ums (state %s)", want,
                      LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)));
             id(firmware_update).stop_poller();
             id(firmware_update).set_update_interval(want);
             id(firmware_update).start_poller();
+            id(update_poll_running) = true;
           }
 
   # The steady-state refresh. Profiles change when someone edits a YAML

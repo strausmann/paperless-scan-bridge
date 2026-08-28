@@ -435,13 +435,17 @@ What it does:
   the second press there — after which the deferred refresh may take its
   own five-minute timeout.
 
-  The cadence adapts to what the panel knows. While the entity is
-  `UNKNOWN` — no check has ever succeeded, which is where a wrong Bridge
-  URL or an unreachable bridge leaves it — it polls every **60 s**, so
-  an operator fixing the setting sees it clear within a minute. Once a
-  check succeeds it drops to every **30 min**. `adaptive_update_poll`
-  in `interval:` does the switching; the poll costs one manifest read
-  on the LAN and never touches GitHub. The manifest comes from
+  The cadence adapts to what the panel knows. With **no Bridge URL** it
+  does not poll at all — there is nowhere to ask, and polling would only
+  resolve `bridge.invalid` once a minute forever. While the entity is
+  `UNKNOWN` but a URL is set — an unreachable bridge, a wrong host — it
+  polls every **60 s**, so an operator fixing the setting sees it clear
+  within a minute. Once a check succeeds it drops to every **30 min**.
+
+  Entering or changing the Bridge URL fires a check immediately, so that
+  case does not wait on the supervisor either. `adaptive_update_poll` in
+  `interval:` does the switching; a poll costs one manifest read on the
+  LAN and never touches GitHub. The manifest comes from
   `<Bridge URL>/firmware/manifest.json`, not from the docs site, and
   not from GitHub — the panel cannot reach either over TLS
   (`MBEDTLS_ERR_SSL_ALLOC_FAILED`; ADR 0024). The bridge mirrors the
