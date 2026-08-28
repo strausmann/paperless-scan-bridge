@@ -839,17 +839,33 @@ globals:
     type: bool
     restore_value: false
     initial_value: "true"
-  # millis() until which the fast cadence is held regardless of state,
-  # set whenever the Bridge URL changes.
+  # millis() until which the fast cadence is held regardless of state.
   #
-  # A check already running when the URL changes cannot be stopped:
-  # ESPHome refuses a second one while a task is in flight ("Update
-  # check already in progress"), and set_source_url does not abort the
-  # running task. So that task may finish against the OLD bridge,
-  # publish success and clear the error status -- after which the
-  # supervisor would call the NEW, never-contacted source settled and
-  # wait half an hour. The window outlasts any in-flight check, so the
-  # first verdict that counts is one taken after the change.
+  # Set by apply_update_source -- so on a Bridge URL change, and also on
+  # every Wi-Fi reconnect and every press of the button, both of which
+  # run that script. That is wider than the case it was added for and
+  # harmless: a few extra minute-apart checks against a bridge on the
+  # same LAN.
+  #
+  # The case it was added for: a check already running when the source
+  # changes cannot be stopped. ESPHome refuses a second one while a task
+  # is in flight ("Update check already in progress"), and
+  # set_source_url does not abort the running task. That task may finish
+  # against the OLD bridge, publish success and clear the error status,
+  # after which the supervisor would call the NEW, never-contacted
+  # source settled and wait half an hour.
+  #
+  # The window therefore has to outlast the whole chain, not just the
+  # in-flight check:
+  #
+  #   60s  worst case until adaptive_update_poll next runs
+  # + 60s  worst case until the poller it then starts first fires
+  # + 55s  http_request client timeout for that check
+  # -----
+  #  175s, rounded up to 300 for margin
+  #
+  # An earlier version used 90s, which covered only the in-flight check
+  # and could lapse before the new source had been contacted once.
   - id: update_fast_until_ms
     type: uint32_t
     restore_value: false
@@ -2017,11 +2033,11 @@ script:
                 const std::string url = id(bridge_url).state + "/firmware/manifest.json";
                 ESP_LOGI("panel.update", "update source -> %s", url.c_str());
                 id(firmware_update).set_source_url(url);
-                // Hold the fast cadence past any check that was already
-                // in flight against the previous source -- see
-                // update_fast_until_ms. 90s covers the client timeout
-                // of such a check with room to spare.
-                id(update_fast_until_ms) = millis() + 90u * 1000u;
+                // Hold the fast cadence until the new source has
+                // certainly been checked once -- supervisor tick, then
+                // the poll it schedules, then that check's timeout. The
+                // arithmetic is on update_fast_until_ms above.
+                id(update_fast_until_ms) = millis() + 300u * 1000u;
           else:
             # Reset, do not merely complain. Clearing the Bridge URL has
             # to stop the automatic checks from continuing against
