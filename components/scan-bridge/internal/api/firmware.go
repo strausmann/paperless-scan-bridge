@@ -123,9 +123,11 @@ func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 	// mid-flight could have served, and a spurious 503 costs the panel
 	// a retry cycle: a failed check puts its poll back to once a
 	// minute, so a minute or two rather than the next scheduled
-	// check — but it is a cost for nothing. Open also returns the release it read, from
-	// one lock acquisition, so a refresh landing mid-request cannot put
-	// one generation's tag on another generation's bytes.
+	// check — but it is a cost for nothing.
+	//
+	// Open also returns the release it read, from one lock acquisition,
+	// so a refresh landing mid-request cannot put one generation's tag
+	// on another generation's bytes.
 	f, rel, modTime, err := s.Firmware.Open(name)
 	if err != nil {
 		if errors.Is(err, firmware.ErrNotCached) {
