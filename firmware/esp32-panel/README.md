@@ -426,8 +426,11 @@ What it does:
   branch, the same discipline as the LED/label reset above.
 
 - Checks its bridge for newer firmware and reports one as **Firmware
-  Update** on its own dashboard; a **Check for Update** button asks
-  straight away, then again 90 seconds later.
+  Update** on its own dashboard; a **Check for Update** button asks the
+  bridge to look at GitHub *immediately* and then reads the manifest
+  twice, at 8 s and 90 s. Two separate things: the `POST
+  /firmware/refresh` goes out at once, the panel's own `update.check`
+  does not.
 
   The cadence adapts to what the panel knows. While the entity is
   `UNKNOWN` — no check has ever succeeded, which is where a wrong Bridge

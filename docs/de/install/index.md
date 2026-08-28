@@ -139,8 +139,11 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
     Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach
     neuerer Firmware und meldet sie auf dem eigenen Dashboard als
-    **Firmware Update**. Daneben gibt es eine Schaltfläche **Check for
-    Update**, die sofort nachfragt.
+    **Firmware Update**. Daneben gibt es die Schaltfläche **Check for
+    Update**: Sie fordert die Bridge sofort auf, bei GitHub
+    nachzusehen; das Panel liest die Antwort wenige Sekunden später —
+    ein Ergebnis erscheint also binnen etwa anderthalb Minuten statt
+    erst bei der nächsten planmäßigen Prüfung.
 
     Wie oft es fragt, hängt davon ab, was es weiß. Solange noch keine
     Prüfung erfolgreich war — der Zustand, den eine falsche Bridge URL

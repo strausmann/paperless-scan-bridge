@@ -126,7 +126,9 @@ kein LVGL-Speicherbudget gegen Hardware belegt.
 
 Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach neuerer
 Firmware und meldet sie auf dem eigenen Dashboard als **Firmware
-Update**; die Schaltfläche **Check for Update** fragt sofort nach.
+Update**. Die Schaltfläche **Check for Update** fordert die Bridge
+sofort auf, bei GitHub nachzusehen; das Panel liest die Antwort nach
+8 s und noch einmal nach 90 s.
 
 Der Takt richtet sich danach, was das Panel weiß: **jede Minute**,
 solange noch keine Prüfung erfolgreich war (der Zustand **UNKNOWN**, den

@@ -97,8 +97,9 @@ how it behaves once configured, and what it still cannot do.
 ## Updates come from the bridge
 
 Once the panel knows its **Bridge URL** it checks that bridge for newer
-firmware and reports one as **Firmware Update** on its own dashboard; a
-**Check for Update** button asks immediately.
+firmware and reports one as **Firmware Update** on its own dashboard. A
+**Check for Update** button asks the bridge to look at GitHub at once;
+the panel reads the answer at 8 s and again at 90 s.
 
 The cadence follows what the panel knows: **every minute** while no
 check has ever succeeded (the **UNKNOWN** state a wrong Bridge URL
