@@ -333,12 +333,38 @@ update:
     name: "Firmware Update"
     id: firmware_update
     source: http://bridge.invalid/firmware/manifest.json
-    update_interval: 6h
+    # 60s is the STARTING cadence, not the steady one. The entity begins
+    # in UPDATE_STATE_UNKNOWN, and `adaptive_update_poll` below raises
+    # this to 30 minutes as soon as a check actually succeeds. Compiling
+    # the unknown-state value in means the panel is already polling at
+    # the right rate before that supervisor has run once.
+    update_interval: 60s
 
-# The panel asks every 6h; the bridge asks GitHub every 5h. The
-# asymmetry is deliberate — the bridge should always have looked more
-# recently than the panel asks, so an update is normally already
-# downloaded and verified by the time the panel sees it advertised.
+# How often the panel asks, and why it is not one number.
+#
+#   UNKNOWN   every 60s   -- no check has ever succeeded, so the panel
+#                            cannot say what it is running against. That
+#                            is the state a broken bridge URL, a
+#                            just-flashed panel or an unreachable bridge
+#                            leaves it in, and it is the state worth
+#                            leaving quickly.
+#   otherwise every 30min -- a check has succeeded; the answer is known
+#                            and only changes when a release lands.
+#
+# Switched at runtime by `adaptive_update_poll` in `interval:` below.
+#
+# Note what this cadence does NOT cost: the panel polls the BRIDGE's
+# cache, not GitHub. The bridge's own five-hourly GitHub poll and its
+# five-minute API-call floor are a separate budget entirely (ADR 0025),
+# and nothing the panel does here touches the anonymous rate limit. A
+# poll is one manifest read on the LAN.
+#
+# The earlier comment here argued a 6h panel poll against the bridge's
+# 5h GitHub poll as a deliberate asymmetry — "the bridge should always
+# have looked more recently than the panel asks". That reasoning does
+# not survive a 30-minute poll and was never the point: the panel reads
+# a cache, so asking more often than the cache refreshes costs nothing
+# and finds a new release sooner.
 button:
   - platform: template
     name: "Check for Update"
@@ -378,6 +404,12 @@ wifi:
     # the time on_boot runs (same reasoning as the grid_rows/grid_cols
     # globals below). By the time Wi-Fi associates it certainly has.
     - script.execute: apply_update_source
+    # And ask immediately. A PollingComponent fires its first tick one
+    # whole interval after setup, so without this the earliest check
+    # after a boot is 60s away -- and the panel sits on UNKNOWN for that
+    # minute with a perfectly reachable bridge. `update.check` runs on
+    # its own task, so this costs the connect handler nothing.
+    - update.check: firmware_update
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -1924,7 +1956,7 @@ script:
                 id(firmware_update).set_source_url(url);
           else:
             # Reset, do not merely complain. Clearing the Bridge URL has
-            # to stop the automatic 6h checks from continuing against
+            # to stop the automatic checks from continuing against
             # the OLD bridge -- a host that may have been retired, or
             # that the operator has deliberately stopped trusting. The
             # scan path already honours an empty URL; this makes the
@@ -1955,34 +1987,30 @@ script:
   # defers the refresh to the moment the floor expires -- but it is
   # honoured LATE. A single check eight seconds later would read the old
   # manifest, report "no update", and leave the newly published firmware
-  # sitting there until the regular 6h poll.
+  # sitting there until the next regular poll.
   #
-  # There are four windows, so there are four checks:
+  # Two checks, not four:
   #
-  #   8s     the bridge already held the release and answered at once
-  #   90s    the bridge was free to ask GitHub and has finished the
-  #          ~1.7 MB download
-  #   660s   the press landed at the START of the floor (up to 300s)
-  #          AND the deferred refresh then took its full timeout
-  #          (refreshTimeout, another 300s)
-  #   960s   that deferred refresh FAILED -- which is routine during a
-  #          release, because release.yml publishes the release before
-  #          the job that uploads the firmware -- and the bridge's
-  #          bounded retry, itself gated by the same 300s floor, is the
-  #          one that succeeds
+  #   8s   the bridge already held the release and answered at once
+  #   90s  the bridge was free to ask GitHub and has finished the
+  #        ~1.7 MB download
   #
-  # Each number is the sum of the bridge-side limits that can precede
-  # it, plus a minute. Anything earlier can legitimately still read the
-  # old manifest, and then nothing would happen until the 6h poll --
-  # which is the whole failure this button exists to avoid.
+  # There were two more, at 660s and 960s, covering the cases where the
+  # bridge deferred the refresh behind its five-minute API-call floor and
+  # where that deferred refresh then failed and had to be retried. They
+  # earned their place against a SIX-HOUR steady poll: miss the window
+  # and the panel learned nothing until the evening.
   #
-  # The ladder stops here on purpose. Two or more consecutive bridge-side
-  # failures push the answer past 960s, and chasing every case would
-  # make this unbounded; that is what the regular 6h check is for.
+  # Against a 30-minute poll they do not. The regular cadence covers the
+  # same two cases in half the time of the ladder's own last rung, so
+  # those rungs bought nothing except two more timers and a comment
+  # nobody could hold in their head. What the button is actually for is
+  # the impatient case -- "I just released, show me now" -- and eight
+  # and ninety seconds are that.
   #
   # `delay` is scheduler-based and does not block the main loop, and
-  # `update.check` runs on its own FreeRTOS task, so none of the three
-  # costs responsiveness.
+  # `update.check` runs on its own FreeRTOS task, so neither costs
+  # responsiveness.
   #
   # A check that lands while the bridge is still downloading is harmless:
   # the mirror only swaps the manifest once the binary is on disk and its
@@ -2023,14 +2051,10 @@ script:
             - delay: 8s
             - update.check: firmware_update
             - lvgl.label.update: { id: status_label, text: "idle" }
-            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s,
-            # +300s = 960s. mode: restart on this script means a second
-            # press starts the sequence over rather than stacking timers.
+            # Cumulative delays: 8s, then +82s = 90s. mode: restart on
+            # this script means a second press starts the sequence over
+            # rather than stacking timers.
             - delay: 82s
-            - update.check: firmware_update
-            - delay: 570s
-            - update.check: firmware_update
-            - delay: 300s
             - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness
@@ -2049,6 +2073,37 @@ script:
 # light, not a heartbeat, and profiles change when someone edits a YAML
 # file and restarts the daemon — not every half minute.
 interval:
+  # Firmware-check cadence, switched by state (issue #111).
+  #
+  #   UNKNOWN   60s    no check has ever succeeded -- get out of that
+  #                    state quickly, because it is the one an operator
+  #                    is staring at while fixing a Bridge URL
+  #   otherwise 30min  the answer is known and changes only on release
+  #
+  # A PollingComponent does not re-time itself when its interval
+  # changes, so the switch is stop / set / start rather than a bare
+  # setter. Guarded by the current value, or every tick of this
+  # supervisor would restart the poller and the check would never
+  # actually come due.
+  #
+  # This runs every 60s and does no I/O -- it reads one enum and, almost
+  # always, does nothing.
+  - id: adaptive_update_poll
+    interval: 60s
+    then:
+      - lambda: |-
+          const uint32_t want =
+              id(firmware_update).state == update::UPDATE_STATE_UNKNOWN
+                  ? 60000u
+                  : 1800000u;
+          if (id(firmware_update).get_update_interval() != want) {
+            ESP_LOGI("panel.update", "check cadence -> %ums (state %s)", want,
+                     LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)));
+            id(firmware_update).stop_poller();
+            id(firmware_update).set_update_interval(want);
+            id(firmware_update).start_poller();
+          }
+
   # The steady-state refresh. Profiles change when someone edits a YAML
   # file and restarts the daemon, not every half minute.
   - interval: 300s

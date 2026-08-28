@@ -137,10 +137,18 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
 !!! info "Updates kommen von Ihrer Bridge, nicht von dieser Seite"
 
-    Sobald das Panel seine **Bridge URL** kennt, fragt es dort alle sechs
-    Stunden nach neuerer Firmware und meldet sie auf dem eigenen Dashboard
-    als **Firmware Update**. Daneben gibt es eine Schaltfläche **Check for
+    Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach
+    neuerer Firmware und meldet sie auf dem eigenen Dashboard als
+    **Firmware Update**. Daneben gibt es eine Schaltfläche **Check for
     Update**, die sofort nachfragt.
+
+    Wie oft es fragt, hängt davon ab, was es weiß. Solange noch keine
+    Prüfung erfolgreich war — der Zustand, den eine falsche Bridge URL
+    hinterlässt und den das Dashboard als **UNKNOWN** anzeigt — fragt es
+    jede **Minute**, damit sich das Korrigieren der Einstellung fast
+    sofort zeigt. Nach der ersten erfolgreichen Prüfung geht es auf alle
+    **30 Minuten** herunter. Jede Prüfung ist eine kleine Anfrage an
+    Ihre eigene Bridge und erreicht GitHub nie.
 
     Der Umweg über die Bridge ist keine Vorliebe. Das Panel erreicht diese
     Seite nicht — und GitHub ebenso wenig, und überhaupt nichts über HTTPS:
@@ -204,8 +212,8 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     Manifest und eine dazu passende Binärdatei ausliefern — die
     MD5-Prüfung ginge durch. Deshalb **meldet** das Panel Updates, es
     installiert aber nie eines von selbst: Das entscheidende Zeitfenster
-    ist der Moment, in dem Sie auf Installieren drücken, nicht alle sechs
-    Stunden. Die vollständige Begründung steht in ADR 0024 und ADR 0025
+    ist der Moment, in dem Sie auf Installieren drücken, nicht jede
+    Prüfung. Die vollständige Begründung steht in ADR 0024 und ADR 0025
     im Repository.
 
 ## Voraussetzungen

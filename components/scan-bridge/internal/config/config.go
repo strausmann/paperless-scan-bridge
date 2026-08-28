@@ -74,9 +74,10 @@ type FirmwareConfig struct {
 	// APIBase is GitHub's API root. Overridable so tests, and an
 	// air-gapped mirror, can point somewhere else.
 	APIBase string `toml:"api_base"`
-	// RefreshIntervalSeconds is how often the mirror asks GitHub.
-	// Shorter than the panel's own 6h check on purpose: the bridge
-	// should know before the panel asks.
+	// RefreshIntervalSeconds is how often the mirror asks GitHub. It
+	// bounds how far an unattended deployment may lag a release; it is
+	// not paired with the panel's poll, which reads this bridge's cache
+	// rather than GitHub and is therefore independent of it.
 	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
 }
 

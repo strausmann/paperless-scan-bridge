@@ -455,11 +455,13 @@ func TestDefaultEnablesTheFirmwareMirror(t *testing.T) {
 	if want := "/var/lib/scan-bridge/firmware"; cfg.FirmwareCacheDir() != want {
 		t.Errorf("Default FirmwareCacheDir() = %q, want %q", cfg.FirmwareCacheDir(), want)
 	}
-	// Shorter than the panel's own 6h check on purpose (ADR 0024,
-	// issue #111): the bridge must know before the panel asks.
-	if cfg.FirmwareRefreshInterval() >= 6*time.Hour {
-		t.Errorf("Default firmware refresh interval %v must stay below the panel's 6h check",
-			cfg.FirmwareRefreshInterval())
+	// The interval bounds how far an unattended deployment may lag a
+	// release. Not paired with the panel's poll -- that reads this
+	// bridge's cache, not GitHub, and is independent. So the assertion
+	// is the property that actually matters: comfortably above the
+	// API-call floor, and inside a working day.
+	if got := cfg.FirmwareRefreshInterval(); got <= MinFirmwareRefreshSeconds*time.Second || got > 12*time.Hour {
+		t.Errorf("Default firmware refresh interval %v is outside (floor, 12h]", got)
 	}
 }
 

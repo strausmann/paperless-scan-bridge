@@ -186,21 +186,22 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   during a release sees the old build despite all three of its manifest
   reads. Bounded, so an unreachable GitHub does not become a poll every
   five minutes forever.
-- **Neutral / follow-ups:** the panel's "Check for Update" runs the
-  check four times — at 8 s, 90 s, 660 s and 960 s — because there are
-  four windows to cover: the bridge already held the release; it was
-  free to ask GitHub and has finished the download; the press landed at
-  the start of the five-minute floor *and* the deferred refresh took its
-  full five-minute timeout; and that refresh *failed* (routine during a
-  release) and the bounded retry, gated by the same floor, is the one
-  that succeeds. Each number is the sum of the bridge-side limits that
-  can precede it, plus a minute. A single early check would read the
-  manifest before the deferred refresh ran, report no update, and leave
-  freshly published firmware waiting for the next six-hourly poll. The
-  ladder stops at 960 s deliberately: two or more consecutive
-  bridge-side failures push the answer beyond it, and chasing every case
-  would make the sequence unbounded — that is what the regular six-hourly
-  check is for.
+- **Neutral / follow-ups:** the panel's poll is **state-dependent**:
+  every 60 s while the update entity is `UNKNOWN` — no check has ever
+  succeeded, which is where a wrong Bridge URL or an unreachable bridge
+  leaves it — and every 30 minutes once one has. The fast rate exists
+  for the operator standing at the panel fixing that setting; the slow
+  one is the steady state. Neither touches GitHub: the panel reads this
+  bridge's cache, so its cadence is independent of the five-hourly
+  GitHub poll and of the API-call floor.
+- **Neutral / follow-ups:** "Check for Update" therefore runs the check
+  twice, at 8 s and 90 s — the bridge either already held the release or
+  has finished fetching it. Two further rungs at 660 s and 960 s existed
+  to cover a refresh deferred behind the five-minute floor and one that
+  then failed and was retried. They were worth their complexity against
+  a six-hourly steady poll; against a 30-minute one the regular cadence
+  covers the same cases in half the time of the last rung, so they were
+  removed.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the

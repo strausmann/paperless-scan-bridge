@@ -425,9 +425,17 @@ What it does:
   louder than a 20px footer label. Hidden again in every terminal
   branch, the same discipline as the LED/label reset above.
 
-- Checks its bridge for newer firmware every 6h and reports one as
-  **Firmware Update** on its own dashboard; a **Check for Update**
-  button asks straight away. The manifest comes from
+- Checks its bridge for newer firmware and reports one as **Firmware
+  Update** on its own dashboard; a **Check for Update** button asks
+  straight away, then again 90 seconds later.
+
+  The cadence adapts to what the panel knows. While the entity is
+  `UNKNOWN` — no check has ever succeeded, which is where a wrong Bridge
+  URL or an unreachable bridge leaves it — it polls every **60 s**, so
+  an operator fixing the setting sees it clear within a minute. Once a
+  check succeeds it drops to every **30 min**. `adaptive_update_poll`
+  in `interval:` does the switching; the poll costs one manifest read
+  on the LAN and never touches GitHub. The manifest comes from
   `<Bridge URL>/firmware/manifest.json`, not from the docs site, and
   not from GitHub — the panel cannot reach either over TLS
   (`MBEDTLS_ERR_SSL_ALLOC_FAILED`; ADR 0024). The bridge mirrors the
@@ -483,6 +491,16 @@ D/E):
   `lvgl: buffer_size:` override) have not been confirmed against real
   RAM headroom on physical hardware — if flashing reports a memory
   allocation failure, tuning the buffer size is the first thing to try.
+- **The adaptive update cadence is config-verified only.** The
+  60s-while-`UNKNOWN` / 30min-otherwise switch (`adaptive_update_poll`)
+  passes `esphome config` and `esphome compile` against this exact
+  ESPHome version, and the API it uses is real —
+  `UpdateEntity::state` is a public const reference and
+  `PollingComponent` exposes `stop_poller`/`set_update_interval`/
+  `start_poller`, both checked in the pinned sources. What has not been
+  watched on hardware is the transition itself: that the log line fires
+  once when the first check succeeds, and that the poller then really
+  runs at the slower rate rather than the faster one.
 - **Grid size and paging (B1/B2) are not hardware-verified either.**
   The templatable `x`/`y`/`width`/`height` on the 9 button slots and
   the paging buttons compile and pass `esphome config`/`esphome

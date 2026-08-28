@@ -392,7 +392,7 @@ func TestFirmwareVersionedFileIOErrorIs500(t *testing.T) {
 // principle and the panel should come back. The distinction is made
 // after Open fails, not before it is attempted -- probing first would
 // answer 503 for a request a refresh completing mid-flight could have
-// served, and one 503 costs the panel six hours.
+// served, and a 503 costs the panel a whole poll interval.
 func TestFirmwareColdCacheIs503EvenAfterOpenFails(t *testing.T) {
 	h := newFirmwareServer(t, &fakeMirror{dir: t.TempDir()})
 

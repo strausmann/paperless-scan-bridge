@@ -132,10 +132,17 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
 !!! info "Updates come from your bridge, not from this site"
 
-    Once the panel knows its **Bridge URL**, it checks that bridge for a
-    newer firmware every six hours and reports one as **Firmware Update**
-    on its own dashboard. There is also a **Check for Update** button
-    that asks straight away.
+    Once the panel knows its **Bridge URL**, it checks that bridge for
+    newer firmware and reports one as **Firmware Update** on its own
+    dashboard. There is also a **Check for Update** button that asks
+    straight away.
+
+    How often it checks depends on what it knows. While it has never had
+    a successful check — the state a wrong Bridge URL leaves it in, and
+    the one that shows **UNKNOWN** on the dashboard — it asks every
+    **minute**, so correcting the setting shows a result almost at once.
+    Once a check succeeds it settles to every **30 minutes**. Each check
+    is one small request to your own bridge; it never reaches GitHub.
 
     The detour through the bridge is not a preference. The panel cannot
     reach this site, or GitHub, or anything else over HTTPS:
@@ -197,7 +204,7 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     serve both a forged manifest and a matching binary, and the MD5 check
     would pass. That is why the panel **reports** updates but never
     installs one by itself: the window that matters is the moment you
-    press install, not every six hours. The full reasoning is in ADR 0024
+    press install, not on every poll. The full reasoning is in ADR 0024
     and ADR 0025 in the repository.
 
 ## Requirements
