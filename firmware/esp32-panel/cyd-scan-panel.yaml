@@ -2190,10 +2190,26 @@ interval:
           // the whole behaviour of this block.
           constexpr uint32_t kUnknownMs = 60u * 1000u;        // 60s
           constexpr uint32_t kSettledMs = 30u * 60u * 1000u;  // 30min
-          const uint32_t want =
-              id(firmware_update).state == update::UPDATE_STATE_UNKNOWN
-                  ? kUnknownMs
-                  : kSettledMs;
+
+          // Two ways to be "not settled", and the state alone only
+          // catches one of them.
+          //
+          // A FAILED check does not touch state_ -- http_request_update
+          // calls status_set_error and returns, leaving the previous
+          // state in place (verified in the pinned sources). So a panel
+          // that had settled and is then pointed at a bridge which is
+          // still booting keeps reporting NO_UPDATE, and the state test
+          // alone would leave it polling every 30 minutes exactly when
+          // it should be trying again.
+          //
+          // status_has_error() is the missing half, and it generalises:
+          // it also covers a bridge that goes away long after the panel
+          // settled. A successful check clears it (status_clear_error
+          // on the success path), so the fast rate ends by itself.
+          const bool settled =
+              id(firmware_update).state != update::UPDATE_STATE_UNKNOWN &&
+              !id(firmware_update).status_has_error();
+          const uint32_t want = settled ? kSettledMs : kUnknownMs;
 
           // The running flag is checked too, not just the interval: a
           // stopped poller still reports whatever interval it last had,
@@ -2201,8 +2217,9 @@ interval:
           // after a Bridge URL was filled in.
           if (!id(update_poll_running) ||
               id(firmware_update).get_update_interval() != want) {
-            ESP_LOGI("panel.update", "check cadence -> %ums (state %s)", want,
-                     LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)));
+            ESP_LOGI("panel.update", "check cadence -> %ums (state %s, error %d)", want,
+                     LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)),
+                     id(firmware_update).status_has_error() ? 1 : 0);
             id(firmware_update).stop_poller();
             id(firmware_update).set_update_interval(want);
             id(firmware_update).start_poller();

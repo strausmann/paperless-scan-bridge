@@ -437,10 +437,17 @@ What it does:
 
   The cadence adapts to what the panel knows. With **no Bridge URL** it
   does not poll at all — there is nowhere to ask, and polling would only
-  resolve `bridge.invalid` once a minute forever. While the entity is
-  `UNKNOWN` but a URL is set — an unreachable bridge, a wrong host — it
-  polls every **60 s**, so an operator fixing the setting sees it clear
-  within a minute. Once a check succeeds it drops to every **30 min**.
+  resolve `bridge.invalid` once a minute forever. While a URL is set but
+  the last check did not succeed — never checked, or checked and failed
+  — it polls every **60 s**, so an operator fixing the setting sees it
+  clear within a minute. Once a check succeeds it drops to every
+  **30 min**, and it returns to 60 s if a later check fails.
+
+  Both halves of "did not succeed" are needed. A failed check does not
+  reset the entity's state (ESPHome's update platform sets an error
+  status and leaves `state_` alone), so a panel that had settled and is
+  then pointed at a bridge which is still booting would otherwise keep
+  the slow rate exactly when it should be retrying.
 
   Entering or changing the Bridge URL fires a check immediately, so that
   case does not wait on the supervisor either. `adaptive_update_poll` in

@@ -199,9 +199,13 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
 - **Neutral / follow-ups:** the panel's poll is **state-dependent**:
   not at all while no Bridge URL is set (there is nowhere to ask, and
   the fast cadence would otherwise make an unconfigured panel the
-  noisiest one), every 60 s while the update entity is `UNKNOWN` with a
-  URL set, and every 30 minutes once a check has succeeded. Entering a
-  URL fires a check at once rather than waiting for the next tick. The
+  noisiest one), every 60 s while a URL is set but the last check did
+  not succeed — never checked, or checked and failed — and every 30
+  minutes once one has. It returns to 60 s if a later check fails, which
+  matters because a failure does not reset the entity's state: a panel
+  pointed at a bridge that is still booting would otherwise keep the
+  slow rate exactly when it should retry. Entering a URL fires a check
+  at once rather than waiting for the next tick. The
   fast rate exists for the operator standing at the panel fixing that
   setting; the slow one is the steady state. Neither touches GitHub: the
   panel reads this bridge's cache, so its cadence is independent of the
