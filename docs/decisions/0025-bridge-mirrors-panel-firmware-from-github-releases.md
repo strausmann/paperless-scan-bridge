@@ -49,9 +49,18 @@ GitHub Releases into a local cache, verify every file against the release's own
 | `GET /firmware/{name}` | the same file of whichever generation is current |
 | `POST /firmware/refresh` | queue an immediate check; returns `202` at once |
 
-The bridge polls every **5 hours**; the panel polls the bridge every **6**. The
-asymmetry is deliberate: the bridge should always have looked more recently than
-the panel asks.
+The bridge polls GitHub every **5 hours**. That number bounds how far an
+unattended deployment may lag a release; it is not paired with the panel's own
+cadence, which reads this bridge's *cache* and never reaches GitHub. The panel
+polls every **60 s** while it has never had a successful check, **30 minutes**
+once it has, and not at all before a Bridge URL is set — see the consequences
+below.
+
+(An earlier version of this paragraph justified the five hours as "deliberately
+shorter than the panel's 6h, so the bridge always looks first". That pairing
+never held: the two cadences are independent, and treating them as coupled is
+what produced a panel that polled once every six hours in the one state where
+polling matters.)
 
 Three rules make this safe, and they are the substance of the decision rather
 than implementation detail:
@@ -73,14 +82,15 @@ than implementation detail:
    MD5 it read at check time. A bare path would hand that click whatever the
    newest generation holds by then — a different binary, failing the MD5 check
    in exactly the moments right after a release. So the served manifest has
-   each build's `ota.path` rewritten to `/firmware/{tag}/{name}`, and the
-   mirror keeps two generations: the one being served and the one it
-   replaced, named explicitly rather than picked by modification time —
-   a daemon killed between the rename and the publish leaves a newer,
+   each build's `ota.path` rewritten to `/firmware/{generation}/{name}`, and
+   the mirror keeps two generations: the one being served and the one it
+   replaced, named explicitly rather than picked by modification time — a
+   daemon killed between the rename and the publish leaves a newer,
    never-advertised directory behind, and an mtime rule would keep that
-   orphan and delete the generation panels actually hold a URL for. The `md5` beside it is **never** rewritten:
-   it is the digest CI computed from the binary it shipped, which is what makes
-   ADR 0024's "publish the digest of the file you will actually serve" hold.
+   orphan and delete the generation panels actually hold a URL for. The
+   `md5` beside it is **never** rewritten: it is the digest CI computed from
+   the binary it shipped, which is what makes ADR 0024's "publish the digest
+   of the file you will actually serve" hold.
 
 Because the manifest's `ota.path` is rewritten, the mirror is not byte-verbatim
 — but the only field it touches is a path. `parts`, which ESP Web Tools reads
@@ -191,11 +201,11 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   the fast cadence would otherwise make an unconfigured panel the
   noisiest one), every 60 s while the update entity is `UNKNOWN` with a
   URL set, and every 30 minutes once a check has succeeded. Entering a
-  URL fires a check at once rather than waiting for the next tick. The fast rate exists
-  for the operator standing at the panel fixing that setting; the slow
-  one is the steady state. Neither touches GitHub: the panel reads this
-  bridge's cache, so its cadence is independent of the five-hourly
-  GitHub poll and of the API-call floor.
+  URL fires a check at once rather than waiting for the next tick. The
+  fast rate exists for the operator standing at the panel fixing that
+  setting; the slow one is the steady state. Neither touches GitHub: the
+  panel reads this bridge's cache, so its cadence is independent of the
+  five-hourly GitHub poll and of the API-call floor.
 - **Neutral / follow-ups:** "Check for Update" runs the check three
   times, at 8 s, 90 s and 660 s. The first two cover a bridge that
   already held the release or was free to fetch it; the third covers a
