@@ -161,10 +161,9 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     zusagt und was nicht: Eine verschwundene Bridge fällt erst bei der
     nächsten planmäßigen Prüfung auf, also bis zu einer halben Stunde
     später — ab diesem Moment fragt das Panel aber jede Minute nach und
-    findet die Bridge ein bis zwei Minuten nach ihrer Rückkehr wieder. Ohne gesetzte Bridge
-    URL prüft es gar nicht. Jede
-    Prüfung ist eine kleine Anfrage an Ihre eigene Bridge und erreicht
-    GitHub nie.
+    findet die Bridge ein bis zwei Minuten nach ihrer Rückkehr wieder.
+    Ohne gesetzte Bridge URL prüft es gar nicht. Jede Prüfung ist eine
+    kleine Anfrage an Ihre eigene Bridge und erreicht GitHub nie.
 
     Der Umweg über die Bridge ist keine Vorliebe. Das Panel erreicht diese
     Seite nicht — und GitHub ebenso wenig, und überhaupt nichts über HTTPS:
