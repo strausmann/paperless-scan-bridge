@@ -745,6 +745,13 @@ func (m *Mirror) Run(ctx context.Context) {
 			if failures < maxRetries {
 				failures++
 				arm(m.retryDelay(), "firmware refresh failed, retrying")
+			} else {
+				// Otherwise the log shows three retries and then
+				// silence for five hours, and nothing says which of
+				// those two things happened.
+				m.logger.Warn("firmware refresh gave up after its retries; waiting for the next scheduled check",
+					slog.Int("attempts", failures+1),
+					slog.Duration("next_check_in", m.interval))
 			}
 			continue
 		}
@@ -829,12 +836,13 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 		assets[a.Name] = a.BrowserDownloadURL
 	}
 
+	cur, haveCurrent := m.Current()
 	previousDir := ""
-	if cur, ok := m.Current(); ok {
+	if haveCurrent {
 		previousDir = cur.Dir()
 	}
 
-	if cur, ok := m.Current(); ok && cur.Tag == latest.TagName {
+	if haveCurrent && cur.Tag == latest.TagName {
 		// Same tag is not the same thing as "same bytes", in either
 		// direction.
 		//
@@ -934,16 +942,27 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 
 	dest := filepath.Join(m.cacheDir, rel.Dir())
 
-	// A directory may already exist here: a refresh that died between
-	// the rename and the publish. It cannot be the generation currently
-	// being served -- Dir() is content-addressed, so identical bytes
-	// would have taken the short-circuit above -- but its contents are
-	// unverified either way. Deleting it first and then renaming would
-	// destroy whatever was there if the rename failed, so it is moved
-	// aside and discarded only once the new one is in place. The
-	// parking name carries the staging prefix so prune sweeps it up if
-	// the process dies mid-swap; validateTag rejects leading dots, so it
-	// can never collide with a real generation.
+	// A directory may already exist here, and it may well be the one
+	// being served right now.
+	//
+	// That is not the crash-leftover case; it is the ordinary repair
+	// path. verifyCached failing sends an unchanged tag down the full
+	// download, and the bytes it fetches are the ones the checksums
+	// describe -- so Dir(), which is derived from those checksums,
+	// comes out identical to the generation already published. dest and
+	// the live generation are then the same directory.
+	//
+	// (An earlier version of this comment claimed the opposite, on the
+	// grounds that identical content would have short-circuited. It
+	// does not, when the local copy is damaged -- which is precisely
+	// when this path runs.)
+	//
+	// Hence: move aside, rename, and only then discard; restore if the
+	// rename fails. Deleting first would destroy a served generation on
+	// any rename error. The parking name carries the staging prefix so
+	// prune sweeps it up if the process dies mid-swap; validateTag
+	// rejects leading dots, so it can never collide with a real
+	// generation.
 	//nolint:gocritic // the seam is deliberate; see renameFile
 	parked := filepath.Join(m.cacheDir, stagingPrefix+"replaced-"+rel.Dir())
 	if err := os.RemoveAll(parked); err != nil {
@@ -996,7 +1015,18 @@ func (m *Mirror) Refresh(ctx context.Context) (Release, error) {
 	}
 
 	// Only now is the old directory unreferenced.
-	m.prune(rel.Dir(), previousDir)
+	//
+	// An in-place repair (previousDir == rel.Dir()) added no directory,
+	// so there is nothing to evict -- and pruning anyway would pass the
+	// same name as both survivors and delete the genuine predecessor,
+	// dropping the mirror to one generation and 404ing a URL some panel
+	// may be holding. Staging leftovers are still swept; a crash orphan
+	// waits for the next real release.
+	if previousDir == rel.Dir() {
+		m.pruneStaging()
+	} else {
+		m.prune(rel.Dir(), previousDir)
+	}
 
 	m.logger.Info("firmware mirrored",
 		slog.String("tag", rel.Tag),
@@ -1029,8 +1059,23 @@ func (m *Mirror) latestRelease(ctx context.Context) (ghRelease, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// +1 so an over-long body is detected rather than silently cut: a
+	// truncated payload that happens to end on a syntactically valid
+	// boundary would otherwise be decoded as a release with fewer
+	// assets, and the mirror would report "no SHA256SUMS asset" for a
+	// release that has one.
+	body := io.LimitReader(resp.Body, maxReleaseJSONBytes+1)
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return ghRelease{}, fmt.Errorf("firmware: read release payload from %s: %w", url, err)
+	}
+	if len(raw) > maxReleaseJSONBytes {
+		return ghRelease{}, fmt.Errorf(
+			"firmware: release payload from %s exceeds the %d-byte limit", url, maxReleaseJSONBytes)
+	}
+
 	var rel ghRelease
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseJSONBytes)).Decode(&rel); err != nil {
+	if err := json.Unmarshal(raw, &rel); err != nil {
 		return ghRelease{}, fmt.Errorf("firmware: decode release payload from %s: %w", url, err)
 	}
 	if rel.TagName == "" {
@@ -1046,7 +1091,21 @@ func (m *Mirror) fetchChecksums(ctx context.Context, url string) (map[string]str
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	sums, names, err := parseChecksums(io.LimitReader(resp.Body, maxChecksumsBytes))
+	// +1, for the same reason as the asset download: SHA256SUMS is
+	// line-oriented, so a body cut at the limit can still parse -- as a
+	// SHORTER list. The mirror would then download a subset, and the
+	// failure would surface later as "the manifest names a file the
+	// release does not carry", which points at the wrong thing.
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumsBytes+1))
+	if err != nil {
+		return nil, nil, fmt.Errorf("firmware: read %s from %s: %w", ChecksumsName, url, err)
+	}
+	if len(raw) > maxChecksumsBytes {
+		return nil, nil, fmt.Errorf(
+			"firmware: %s from %s exceeds the %d-byte limit", ChecksumsName, url, maxChecksumsBytes)
+	}
+
+	sums, names, err := parseChecksums(strings.NewReader(string(raw)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("firmware: %s from %s: %w", ChecksumsName, url, err)
 	}

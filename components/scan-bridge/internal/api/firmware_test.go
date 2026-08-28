@@ -126,7 +126,8 @@ func newCachedMirror(t *testing.T) *fakeMirror {
 }
 
 func TestFirmwareManifestServed(t *testing.T) {
-	h := newFirmwareServer(t, newCachedMirror(t))
+	m := newCachedMirror(t)
+	h := newFirmwareServer(t, m)
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/firmware/manifest.json", nil))
@@ -137,8 +138,15 @@ func TestFirmwareManifestServed(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
+	// Both headers, with one meaning each: the tag a person recognises
+	// and the generation that identifies the bytes. A tag alone cannot
+	// do the second job -- `gh release upload --clobber` puts different
+	// binaries under the same tag.
 	if v := rec.Header().Get("X-Firmware-Version"); v != "v1.2.3" {
 		t.Errorf("X-Firmware-Version = %q, want v1.2.3", v)
+	}
+	if v, want := rec.Header().Get("X-Firmware-Generation"), m.rel.Dir(); v != want {
+		t.Errorf("X-Firmware-Generation = %q, want %q", v, want)
 	}
 	if !strings.Contains(rec.Body.String(), "CYD Scan Panel") {
 		t.Errorf("body = %q, want the mirrored manifest", rec.Body.String())
@@ -315,11 +323,14 @@ func TestFirmwareVersionedFileServed(t *testing.T) {
 	if rec.Body.String() != "ota" {
 		t.Errorf("body = %q", rec.Body.String())
 	}
-	// On this route the header carries the generation directory, which
-	// is what the caller asked for -- the tag alone would not identify
-	// the bytes.
-	if v, want := rec.Header().Get("X-Firmware-Version"), m.rel.Dir(); v != want {
-		t.Errorf("X-Firmware-Version = %q, want %q", v, want)
+	// The generation, exactly. The tag is absent here: this route is
+	// reachable for a generation that is no longer current, and nothing
+	// on disk records which tag it belonged to.
+	if v, want := rec.Header().Get("X-Firmware-Generation"), m.rel.Dir(); v != want {
+		t.Errorf("X-Firmware-Generation = %q, want %q", v, want)
+	}
+	if v := rec.Header().Get("X-Firmware-Version"); v != "" {
+		t.Errorf("X-Firmware-Version = %q, want it unset on the generation route", v)
 	}
 }
 

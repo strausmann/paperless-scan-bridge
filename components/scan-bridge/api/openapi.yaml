@@ -454,6 +454,16 @@ paths:
               schema:
                 type: string
                 example: v1.2.0
+            X-Firmware-Generation:
+              description: >-
+                The generation: the tag plus a digest of that release's
+                checksums. A tag alone does not identify bytes —
+                `gh release upload --clobber` puts different binaries
+                under the same tag — so the two headers answer different
+                questions and both are sent.
+              schema:
+                type: string
+                example: v1.2.0-9f2c1a4b7e30
           content:
             application/json:
               schema:
@@ -527,11 +537,13 @@ paths:
         "200":
           description: The file.
           headers:
-            X-Firmware-Version:
+            X-Firmware-Generation:
               description: >-
-                The **generation**, not the bare tag — on this route that
-                is what the caller asked for, and a tag alone does not
-                identify the bytes. The other two routes carry the tag.
+                The generation, exactly as requested.
+                `X-Firmware-Version` is **not** sent here: this route is
+                reachable for a generation that is no longer current,
+                and nothing on disk records which tag it belonged to.
+                The tag is the generation's prefix, so nothing is lost.
               schema:
                 type: string
                 example: v1.2.0-9f2c1a4b7e30
@@ -631,6 +643,16 @@ paths:
               schema:
                 type: string
                 example: v1.2.0
+            X-Firmware-Generation:
+              description: >-
+                The generation: the tag plus a digest of that release's
+                checksums. A tag alone does not identify bytes —
+                `gh release upload --clobber` puts different binaries
+                under the same tag — so the two headers answer different
+                questions and both are sent.
+              schema:
+                type: string
+                example: v1.2.0-9f2c1a4b7e30
           content:
             application/octet-stream:
               schema:

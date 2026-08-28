@@ -67,7 +67,7 @@ func (s *Server) handleFirmwareManifest(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("X-Firmware-Version", rel.Tag)
+	setFirmwareHeaders(w, rel.Tag, rel.Dir())
 	http.ServeContent(w, r, firmware.ManifestName, rel.RetrievedAt, bytes.NewReader(body))
 }
 
@@ -103,9 +103,11 @@ func (s *Server) handleFirmwareVersionedFile(w http.ResponseWriter, r *http.Requ
 	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", firmwareContentType(name))
-	// The generation, not the bare tag: on this route that is what the
-	// caller asked for, and a tag alone would not identify the bytes.
-	w.Header().Set("X-Firmware-Version", gen)
+	// Only the generation is known here -- this route is reachable for
+	// a generation that is no longer current, and nothing on disk
+	// records which tag it belonged to. The tag is the prefix of the
+	// generation, so a reader loses nothing.
+	setFirmwareHeaders(w, "", gen)
 	http.ServeContent(w, r, name, modTime, f)
 }
 
@@ -145,9 +147,7 @@ func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", firmwareContentType(name))
-	// So `curl -I` answers "which build is this bridge handing out?"
-	// without downloading 1.7 MB.
-	w.Header().Set("X-Firmware-Version", rel.Tag)
+	setFirmwareHeaders(w, rel.Tag, rel.Dir())
 	http.ServeContent(w, r, name, modTime, f)
 }
 
@@ -182,6 +182,27 @@ func (s *Server) writeFirmwareFileNotFound(w http.ResponseWriter, r *http.Reques
 		Error: "firmware_file_not_found",
 		Hint:  "GET /firmware/manifest.json names the files of the mirrored release.",
 	})
+}
+
+// setFirmwareHeaders labels a response with what it is, so `curl -I`
+// answers "which build is this bridge handing out?" without moving
+// 1.7 MB.
+//
+// Two headers, because one cannot say it. A tag does not identify
+// bytes: re-running the release workflow replaces the assets under the
+// same tag (`gh release upload --clobber`), which is why the cache is
+// keyed by generation in the first place. X-Firmware-Version is always
+// the human tag and X-Firmware-Generation always the exact content,
+// with the same meaning on every route -- an earlier version put the
+// generation under the Version header on one route only, which made
+// the two responses disagree about what the header meant.
+//
+// tag may be empty where only the generation is known.
+func setFirmwareHeaders(w http.ResponseWriter, tag, generation string) {
+	if tag != "" {
+		w.Header().Set("X-Firmware-Version", tag)
+	}
+	w.Header().Set("X-Firmware-Generation", generation)
 }
 
 func firmwareContentType(name string) string {

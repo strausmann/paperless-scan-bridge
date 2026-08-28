@@ -38,6 +38,11 @@ type fakeGitHub struct {
 	downloads atomic.Int64
 	apiCalls  atomic.Int64
 
+	// padReleaseJSON, when non-zero, appends that many bytes of filler
+	// to the release payload -- the only way to exercise the
+	// size-limit branch without a real GitHub.
+	padReleaseJSON int
+
 	// mu guards tag/assets/sums. Only the concurrency test below needs
 	// it; every other test mutates them between requests.
 	mu sync.Mutex
@@ -105,9 +110,11 @@ func (g *fakeGitHub) handleLatest(w http.ResponseWriter, _ *http.Request) {
 		TagName string  `json:"tag_name"`
 		HTMLURL string  `json:"html_url"`
 		Assets  []asset `json:"assets"`
+		Padding string  `json:"padding,omitempty"`
 	}{
 		TagName: g.tag,
 		HTMLURL: "https://example.invalid/releases/" + g.tag,
+		Padding: strings.Repeat("x", g.padReleaseJSON),
 	}
 	for name := range g.assets {
 		if name == g.omitFromRelease {
@@ -1785,4 +1792,100 @@ func TestRunGivesAFreshTriggerAFreshRetryBudget(t *testing.T) {
 	m.TriggerRefresh()
 	waitFor(t, func() bool { return g.apiCalls.Load() >= spent+2 },
 		"a fresh press to be retried rather than tried once")
+}
+
+// An in-place repair must not evict the predecessor.
+//
+// The repair path runs with an UNCHANGED tag and unchanged checksums,
+// so the freshly downloaded generation has the same Dir() as the one it
+// replaces -- which made prune receive the same name as both survivors
+// and delete the real predecessor, dropping the mirror to a single
+// generation and 404ing a URL a panel may still be holding.
+func TestRepairingInPlaceKeepsThePredecessor(t *testing.T) {
+	g := newFakeGitHub(t)
+	m := newTestMirror(t, g)
+	first, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	g.tag = "v2.0.0"
+	g.assets["cyd-scan-panel.ota.bin"] = []byte("second-generation-bytes")
+	second, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("second Refresh: %v", err)
+	}
+
+	// Damage the current generation so the next refresh repairs it in
+	// place rather than publishing anything new.
+	victim := filepath.Join(m.cacheDir, second.Dir(), "cyd-scan-panel.ota.bin")
+	if err := os.WriteFile(victim, []byte("truncated"), 0o644); err != nil {
+		t.Fatalf("corrupt: %v", err)
+	}
+	repaired, err := m.Refresh(t.Context())
+	if err != nil {
+		t.Fatalf("repair Refresh: %v", err)
+	}
+	if repaired.Dir() != second.Dir() {
+		t.Fatalf("repair produced generation %q, want the same %q", repaired.Dir(), second.Dir())
+	}
+
+	if _, err := os.Stat(filepath.Join(m.cacheDir, first.Dir())); err != nil {
+		t.Errorf("the predecessor was evicted by an in-place repair: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(m.cacheDir, second.Dir())); err != nil {
+		t.Errorf("the repaired generation is missing: %v", err)
+	}
+	// The repair still fixed the file.
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "second-generation-bytes" {
+		t.Errorf("file not repaired: %q", got)
+	}
+}
+
+// Both size limits detect an over-long body rather than cutting it.
+//
+// SHA256SUMS is line-oriented, so a body cut at the limit still parses
+// -- as a SHORTER list. The mirror would download a subset and the
+// failure would surface later as "the manifest names a file the release
+// does not carry", pointing at the wrong thing entirely.
+func TestOverLongBodiesAreRejectedNotTruncated(t *testing.T) {
+	t.Run("SHA256SUMS", func(t *testing.T) {
+		g := newFakeGitHub(t)
+		valid := hex.EncodeToString(hashOf("x"))
+		var b strings.Builder
+		for i := range 3000 {
+			fmt.Fprintf(&b, "%s  filler-%04d.bin\n", valid, i)
+		}
+		g.sums = []byte(b.String())
+		if len(g.sums) <= maxChecksumsBytes {
+			t.Fatalf("fixture is only %d bytes, under the %d-byte limit", len(g.sums), maxChecksumsBytes)
+		}
+		m := newTestMirror(t, g)
+
+		_, err := m.Refresh(t.Context())
+		if err == nil {
+			t.Fatal("Refresh accepted an over-long SHA256SUMS")
+		}
+		if !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("error %q does not say the body was too large", err)
+		}
+	})
+
+	t.Run("release payload", func(t *testing.T) {
+		g := newFakeGitHub(t)
+		g.padReleaseJSON = maxReleaseJSONBytes + 1
+		m := newTestMirror(t, g)
+
+		_, err := m.Refresh(t.Context())
+		if err == nil {
+			t.Fatal("Refresh accepted an over-long release payload")
+		}
+		if !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("error %q does not say the body was too large", err)
+		}
+	})
 }
