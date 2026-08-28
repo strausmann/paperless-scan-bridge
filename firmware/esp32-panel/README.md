@@ -427,10 +427,13 @@ What it does:
 
 - Checks its bridge for newer firmware and reports one as **Firmware
   Update** on its own dashboard; a **Check for Update** button asks the
-  bridge to look at GitHub *immediately* and then reads the manifest
-  twice, at 8 s and 90 s. Two separate things: the `POST
+  bridge to look at GitHub *immediately* and then reads the manifest at
+  8 s, 90 s and 660 s. Two separate things: the `POST
   /firmware/refresh` goes out at once, the panel's own `update.check`
-  does not.
+  does not. The 660 s rung covers a press that landed inside the
+  bridge's five-minute API-call floor — pressing the button twice puts
+  the second press there — after which the deferred refresh may take its
+  own five-minute timeout.
 
   The cadence adapts to what the panel knows. While the entity is
   `UNKNOWN` — no check has ever succeeded, which is where a wrong Bridge

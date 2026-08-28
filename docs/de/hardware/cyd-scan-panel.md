@@ -128,7 +128,10 @@ Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach neuerer
 Firmware und meldet sie auf dem eigenen Dashboard als **Firmware
 Update**. Die Schaltfläche **Check for Update** fordert die Bridge
 sofort auf, bei GitHub nachzusehen; das Panel liest die Antwort nach
-8 s und noch einmal nach 90 s.
+8 s, 90 s und 660 s. Die letzte deckt den Fall ab, dass die Bridge
+ihren GitHub-Aufruf aufschieben musste — sie hält fünf Minuten
+Sperrfrist zwischen zweien ein — und danach ihr eigenes Zeitlimit
+ausgeschöpft hat.
 
 Der Takt richtet sich danach, was das Panel weiß: **jede Minute**,
 solange noch keine Prüfung erfolgreich war (der Zustand **UNKNOWN**, den

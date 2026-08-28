@@ -194,14 +194,21 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   one is the steady state. Neither touches GitHub: the panel reads this
   bridge's cache, so its cadence is independent of the five-hourly
   GitHub poll and of the API-call floor.
-- **Neutral / follow-ups:** "Check for Update" therefore runs the check
-  twice, at 8 s and 90 s — the bridge either already held the release or
-  has finished fetching it. Two further rungs at 660 s and 960 s existed
-  to cover a refresh deferred behind the five-minute floor and one that
-  then failed and was retried. They were worth their complexity against
-  a six-hourly steady poll; against a 30-minute one the regular cadence
-  covers the same cases in half the time of the last rung, so they were
-  removed.
+- **Neutral / follow-ups:** "Check for Update" runs the check three
+  times, at 8 s, 90 s and 660 s. The first two cover a bridge that
+  already held the release or was free to fetch it; the third covers a
+  press that landed inside the five-minute API-call floor, so the
+  refresh was deferred and then took its own five-minute timeout. A
+  fourth rung at 960 s, for a deferred refresh that also *failed* and
+  was retried behind the same floor, is deliberately absent: that case
+  is rarer, and its absence now costs at most one 30-minute poll rather
+  than the six hours it used to.
+
+  Stated precisely because a first attempt at this reasoning was wrong.
+  It claimed the 30-minute poll covers those cases "in half the time of
+  the last rung" — 1800 s is nearly twice 960 s, so dropping both rungs
+  took the button's worst case from 16 minutes to 30. Faster steady
+  polling does not, on its own, make a rescue rung redundant.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the

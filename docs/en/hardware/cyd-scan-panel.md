@@ -99,7 +99,9 @@ how it behaves once configured, and what it still cannot do.
 Once the panel knows its **Bridge URL** it checks that bridge for newer
 firmware and reports one as **Firmware Update** on its own dashboard. A
 **Check for Update** button asks the bridge to look at GitHub at once;
-the panel reads the answer at 8 s and again at 90 s.
+the panel reads the answer at 8 s, 90 s and 660 s. The last one covers
+the case where the bridge had to defer its GitHub call — it holds a
+five-minute floor between them — and then took its own timeout.
 
 The cadence follows what the panel knows: **every minute** while no
 check has ever succeeded (the **UNKNOWN** state a wrong Bridge URL

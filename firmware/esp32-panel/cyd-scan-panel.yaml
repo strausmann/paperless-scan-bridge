@@ -1989,24 +1989,33 @@ script:
   # manifest, report "no update", and leave the newly published firmware
   # sitting there until the next regular poll.
   #
-  # Two checks, not four:
+  # Three checks:
   #
-  #   8s   the bridge already held the release and answered at once
-  #   90s  the bridge was free to ask GitHub and has finished the
-  #        ~1.7 MB download
+  #   8s    the bridge already held the release and answered at once
+  #   90s   the bridge was free to ask GitHub and has finished the
+  #         ~1.7 MB download
+  #   660s  the press landed inside the bridge's five-minute API-call
+  #         floor, so the refresh was deferred (up to 300s) and then
+  #         took its own timeout (refreshTimeout, another 300s)
   #
-  # There were two more, at 660s and 960s, covering the cases where the
-  # bridge deferred the refresh behind its five-minute API-call floor and
-  # where that deferred refresh then failed and had to be retried. They
-  # earned their place against a SIX-HOUR steady poll: miss the window
-  # and the panel learned nothing until the evening.
+  # There was a fourth at 960s, for a deferred refresh that then FAILED
+  # and had to be retried behind the same floor. It is gone, and the
+  # reasoning is worth stating precisely because a first attempt at this
+  # comment got it wrong.
   #
-  # Against a 30-minute poll they do not. The regular cadence covers the
-  # same two cases in half the time of the ladder's own last rung, so
-  # those rungs bought nothing except two more timers and a comment
-  # nobody could hold in their head. What the button is actually for is
-  # the impatient case -- "I just released, show me now" -- and eight
-  # and ninety seconds are that.
+  # The wrong version said a 30-minute poll covers those cases "in half
+  # the time of the ladder's last rung". It does not: 1800s is nearly
+  # twice 960s, so dropping the rung made the worst case WORSE, not
+  # better. Removing both rungs took the button's worst case from 16
+  # minutes to 30.
+  #
+  # What is actually true: the 660s rung is worth keeping because the
+  # floor is hit by an ordinary action -- pressing the button twice,
+  # which is what an impatient person does, puts the second press inside
+  # it. The 960s rung covers a deferred refresh that also failed, which
+  # is rarer, and its absence now costs at most one 30-minute poll
+  # instead of the six hours it used to. That is a bounded, stated
+  # degradation rather than a hidden one.
   #
   # `delay` is scheduler-based and does not block the main loop, and
   # `update.check` runs on its own FreeRTOS task, so neither costs
@@ -2051,10 +2060,12 @@ script:
             - delay: 8s
             - update.check: firmware_update
             - lvgl.label.update: { id: status_label, text: "idle" }
-            # Cumulative delays: 8s, then +82s = 90s. mode: restart on
-            # this script means a second press starts the sequence over
-            # rather than stacking timers.
+            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s.
+            # mode: restart on this script means a second press starts
+            # the sequence over rather than stacking timers.
             - delay: 82s
+            - update.check: firmware_update
+            - delay: 570s
             - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness
@@ -2092,10 +2103,15 @@ interval:
     interval: 60s
     then:
       - lambda: |-
+          // Written as products, not as 60000 / 1800000: a typo in a
+          // six-digit literal is invisible, and these two numbers are
+          // the whole behaviour of this block.
+          constexpr uint32_t kUnknownMs = 60u * 1000u;        // 60s
+          constexpr uint32_t kSettledMs = 30u * 60u * 1000u;  // 30min
           const uint32_t want =
               id(firmware_update).state == update::UPDATE_STATE_UNKNOWN
-                  ? 60000u
-                  : 1800000u;
+                  ? kUnknownMs
+                  : kSettledMs;
           if (id(firmware_update).get_update_interval() != want) {
             ESP_LOGI("panel.update", "check cadence -> %ums (state %s)", want,
                      LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)));
