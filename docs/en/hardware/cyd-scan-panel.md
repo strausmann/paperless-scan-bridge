@@ -107,7 +107,7 @@ The cadence follows how the last check went: **every minute** while
 none has succeeded, **every 30 minutes** once one has, and back to every
 minute as soon as one fails. A bridge that goes away is therefore
 noticed at the next scheduled check — up to half an hour — and picked up
-again within a minute of returning. With no Bridge URL set it does not
+again a minute or two after returning. With no Bridge URL set it does not
 check at all. Each check is one small request to your own bridge, never
 to GitHub.
 

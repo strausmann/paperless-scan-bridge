@@ -443,7 +443,10 @@ What it does:
   clear within a minute. Once a check succeeds it drops to every
   **30 min**, and it returns to 60 s as soon as one fails — so a bridge
   that goes away is noticed at the next scheduled check, up to half an
-  hour, and picked up again within a minute of coming back.
+  hour, and picked up again within about two minutes of coming back.
+  Two, not one: the supervisor may take up to 60 s to see the error and
+  switch the poller, and `start_poller` then schedules the first check a
+  full interval after that.
 
   Both halves of "did not succeed" are needed. A failed check does not
   reset the entity's state (ESPHome's update platform sets an error

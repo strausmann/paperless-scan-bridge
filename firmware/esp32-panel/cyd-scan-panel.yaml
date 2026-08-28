@@ -2229,6 +2229,29 @@ interval:
           constexpr uint32_t kUnknownMs = 60u * 1000u;        // 60s
           constexpr uint32_t kSettledMs = 30u * 60u * 1000u;  // 30min
 
+          // The forced-fast window after a source change, cleared as
+          // soon as it lapses.
+          //
+          // Clearing matters. The comparison is a signed subtraction
+          // because millis() wraps every 49.7 days, and that is correct
+          // for a deadline within +-24.8 days of now -- but a deadline
+          // left in place and more than 24.8 days in the PAST wraps
+          // back to positive, and the panel would then hold the fast
+          // cadence for roughly half of every millis() cycle. A wall
+          // panel that runs a month without a reconnect or a button
+          // press is exactly the device that would hit it. Zeroing on
+          // expiry keeps the comparison inside the window it describes;
+          // 0 is safe as "none", since a real deadline is at least
+          // 300000.
+          bool fast_window_open = false;
+          if (id(update_fast_until_ms) != 0) {
+            if ((int32_t) (id(update_fast_until_ms) - millis()) > 0) {
+              fast_window_open = true;
+            } else {
+              id(update_fast_until_ms) = 0;
+            }
+          }
+
           // Two ways to be "not settled", and the state alone only
           // catches one of them.
           //
@@ -2247,9 +2270,7 @@ interval:
           const bool settled =
               id(firmware_update).state != update::UPDATE_STATE_UNKNOWN &&
               !id(firmware_update).status_has_error() &&
-              // millis() wraps after ~49 days; the subtraction is
-              // wrap-safe where a direct comparison is not.
-              (int32_t) (id(update_fast_until_ms) - millis()) <= 0;
+              !fast_window_open;
           const uint32_t want = settled ? kSettledMs : kUnknownMs;
 
           // The running flag is checked too, not just the interval: a
