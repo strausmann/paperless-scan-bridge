@@ -2011,6 +2011,22 @@ script:
                          "Set it on this panel's own dashboard; the firmware "
                          "manifest is served by the bridge, not by GitHub.");
                 id(firmware_update).set_source_url("http://bridge.invalid/firmware/manifest.json");
+                // Stop the poller HERE, not at the supervisor's next
+                // tick. Those are up to 60s apart, and the poller does
+                // not go through check_now -- so one poll could still
+                // fire against the placeholder in that window.
+                //
+                // Deliberately asymmetric: stopping is urgent, starting
+                // is not. Clearing the URL is how an operator says "do
+                // not talk to that host any more", and honouring it a
+                // minute later is not honouring it. Setting a URL, by
+                // contrast, already fires an immediate check through
+                // check_now, so letting the supervisor start the poller
+                // on its own schedule costs nothing visible.
+                if (id(update_poll_running)) {
+                  id(firmware_update).stop_poller();
+                  id(update_poll_running) = false;
+                }
 
   # What the "Check for Update" button does.
   #
