@@ -103,10 +103,11 @@ the panel reads the answer at 8 s, 90 s and 660 s. The last one covers
 the case where the bridge had to defer its GitHub call — it holds a
 five-minute floor between them — and then took its own timeout.
 
-The cadence follows what the panel knows: **every minute** while no
-check has ever succeeded (the **UNKNOWN** state a wrong Bridge URL
-leaves behind), **every 30 minutes** afterwards. Each check is one small
-request to your own bridge, never to GitHub.
+The cadence follows how the last check went: **every minute** while
+none has succeeded, **every 30 minutes** once one has, and back to every
+minute if a later one fails. With no Bridge URL set it does not check at
+all. Each check is one small request to your own bridge, never to
+GitHub.
 
 The panel never talks to GitHub. It cannot: with Wi-Fi, the Bluetooth
 stack, LVGL and its own dashboard resident there is no memory left to

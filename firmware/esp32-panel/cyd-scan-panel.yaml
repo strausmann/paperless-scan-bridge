@@ -839,6 +839,21 @@ globals:
     type: bool
     restore_value: false
     initial_value: "true"
+  # millis() until which the fast cadence is held regardless of state,
+  # set whenever the Bridge URL changes.
+  #
+  # A check already running when the URL changes cannot be stopped:
+  # ESPHome refuses a second one while a task is in flight ("Update
+  # check already in progress"), and set_source_url does not abort the
+  # running task. So that task may finish against the OLD bridge,
+  # publish success and clear the error status -- after which the
+  # supervisor would call the NEW, never-contacted source settled and
+  # wait half an hour. The window outlasts any in-flight check, so the
+  # first verdict that counts is one taken after the change.
+  - id: update_fast_until_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
   - id: grid_rows
     type: int
     restore_value: false
@@ -2002,6 +2017,11 @@ script:
                 const std::string url = id(bridge_url).state + "/firmware/manifest.json";
                 ESP_LOGI("panel.update", "update source -> %s", url.c_str());
                 id(firmware_update).set_source_url(url);
+                // Hold the fast cadence past any check that was already
+                // in flight against the previous source -- see
+                // update_fast_until_ms. 90s covers the client timeout
+                // of such a check with room to spare.
+                id(update_fast_until_ms) = millis() + 90u * 1000u;
           else:
             # Reset, do not merely complain. Clearing the Bridge URL has
             # to stop the automatic checks from continuing against
@@ -2045,7 +2065,9 @@ script:
   # reboot the panel on the button press. So the bridge answers at once
   # and does the work behind it.
   #
-  # Then TWO checks, and the second one is not belt-and-braces.
+  # Then a short sequence of checks, and none of them is
+  # belt-and-braces -- each covers a different way the bridge can be
+  # slow. They are enumerated below.
   #
   # The bridge holds a five-minute floor between outbound GitHub calls,
   # so that a caller in a loop on the LAN cannot burn the anonymous API
@@ -2208,7 +2230,10 @@ interval:
           // on the success path), so the fast rate ends by itself.
           const bool settled =
               id(firmware_update).state != update::UPDATE_STATE_UNKNOWN &&
-              !id(firmware_update).status_has_error();
+              !id(firmware_update).status_has_error() &&
+              // millis() wraps after ~49 days; the subtraction is
+              // wrap-safe where a direct comparison is not.
+              (int32_t) (id(update_fast_until_ms) - millis()) <= 0;
           const uint32_t want = settled ? kSettledMs : kUnknownMs;
 
           // The running flag is checked too, not just the interval: a

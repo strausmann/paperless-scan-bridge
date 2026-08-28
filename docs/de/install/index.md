@@ -152,13 +152,16 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     Folge von vorn, statt sie zu beschleunigen** — wenn nichts
     erscheint, ist Warten schneller als Drücken.
 
-    Wie oft es fragt, hängt davon ab, was es weiß. Solange noch keine
-    Prüfung erfolgreich war — der Zustand, den eine falsche Bridge URL
-    hinterlässt und den das Dashboard als **UNKNOWN** anzeigt — fragt es
-    jede **Minute**, damit sich das Korrigieren der Einstellung fast
-    sofort zeigt. Nach der ersten erfolgreichen Prüfung geht es auf alle
-    **30 Minuten** herunter. Jede Prüfung ist eine kleine Anfrage an
-    Ihre eigene Bridge und erreicht GitHub nie.
+    Wie oft es fragt, hängt davon ab, wie die letzte Prüfung ausging.
+    Solange keine erfolgreich war — falsche Bridge URL, Bridge nicht
+    erreichbar — fragt es jede **Minute**, damit sich das Korrigieren
+    der Einstellung fast sofort zeigt. Nach der ersten erfolgreichen
+    Prüfung geht es auf alle **30 Minuten** herunter und kehrt zum
+    Minutentakt zurück, sobald eine spätere Prüfung fehlschlägt — eine
+    verschwundene Bridge fällt so schnell auf statt erst nach einer
+    halben Stunde. Ohne gesetzte Bridge URL prüft es gar nicht. Jede
+    Prüfung ist eine kleine Anfrage an Ihre eigene Bridge und erreicht
+    GitHub nie.
 
     Der Umweg über die Bridge ist keine Vorliebe. Das Panel erreicht diese
     Seite nicht — und GitHub ebenso wenig, und überhaupt nichts über HTTPS:

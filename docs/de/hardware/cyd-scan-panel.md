@@ -133,11 +133,11 @@ ihren GitHub-Aufruf aufschieben musste — sie hält fünf Minuten
 Sperrfrist zwischen zweien ein — und danach ihr eigenes Zeitlimit
 ausgeschöpft hat.
 
-Der Takt richtet sich danach, was das Panel weiß: **jede Minute**,
-solange noch keine Prüfung erfolgreich war (der Zustand **UNKNOWN**, den
-etwa eine falsche Bridge URL hinterlässt), danach **alle 30 Minuten**.
-Jede Prüfung ist eine kleine Anfrage an die eigene Bridge, nie an
-GitHub.
+Der Takt richtet sich danach, wie die letzte Prüfung ausging: **jede
+Minute**, solange keine erfolgreich war, **alle 30 Minuten**, sobald
+eine es war — und wieder jede Minute, sobald eine spätere fehlschlägt.
+Ohne gesetzte Bridge URL prüft es gar nicht. Jede Prüfung ist eine
+kleine Anfrage an die eigene Bridge, nie an GitHub.
 
 Das Panel spricht nie mit GitHub. Es kann es nicht: Neben WLAN,
 Bluetooth-Stack, LVGL und dem eigenen Dashboard bleibt kein Speicher

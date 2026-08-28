@@ -147,12 +147,15 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     rather than speeding it up** — if nothing has appeared, waiting is
     faster than pressing.
 
-    How often it checks depends on what it knows. While it has never had
-    a successful check — the state a wrong Bridge URL leaves it in, and
-    the one that shows **UNKNOWN** on the dashboard — it asks every
-    **minute**, so correcting the setting shows a result almost at once.
-    Once a check succeeds it settles to every **30 minutes**. Each check
-    is one small request to your own bridge; it never reaches GitHub.
+    How often it checks depends on how the last check went. While none
+    has succeeded — a wrong Bridge URL, a bridge that is not up — it
+    asks every **minute**, so correcting the setting shows a result
+    almost at once. Once one succeeds it settles to every **30
+    minutes**, and it goes back to every minute if a later check fails,
+    so a bridge that disappears is noticed quickly rather than half an
+    hour later. With no Bridge URL set at all it does not check. Each
+    check is one small request to your own bridge; it never reaches
+    GitHub.
 
     The detour through the bridge is not a preference. The panel cannot
     reach this site, or GitHub, or anything else over HTTPS:

@@ -52,10 +52,11 @@ between releases as a running list.
   it on unauthenticated routes: `GET /firmware/manifest.json`,
   `GET /firmware/{generation}/{name}`, `GET /firmware/{name}` and
   `POST /firmware/refresh`. The panel polls its bridge **every minute
-  while it has never had a successful check** — the `UNKNOWN` state a
-  wrong Bridge URL leaves behind, so correcting it shows a result almost
-  at once — and **every 30 minutes** thereafter, plus a **Check for
-  Update** button. The bridge asks GitHub every 5 hours; the two
+  while its last check did not succeed** — never checked, or checked and
+  failed, so correcting a wrong Bridge URL shows a result almost at once
+  and a bridge that disappears is noticed within the minute — and
+  **every 30 minutes** once one succeeds, plus a **Check for Update**
+  button. With no Bridge URL set it does not poll at all. The bridge asks GitHub every 5 hours; the two
   cadences are independent, because the panel reads the bridge's cache
   and never reaches GitHub itself.
 
