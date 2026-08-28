@@ -220,8 +220,22 @@ logger:
   # loop on every HTTP call.
   level: DEBUG
   logs:
+    # Tags, verified against the ESPHome sources for the pinned version
+    # rather than guessed:
+    #   xpt2046               touchscreen, one DEBUG line per touch
+    #   http_request.arduino  one DEBUG line per HTTP request
+    #
+    # The second one used to read `http_request.idf`, which silences
+    # nothing here: `esp32: framework: type: arduino` selects
+    # http_request_arduino.cpp, whose TAG is "http_request.arduino".
+    # The IDF tag exists only in http_request_idf.cpp. A log filter for
+    # a tag that is never emitted looks exactly like a working one until
+    # someone reads the log and wonders why it is still noisy.
+    #
+    # NOT filtered: http_request.update. Those lines are the whole
+    # record of what the update path did, and they are rare.
     xpt2046: INFO
-    http_request.idf: INFO
+    http_request.arduino: INFO
   # Response bodies are logged below (truncated to 200 characters). The
   # default 512-byte line buffer would clip those lines mid-JSON.
   tx_buffer_size: 1024
@@ -298,6 +312,22 @@ ota:
 # The check itself runs on its own FreeRTOS task (xTaskCreate in
 # ESPHome's http_request_update.cpp), not on the main loop — unlike the
 # scan, this one cannot trip the task watchdog however long it takes.
+#
+# Which raises the obvious question: can that task collide with a scan
+# over the same `http_request` component? Checked against the pinned
+# ESPHome sources rather than assumed, and it cannot.
+# HttpRequestComponent holds only read-only configuration; each request
+# gets its own HTTPClient on its own HttpContainer
+# (http_request_arduino.h), so there is no shared per-request state to
+# corrupt. And a scan blocks the main loop for its whole duration, so
+# LVGL processes no input and the button cannot be pressed while one is
+# running.
+#
+# The source URL is likewise set before the first check can happen, and
+# not by luck: `text` entities with restore_value publish their restored
+# value from their own setup() (TemplateText::setup), which fires
+# on_value -> apply_update_source. That is long before this component's
+# network-ready poll, and before wifi.on_connect, which only repeats it.
 update:
   - platform: http_request
     name: "Firmware Update"

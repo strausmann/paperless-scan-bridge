@@ -206,7 +206,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	var fwMirror *firmware.Mirror
 	if cfg.Firmware.Enabled {
 		fwMirror, err = firmware.New(firmware.Options{
-			CacheDir:  cfg.Firmware.CacheDir,
+			CacheDir:  cfg.FirmwareCacheDir(),
 			Repo:      cfg.Firmware.Repo,
 			APIBase:   cfg.Firmware.APIBase,
 			Interval:  cfg.FirmwareRefreshInterval(),

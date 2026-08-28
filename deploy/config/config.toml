@@ -52,7 +52,10 @@ hard_timeout_seconds = 60
 # 60-per-hour limit, which is why the mirror carries no token.
 [firmware]
 enabled = true
-cache_dir = "/var/lib/scan-bridge/firmware"
+# cache_dir is commented out on purpose: unset, it follows state_dir
+# above, so moving that moves this with it. Set it only to put the cache
+# somewhere else entirely.
+# cache_dir = "/var/lib/scan-bridge/firmware"
 repo = "strausmann/paperless-scan-bridge"
 api_base = "https://api.github.com"
 refresh_interval_seconds = 18000

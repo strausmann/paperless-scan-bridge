@@ -452,8 +452,8 @@ func TestDefaultEnablesTheFirmwareMirror(t *testing.T) {
 	if !cfg.Firmware.Enabled {
 		t.Error("Default Firmware.Enabled = false; a deployment with a panel is the normal case")
 	}
-	if cfg.Firmware.CacheDir != "/var/lib/scan-bridge/firmware" {
-		t.Errorf("Default Firmware.CacheDir = %q", cfg.Firmware.CacheDir)
+	if want := "/var/lib/scan-bridge/firmware"; cfg.FirmwareCacheDir() != want {
+		t.Errorf("Default FirmwareCacheDir() = %q, want %q", cfg.FirmwareCacheDir(), want)
 	}
 	// Shorter than the panel's own 6h check on purpose (ADR 0024,
 	// issue #111): the bridge must know before the panel asks.
@@ -504,7 +504,12 @@ func TestValidateRejectsBadFirmwareConfig(t *testing.T) {
 		mutate func(*Config)
 		want   string
 	}{
-		{"empty cache dir", func(c *Config) { c.Firmware.CacheDir = "" }, "cache_dir"},
+		// An empty cache_dir is no longer an error on its own: it means
+		// "derive from state_dir". Only having neither is.
+		{"neither cache dir nor state dir", func(c *Config) {
+			c.Firmware.CacheDir = ""
+			c.Paths.StateDir = ""
+		}, "cache_dir"},
 		{"repo without slash", func(c *Config) { c.Firmware.Repo = "nonsense" }, "owner/name"},
 		{"repo with empty owner", func(c *Config) { c.Firmware.Repo = "/name" }, "owner/name"},
 		{"repo with empty name", func(c *Config) { c.Firmware.Repo = "owner/" }, "owner/name"},
@@ -529,5 +534,44 @@ func TestValidateRejectsBadFirmwareConfig(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// The firmware cache follows state_dir. Both settings describe one
+// thing -- where durable daemon state lives -- and an operator who
+// moves the first must not be left with a firmware cache pointing at
+// the old location, which fails at startup with a message that names
+// neither setting.
+func TestFirmwareCacheDirFollowsStateDir(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Paths.StateDir = "/srv/psb"
+	if got, want := cfg.FirmwareCacheDir(), "/srv/psb/firmware"; got != want {
+		t.Errorf("FirmwareCacheDir() = %q, want %q", got, want)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate = %v, want nil", err)
+	}
+
+	// An explicit value still wins.
+	cfg.Firmware.CacheDir = "/mnt/elsewhere"
+	if got := cfg.FirmwareCacheDir(); got != "/mnt/elsewhere" {
+		t.Errorf("explicit cache_dir ignored: %q", got)
+	}
+}
+
+func TestValidateRejectsAFirmwareCacheWithNowhereToLive(t *testing.T) {
+	t.Parallel()
+
+	cfg := Default()
+	cfg.Paths.StateDir = ""
+	cfg.Firmware.CacheDir = ""
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted a firmware cache with neither state_dir nor cache_dir")
+	}
+	if !strings.Contains(err.Error(), "cache_dir") {
+		t.Errorf("error %q does not mention cache_dir", err)
 	}
 }
