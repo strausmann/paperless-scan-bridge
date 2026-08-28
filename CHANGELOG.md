@@ -56,9 +56,9 @@ between releases as a running list.
   failed, so correcting a wrong Bridge URL shows a result almost at once
   and a bridge that disappears is noticed within the minute — and
   **every 30 minutes** once one succeeds, plus a **Check for Update**
-  button. With no Bridge URL set it does not poll at all. The bridge asks GitHub every 5 hours; the two
-  cadences are independent, because the panel reads the bridge's cache
-  and never reaches GitHub itself.
+  button. With no Bridge URL set it does not poll at all. The bridge
+  asks GitHub every 5 hours; the two cadences are independent, because
+  the panel reads the bridge's cache and never reaches GitHub itself.
 
   The detour exists because the panel cannot reach GitHub, or the docs
   site, or anything else over TLS: with Wi-Fi, the Bluetooth stack, LVGL
