@@ -274,10 +274,15 @@ ota:
 # platform compares it against what it actually wrote and discards a
 # mismatch (ADR 0023).
 #
-# `source:` below is a placeholder and is expected never to be used.
-# .invalid is reserved by RFC 2606, so a panel whose Bridge URL is unset
-# fails DNS immediately and says so, rather than hanging on a timeout or
-# quietly reaching somewhere real.
+# `source:` below is a placeholder and is expected never to be used --
+# nor even reached. A panel with no Bridge URL does not check at all:
+# every caller goes through `check_now`, which declines an empty URL,
+# and the poller is stopped outright in that state.
+#
+# It is .invalid (reserved by RFC 2606) anyway, as the backstop for the
+# case where something reaches it despite that: DNS fails at once and
+# says why, rather than hanging on a timeout or quietly resolving
+# somewhere real.
 #
 # The URL that actually gets used is set at runtime by the
 # `apply_update_source` script below, from the Bridge URL entity — the
@@ -2003,8 +2008,10 @@ script:
             # the OLD bridge -- a host that may have been retired, or
             # that the operator has deliberately stopped trusting. The
             # scan path already honours an empty URL; this makes the
-            # update path match. Back to the .invalid placeholder, which
-            # fails DNS immediately and says why.
+            # update path match. Back to the .invalid placeholder --
+            # which nothing should now reach, since the poller stops
+            # below and check_now declines an empty URL, but which fails
+            # DNS at once and says why if anything does.
             - lambda: |-
                 ESP_LOGW("panel.update",
                          "update source reset: Bridge URL is empty. "

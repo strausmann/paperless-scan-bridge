@@ -231,10 +231,19 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   so the first build carrying the new update path has to be installed once by
   hand, through the dashboard's upload form or over USB. Both `/install/` pages
   say so explicitly.
-- **Neutral / follow-ups:** the panel's `update:` `source:` is now a placeholder
+- **Neutral / follow-ups:** the panel's `update:` `source:` is a placeholder
   (`http://bridge.invalid/…`, RFC 2606) overwritten at runtime from the Bridge
-  URL entity. A panel with no Bridge URL set therefore reports an update check
-  that fails DNS immediately, which is the intended, legible failure.
+  URL entity. It is a backstop, not a behaviour: a panel with no Bridge URL
+  does not check at all — every caller goes through a script that declines an
+  empty URL, and clearing the URL stops the poller in the same action rather
+  than at the supervisor's next tick.
+
+  This bullet used to say the opposite — that such a panel "reports an update
+  check that fails DNS immediately, which is the intended, legible failure".
+  That was the behaviour when the poll ran every six hours and the failure was
+  rare. At 60 s it would have made an unconfigured panel the noisiest device on
+  the network, so the design changed and this text did not, until a review
+  caught the contradiction between two paragraphs of the same document.
 
 ## References
 
