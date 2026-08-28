@@ -135,9 +135,17 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     Once the panel knows its **Bridge URL**, it checks that bridge for
     newer firmware and reports one as **Firmware Update** on its own
     dashboard. There is also a **Check for Update** button: it asks the
-    bridge to look at GitHub at once, and the panel reads the answer a
-    few seconds later — so a result appears within about a minute and a
-    half rather than at the next scheduled check.
+    bridge to look at GitHub at once, and the panel then reads the
+    answer three times, so it does not have to wait for the next
+    scheduled check.
+
+    Usually the result is there within about a minute and a half. It can
+    take up to **eleven minutes**: the bridge keeps five minutes between
+    two GitHub calls, so a press shortly after another check has to wait
+    that out before the bridge even looks, and the look itself may take
+    another five. **Pressing the button again restarts that sequence
+    rather than speeding it up** — if nothing has appeared, waiting is
+    faster than pressing.
 
     How often it checks depends on what it knows. While it has never had
     a successful check — the state a wrong Bridge URL leaves it in, and

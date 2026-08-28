@@ -141,9 +141,16 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     neuerer Firmware und meldet sie auf dem eigenen Dashboard als
     **Firmware Update**. Daneben gibt es die Schaltfläche **Check for
     Update**: Sie fordert die Bridge sofort auf, bei GitHub
-    nachzusehen; das Panel liest die Antwort wenige Sekunden später —
-    ein Ergebnis erscheint also binnen etwa anderthalb Minuten statt
-    erst bei der nächsten planmäßigen Prüfung.
+    nachzusehen; das Panel liest die Antwort danach dreimal, damit nicht
+    bis zur nächsten planmäßigen Prüfung gewartet werden muss.
+
+    Meist steht das Ergebnis binnen etwa anderthalb Minuten. Es kann bis
+    zu **elf Minuten** dauern: Die Bridge hält fünf Minuten zwischen
+    zwei GitHub-Aufrufen ein, ein Druck kurz nach einer anderen Prüfung
+    muss diese Frist also erst abwarten — und der Aufruf selbst darf
+    noch einmal fünf Minuten brauchen. **Erneutes Drücken startet die
+    Folge von vorn, statt sie zu beschleunigen** — wenn nichts
+    erscheint, ist Warten schneller als Drücken.
 
     Wie oft es fragt, hängt davon ab, was es weiß. Solange noch keine
     Prüfung erfolgreich war — der Zustand, den eine falsche Bridge URL

@@ -165,8 +165,8 @@ func genDir(t *testing.T, m *Mirror) string {
 	return filepath.Join(m.cacheDir, cur.Dir())
 }
 
-// runMirror starts m.Run and guarantees it has returned before the test
-// ends.
+// runMirror starts m.Run and waits for it to return before the test
+// ends, failing the test if it does not within ten seconds.
 //
 // Not tidiness: t.TempDir registers its cleanup when the directory is
 // created, and t.Cleanup runs LIFO, so this one fires first and joins
@@ -175,10 +175,17 @@ func genDir(t *testing.T, m *Mirror) string {
 // directory under a tree TempDir is already deleting, and the test
 // fails with "directory not empty" -- intermittently, which is the
 // worst kind.
+//
+// The ten seconds are a bound, not a guarantee: a Run that ignored its
+// context would make the test fail here rather than hang, which is the
+// useful outcome either way.
 func runMirror(t *testing.T, m *Mirror) {
 	t.Helper()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// t.Context() as the parent, matching the rest of this file: a test
+	// that times out or panics then cancels Run too, rather than
+	// relying on the cleanup below being reached.
+	ctx, cancel := context.WithCancel(t.Context())
 	stopped := make(chan struct{})
 	go func() { m.Run(ctx); close(stopped) }()
 
