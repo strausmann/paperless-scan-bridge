@@ -135,12 +135,15 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
   [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
 
-!!! warning "Das Selbst-Update funktioniert auf dieser Hardware noch nicht"
+!!! info "Updates kommen von Ihrer Bridge, nicht von dieser Seite"
 
-    Das Panel wurde dafür gebaut, `manifest.json` über HTTPS abzurufen
-    und einen neueren Build als **Firmware Update** auf seinem Dashboard
-    zu melden. Am Referenzgerät gemessen ist das kein einziges Mal
-    gelungen:
+    Sobald das Panel seine **Bridge URL** kennt, fragt es dort alle sechs
+    Stunden nach neuerer Firmware und meldet sie auf dem eigenen Dashboard
+    als **Firmware Update**. Daneben gibt es eine Schaltfläche **Check for
+    Update**, die sofort nachfragt.
+
+    Der Umweg über die Bridge ist keine Vorliebe. Das Panel erreicht diese
+    Seite nicht — und GitHub ebenso wenig, und überhaupt nichts über HTTPS:
 
     ```text
     E esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
@@ -149,38 +152,61 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
     `-0x7F00` ist `MBEDTLS_ERR_SSL_ALLOC_FAILED`. Die TLS-Sitzung lässt
     sich nicht anlegen — das Panel trägt bereits WLAN, den
-    Bluetooth-Stack, LVGL und sein eigenes Dashboard, und mbedTLS will
-    noch einmal rund 32 KB obendrauf. Das ist eine Speichergrenze, kein
-    Zertifikatsproblem: Ein eingebettetes Root-Zertifikat würde es
-    verschlimmern, weil der Fehler auftritt, bevor überhaupt ein
-    Zertifikat betrachtet wird. Auf dem Dashboard steht
-    `Firmware Update: UNKNOWN`, und das war immer so.
+    Bluetooth-Stack, LVGL und sein eigenes Dashboard, und mbedTLS möchte
+    obendrauf rund 32 KB. Das ist eine Speichergrenze, kein
+    Zertifikatsproblem: Ein eingebettetes Root-Zertifikat verschlimmert
+    es, weil der Fehler auftritt, bevor überhaupt ein Zertifikat geprüft
+    wird.
 
-    Bis sich das ändert: Upload-Formular nutzen.
+    Diesen Teil übernimmt `scan-bridge`. Sie fragt alle fünf Stunden bei
+    GitHub nach dem neuesten Release, lädt die Firmware, **prüft sie gegen
+    die `SHA256SUMS` des Releases** und bietet sie erst danach unter
+    `http://<ihre-bridge>:18080/firmware/manifest.json` an. Eine Datei,
+    deren Prüfsumme nicht stimmt, wird verworfen; die Bridge liefert
+    weiter das Release aus, das sie bereits hatte. Das Manifest nennt nie
+    einen Build, den die Bridge nicht herausgeben kann.
 
-!!! info "Was ein Update schützen wird, sobald es funktioniert"
+    Danach müssen Sie nichts weiter tun: Der Spiegel ist standardmäßig
+    aktiv. Soll Ihre Bridge nicht mit dem öffentlichen Internet sprechen,
+    setzen Sie in `config.toml` unter `[firmware]` den Wert
+    `enabled = false` und nutzen weiterhin das Upload-Formular.
 
-    ADR 0024 verlegt Manifest und Firmware-Image auf `scan-bridge`
-    selbst, ausgeliefert über Klartext-HTTP im eigenen Netz. Das nimmt
-    TLS aus dem Update-Pfad heraus, statt seine Kosten zu umgehen, und
-    es beseitigt eine Internet-Abhängigkeit für eine Funktion, die sonst
-    nichts außerhalb Ihres LAN braucht.
+!!! warning "Ein bereits eingerichtetes Panel braucht einmal ein Update von Hand"
 
-    Die Integritätsgarantie bleibt unverändert: Das Manifest trägt die
-    MD5-Summe der Firmware, und das Panel prüft sie **beim Schreiben**.
-    Ein abgebrochener oder veränderter Download wird verworfen, die
-    laufende Firmware bleibt. Ein unterbrochenes Update kann das Panel
-    nicht unbrauchbar machen.
+    Das Ganze greift erst ab der Firmware, die es eingeführt hat. Ein
+    Panel, das bereits im Einsatz ist, läuft noch mit einem Build, der
+    das HTTPS-Manifest dieser Seite abfragt — genau der Abruf, der auf
+    dieser Hardware noch nie funktioniert hat. Es wird die neue Version
+    also **nie** von selbst bekommen.
 
-    Das Restrisiko wandert mit der Quelle. Wer Verkehr in Ihrem LAN
-    umschreiben kann, kann ein gefälschtes Manifest **und** eine dazu
-    passende Binärdatei ausliefern, und die MD5-Prüfung ginge durch —
-    dieselbe Angriffsfläche, die der vorherige Entwurf auf dem
-    öffentlichen Internetpfad in Kauf nahm, nun auf Ihr eigenes Netz
-    begrenzt. Deshalb **meldet** das Panel Updates, installiert aber nie
-    eines von selbst: Das entscheidende Zeitfenster ist der Moment, in
-    dem Sie auf Installieren klicken — nicht alle sechs Stunden. Die
-    vollständige Begründung steht in ADR 0024 im Repository.
+    Einmal von Hand einspielen:
+
+    1. [`cyd-scan-panel.ota.bin` herunterladen](#firmware-herunterladen).
+    2. Das Dashboard des Panels unter `http://<panel-ip>/` öffnen und das
+       Upload-Formular **OTA Update** benutzen. (Oder von dieser Seite
+       aus per USB neu flashen — beides geht.)
+    3. Die **Bridge URL** setzen, falls noch nicht geschehen.
+
+    Danach findet das Panel Updates von allein.
+
+!!! info "Was ein Update absichert"
+
+    Die Integritätsgarantie ist die MD5-Summe aus dem Manifest, und das
+    Panel prüft sie **während des Schreibens**. Ein abgeschnittener oder
+    veränderter Download wird verworfen, die laufende Firmware bleibt
+    bestehen — ein abgebrochenes Update kann das Panel nicht unbrauchbar
+    machen. Zwischen GitHub und Ihrer Bridge kommen die
+    SHA-256-Prüfsummen als zweite, stärkere Prüfung hinzu, die das Panel
+    selbst nicht leisten kann.
+
+    Zwischen Bridge und Panel läuft der Verkehr als reines HTTP in Ihrem
+    eigenen Netz. Wer dort Verkehr umschreiben kann, kann ein gefälschtes
+    Manifest und eine dazu passende Binärdatei ausliefern — die
+    MD5-Prüfung ginge durch. Deshalb **meldet** das Panel Updates, es
+    installiert aber nie eines von selbst: Das entscheidende Zeitfenster
+    ist der Moment, in dem Sie auf Installieren drücken, nicht alle sechs
+    Stunden. Die vollständige Begründung steht in ADR 0024 und ADR 0025
+    im Repository.
 
 ## Voraussetzungen
 

@@ -43,6 +43,7 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
 | [0022](0022-panel-ble-management-surface.md) | Panel BLE stays Improv-only until an authorizer exists | Proposed |
 | [0023](0023-panel-self-update-manifest.md) | Panel self-updates from the hosted manifest; MD5 is the integrity guarantee | Superseded by 0024 |
 | [0024](0024-panel-updates-from-the-bridge-over-http.md) | Panel updates from the bridge over plain HTTP; MD5 stays the integrity guarantee | Proposed |
+| [0025](0025-bridge-mirrors-panel-firmware-from-github-releases.md) | The bridge mirrors the panel firmware from GitHub Releases, verified against `SHA256SUMS` | Proposed |
 
 <!-- Backfill candidates still pending clarification (95% rule): ESP32 panel (#9) · profile storage
      YAML-vs-DB · scanbd hardware-button path (ARCHITECTURE vs #7) · secrets SOPS-vs-env · storage
@@ -59,6 +60,12 @@ see `.claude/rules/adr.md`. **Precedence on conflict: ADR > guidelines/`AGENTS.m
      (design doc sec. 8), found missing while wiring handleScan through the registry (#48, #50).
      ADR 0016 is NOT superseded — its own decision (pluggable interface + registry) is unchanged;
      0021 only fills in a signature detail 0016 explicitly deferred. -->
+
+<!-- 2026-08-27: ADR 0025 decides how the bridge obtains the firmware image, which ADR 0024
+     explicitly deferred ("an implementation question, not a decision this ADR settles").
+     0024 is NOT superseded -- its decision (panel polls the bridge over HTTP, MD5 is the
+     integrity guarantee) is unchanged; 0025 only fills the gap it left. Same relationship
+     0021 has to 0016. -->
 
 <!-- Candidate ADRs to backfill from the existing concept docs:
   0001 container-first / host-thin

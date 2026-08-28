@@ -129,7 +129,12 @@ services:
       - sane-socket:/run/sane-runtime:ro
       - scan-processor-socket:/run/scan-processor:ro
       # Persistent state only -- small, and it has to survive a
-      # restart. The job store (Phase 1.4) lands here.
+      # restart. The job store (Phase 1.4) lands here, and so does the
+      # mirrored panel firmware (/var/lib/scan-bridge/firmware, ADR
+      # 0024). Note the contrast with the scans mount below: firmware is
+      # the one thing here that must NOT be tmpfs, or every reboot
+      # re-downloads ~1.7 MB from GitHub and the panel gets 503 in the
+      # meantime.
       - scan-bridge-data:/var/lib/scan-bridge
       # Scan scratch on tmpfs, i.e. RAM. This is the one mount that
       # decides whether the host's disk survives.

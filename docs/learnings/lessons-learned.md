@@ -147,3 +147,48 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   command block as the change it describes: run the edit, verify it landed,
   then post. The existing rule about not naming an artifact in the step that
   creates it extends to this — a claim about a change is such an artifact.
+
+## 2026-08-28 — A scratch file in /tmp overwrote a source file, and the commit shipped it
+
+**What happened.** While mutation-testing my own change to
+`internal/config/config.go`, the save step `cp internal/config/config.go
+/tmp/cfg.bak` failed with `permission denied`: `/tmp/cfg.bak` already
+existed and belonged to something else. The restore step,
+`cp /tmp/cfg.bak internal/config/config.go`, then *succeeded* — copying
+that stranger's file over the repository's. It was a `config.go` from an
+unrelated project: `fileee-mcp-server` and `gangway` imports, German
+comments, a `Config` type with none of this daemon's fields. The package
+no longer built. It was committed and pushed.
+
+**Root cause.** Two, and neither is the `cp` itself:
+
+1. A **fixed name in a shared directory** for a scratch file.
+   `/tmp/<something>.bak` is a name anything on the machine may already
+   own, and `cp` reports that by failing — which is fine, as long as
+   somebody reads it.
+2. **Committing in the same command block as a step that mutates the
+   tree.** The build and the test run happened *before* the mutation;
+   the restore and the commit happened after, with nothing in between.
+   So the one thing that would have caught it — building after
+   restoring — was never run.
+
+**Impact.** One commit on a feature branch with a source file replaced
+by an unrelated project's. Caught within minutes by the next `go build`,
+before merge. No release, no deployment.
+
+**Fix / prevention.**
+
+- Scratch copies go to a **per-invocation** directory, not a fixed name
+  in `/tmp`. A collision is then impossible rather than merely
+  reported.
+- A mutation cycle **ends with a build and the full suite**, after the
+  restore, before anything is staged. "Restore, then verify" — the
+  same discipline as "download, verify, then publish" in the code this
+  was testing.
+- Never put `git commit` in the same block as a step that rewrites
+  files. Separate the verification from the mutation, and let the
+  verification be the last thing that runs.
+
+Related: the 2026-08-27 entry on claiming a fix before making the edit.
+Both are the same shape — a command block whose later steps assume the
+earlier ones did what they were supposed to.

@@ -50,6 +50,12 @@ tags:
     description: >-
       Job store surface. Not implemented yet (Phase 1.4) — every
       operation here returns 501.
+  - name: firmware
+    description: >-
+      The panel firmware, mirrored from GitHub Releases and served over
+      plain HTTP on the LAN (ADR 0024, ADR 0025). Never behind auth —
+      the panel fetches it before a bearer token has been configured,
+      and the content is a public release asset.
 
 paths:
   /health:
@@ -402,6 +408,361 @@ paths:
         "501":
           $ref: "#/components/responses/NotImplemented"
 
+  /firmware/manifest.json:
+    get:
+      operationId: getFirmwareManifest
+      tags: [firmware]
+      summary: The update manifest of the mirrored release
+      description: >-
+        The manifest the panel's `update:` entity polls. Mirrored from
+        the release, with one change: each build's `ota.path` is
+        rewritten to the absolute, generation-qualified
+        `/firmware/{generation}/{name}` this bridge serves that content
+        at.
+
+
+        The rewrite is what makes an install survive the gap between
+        check and click. ESPHome resolves a relative path against the
+        manifest's own URL, so a bare path would send every panel to
+        `/firmware/<name>.bin` — always the newest generation. But a
+        panel installs when a person presses the button, possibly hours
+        after it read the manifest, carrying the MD5 from that read. It
+        would then download a binary that MD5 does not describe and fail.
+
+
+        The `md5` beside the path is **never** rewritten: it is the
+        digest CI computed from the binary it shipped, which is what
+        makes the published digest describe the file actually served
+        (ADR 0024). `parts` is left relative — it is read by ESP Web
+        Tools during a USB install from the docs site, never from here.
+
+
+        The rewrite is strict, and it runs at mirror time as well as per
+        request: a manifest with no builds, a build without an
+        `ota.path`, a path that is an absolute URL, or a path naming a
+        file the release does not carry is rejected, and such a release
+        never becomes current. A best-effort rewrite would publish paths
+        that are still relative and break the guarantee silently, which
+        is worse than failing.
+      security: []
+      responses:
+        "200":
+          description: The manifest.
+          headers:
+            X-Firmware-Version:
+              description: The mirrored release tag.
+              schema:
+                type: string
+                example: v1.2.0
+            X-Firmware-Generation:
+              description: >-
+                The generation: the tag plus a digest of that release's
+                checksums. A tag alone does not identify bytes —
+                `gh release upload --clobber` puts different binaries
+                under the same tag — so the two headers answer different
+                questions and both are sent.
+              schema:
+                type: string
+                example: v1.2.0-9f2c1a4b7e30
+          content:
+            application/json:
+              schema:
+                type: object
+        "500":
+          description: The cached manifest could not be read or decoded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
+        "501":
+          description: The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+        "503":
+          description: The bridge has not mirrored a release yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_not_cached
+                hint: >-
+                  The bridge has not mirrored a release yet. POST
+                  /firmware/refresh, or wait for the periodic refresh.
+
+  /firmware/{generation}/{name}:
+    get:
+      operationId: getFirmwareFileAtVersion
+      tags: [firmware]
+      summary: A file of a specific mirrored generation
+      description: >-
+        What the manifest points at. Unlike `GET /firmware/{name}` this
+        is not restricted to the current release: the mirror keeps the
+        previous generation on disk so a URL a panel captured at check
+        time keeps returning the same bytes when someone finally presses
+        install. Two generations are kept; a third release evicts the
+        first.
+
+
+        Unauthenticated, for the same reasons as the routes above.
+      parameters:
+        - name: generation
+          in: path
+          required: true
+          description: >-
+            A mirrored generation: the release tag plus a short digest of
+            that release's own checksums. Not the tag alone —
+            `gh release upload --clobber` means one tag can carry
+            different binaries at different times, and a URL that
+            silently changed what it returned would fail the panel's MD5
+            check.
+          schema:
+            type: string
+          example: v1.2.0-9f2c1a4b7e30
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: cyd-scan-panel.ota.bin
+      security: []
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Firmware-Generation:
+              description: >-
+                The generation, exactly as requested.
+                `X-Firmware-Version` is **not** sent here: this route is
+                reachable for a generation that is no longer current,
+                and nothing on disk records which tag it belonged to.
+                The tag is the generation's prefix, so nothing is lost.
+              schema:
+                type: string
+                example: v1.2.0-9f2c1a4b7e30
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: >-
+            No such generation is cached, or it carries no file by that
+            name. The two cases are one response on purpose — a caller
+            can only either receive the file or not, and separating them
+            would report which tags exist. Only genuine absence answers
+            `404`; a file that exists but cannot be read is a `500`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_file_not_found
+                hint: >-
+                  GET /firmware/manifest.json names the files of the
+                  mirrored release.
+        "500":
+          description: >-
+            The file is there but unreadable — a permission problem, a
+            failing disk. Reported rather than folded into the `404`,
+            because a broken cache that answers "not found" is an update
+            that never arrives with nothing in the log to explain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
+        "501":
+          description: The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+
+  /firmware/{name}:
+    get:
+      operationId: getFirmwareFile
+      tags: [firmware]
+      summary: A file of the current mirrored release
+      description: >-
+        Serves one file of whichever panel-firmware release is current
+        (ADR 0024, ADR 0025). This is the "give me the newest" shape, for
+        an operator with `curl`; the panel uses the generation-qualified
+        route above, which does not shift underneath it.
+
+
+        `manifest.json` never reaches this handler: the literal pattern
+        `GET /firmware/manifest.json` is more specific and wins in the
+        router, so the manifest is always the rewritten one.
+
+
+        Deliberately unauthenticated. The panel fetches the manifest
+        before an operator has entered a bearer token, and would
+        otherwise be unable to update its way out of a broken
+        configuration; the content is a public release asset anyone can
+        download from GitHub with no credential at all.
+
+
+        `name` is matched against the cached release's own file list, not
+        joined onto a path, so only files that release actually carries
+        can be served.
+
+
+        The response carries `X-Firmware-Version` with the mirrored
+        release tag, so `curl -I` answers "which build is this bridge
+        handing out?" without transferring ~1.7 MB.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: >-
+            A file name of the mirrored release, e.g.
+            `cyd-scan-panel.ota.bin` or `cyd-scan-panel.factory.bin`.
+            Not `manifest.json` — see the note above.
+          schema:
+            type: string
+          example: cyd-scan-panel.ota.bin
+      security: []
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Firmware-Version:
+              description: The mirrored release tag.
+              schema:
+                type: string
+                example: v1.2.0
+            X-Firmware-Generation:
+              description: >-
+                The generation: the tag plus a digest of that release's
+                checksums. A tag alone does not identify bytes —
+                `gh release upload --clobber` puts different binaries
+                under the same tag — so the two headers answer different
+                questions and both are sent.
+              schema:
+                type: string
+                example: v1.2.0-9f2c1a4b7e30
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: >-
+            The mirrored release carries no file by that name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_file_not_found
+                hint: >-
+                  GET /firmware/manifest.json names the files of the
+                  mirrored release.
+        "500":
+          description: >-
+            The file is there but unreadable — a permission problem, a
+            failing disk. Reported rather than folded into the `404`,
+            because a broken cache that answers "not found" is an update
+            that never arrives with nothing in the log to explain it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_unreadable
+        "501":
+          description: >-
+            The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+        "503":
+          description: >-
+            The bridge has not mirrored a release yet. `503` and not
+            `404` on purpose: the resource exists in principle and is
+            expected shortly, so a client should come back rather than
+            conclude the endpoint does not exist. Decided after the open
+            fails, never before it is attempted: probing first would
+            answer `503` for a request a refresh completing mid-flight
+            could have served, and one `503` costs the panel six hours.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: firmware_not_cached
+                hint: >-
+                  The bridge has not mirrored a release yet. POST
+                  /firmware/refresh, or wait for the periodic refresh.
+
+  /firmware/refresh:
+    post:
+      operationId: refreshFirmware
+      tags: [firmware]
+      summary: Ask the bridge to check GitHub for a newer panel firmware
+      description: >-
+        Queues an immediate check and returns at once. It never waits
+        for the result: the panel reaches this through ESPHome's
+        `http_request`, which is synchronous on the device's main loop,
+        and a handler that blocked for a GitHub round trip plus a
+        ~1.7 MB download would hold that loop past the 60-second task
+        watchdog and reboot the panel on the button press.
+
+
+        Unauthenticated, for the same reasons as `GET /firmware/{name}`.
+        The only effect an unauthenticated caller can have is to make the
+        bridge ask GitHub sooner than its five-hourly schedule — and that
+        is bounded: the mirror enforces a five-minute floor between
+        outbound GitHub calls, so a caller in a loop cannot exhaust the
+        anonymous sixty-per-hour quota and thereby stop real updates
+        arriving. A failed attempt counts against the floor too.
+
+
+        A call that lands inside the floor is not discarded: the mirror
+        re-arms it for the moment the floor expires, so a press four
+        minutes after the scheduled poll happens late rather than not at
+        all. That is why `202` is honest in that case too.
+      security: []
+      responses:
+        "202":
+          description: >-
+            Accepted. `queued` is `false` when a refresh was already
+            pending — the request is satisfied either way, which is why
+            this is `202` in both cases rather than a conflict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareRefreshResponse"
+              example:
+                queued: true
+                cached_version: v1.2.0
+        "501":
+          description: >-
+            The mirror is disabled (`firmware.enabled = false`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_implemented
+                hint: firmware mirror is disabled
+
 components:
   securitySchemes:
     bearerAuth:
@@ -435,6 +796,22 @@ components:
             hint: job store has not landed yet
 
   schemas:
+    FirmwareRefreshResponse:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
+          description: >-
+            Whether this call queued a refresh. `false` means one was
+            already pending, not that the request was refused.
+        cached_version:
+          type: string
+          description: >-
+            The release tag the bridge is currently serving. Absent
+            while the cache is cold.
+          example: v1.2.0
+
     HealthResponse:
       type: object
       required: [status]

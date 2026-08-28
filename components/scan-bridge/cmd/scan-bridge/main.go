@@ -31,6 +31,7 @@ import (
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/api"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/config"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/dispatch"
+	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/firmware"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/metrics"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/procclient"
 	"github.com/strausmann/paperless-scan-bridge/components/scan-bridge/internal/profiles"
@@ -194,6 +195,36 @@ func run(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
+	// The panel-firmware mirror (ADR 0024, issue #111). It runs for the
+	// life of the process; its own context is cancelled on the way out
+	// so an in-flight download does not outlive the daemon.
+	//
+	// Load failing is not fatal: a cache the daemon cannot vouch for is
+	// exactly the state the next refresh repairs, and refusing to start
+	// over it would take the whole scan pipeline down for a firmware
+	// file nobody has asked for yet.
+	var fwMirror *firmware.Mirror
+	if cfg.Firmware.Enabled {
+		fwMirror, err = firmware.New(firmware.Options{
+			CacheDir:  cfg.FirmwareCacheDir(),
+			Repo:      cfg.Firmware.Repo,
+			APIBase:   cfg.Firmware.APIBase,
+			Interval:  cfg.FirmwareRefreshInterval(),
+			Logger:    logger,
+			UserAgent: "paperless-scan-bridge/" + version,
+		})
+		if err != nil {
+			return fmt.Errorf("firmware mirror: %w", err)
+		}
+		if err := fwMirror.Load(); err != nil {
+			logger.Warn("firmware cache unusable, refetching",
+				slog.Any("err", err))
+		}
+		mirrorCtx, cancelMirror := context.WithCancel(context.Background())
+		defer cancelMirror()
+		go fwMirror.Run(mirrorCtx)
+	}
+
 	apiServer := &api.Server{
 		Profiles: profileSet,
 		Build: api.BuildInfo{
@@ -209,6 +240,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 		OutputDir:       cfg.Paths.OutputDir,
 		KeepScanOutput:  cfg.Paths.KeepScanOutput,
 		MaxRequestBytes: cfg.Server.MaxRequestBytes,
+	}
+	// Assigned inside the guard, never as part of the literal above: a
+	// nil *firmware.Mirror stored in the FirmwareMirror interface is
+	// not a nil interface, so `s.Firmware != nil` in routes.go would
+	// be true and the first /firmware request would panic on a nil
+	// receiver. The disabled case has to leave the field untouched.
+	if fwMirror != nil {
+		apiServer.Firmware = fwMirror
 	}
 
 	metricsMux := http.NewServeMux()

@@ -27,8 +27,9 @@ of the site:
 - **[Manage panel](../manage/index.md)** — get a panel onto Wi-Fi over
   Bluetooth (Chrome/Edge, Web Bluetooth).
 - **[Download the firmware](../install/index.md#download-the-firmware)**
-  — the `.bin` for the dashboard's upload form, which is the working
-  update path while self-update is broken.
+  — the `.bin` for the dashboard's upload form, kept as the recovery
+  path. The normal update path is now automatic: the panel gets its
+  firmware from your bridge (see below).
 
 This page is the hardware reference behind those: what the panel is,
 how it behaves once configured, and what it still cannot do.
@@ -92,6 +93,25 @@ how it behaves once configured, and what it still cannot do.
     The fix is the `/jobs` endpoints (Phase 1.4) — fire the scan, poll
     for the result, never hold the loop. ESPHome's `http_request` has no
     async mode to use instead.
+
+## Updates come from the bridge
+
+Once the panel knows its **Bridge URL** it checks that bridge for newer
+firmware every six hours and reports one as **Firmware Update** on its
+own dashboard; a **Check for Update** button asks immediately.
+
+The panel never talks to GitHub. It cannot: with Wi-Fi, the Bluetooth
+stack, LVGL and its own dashboard resident there is no memory left to
+set up a TLS session (`MBEDTLS_ERR_SSL_ALLOC_FAILED`) — a memory
+ceiling, not a certificate problem. So `scan-bridge` asks GitHub every
+five hours instead, downloads the release, **verifies it against the
+release's own `SHA256SUMS`**, and only then publishes it at
+`http://<your-bridge>:18080/firmware/manifest.json`. A file that fails
+its checksum is discarded and the bridge keeps serving what it had, so
+the manifest never advertises a build the bridge cannot hand over.
+
+Checking is automatic; **installing is still a deliberate click**. The
+reasoning is in ADR 0024 and ADR 0025.
 
 No dedicated portrait page layout (the button grid itself resizes for
 either orientation, but the header/footer rows are still landscape-only

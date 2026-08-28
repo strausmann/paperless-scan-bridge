@@ -46,6 +46,54 @@ between releases as a running list.
 
 ### Added
 
+- **The panel now updates itself, from your bridge.** `scan-bridge`
+  mirrors the panel firmware from this repository's GitHub Releases,
+  verifies every file against the release's own `SHA256SUMS`, and serves
+  it on unauthenticated routes: `GET /firmware/manifest.json`,
+  `GET /firmware/{generation}/{name}`, `GET /firmware/{name}` and
+  `POST /firmware/refresh`. The panel polls its bridge every 6 hours and
+  has a **Check for Update** button; the bridge asks GitHub every 5 —
+  deliberately sooner, so it has normally already looked by the time the
+  panel asks.
+
+  The detour exists because the panel cannot reach GitHub, or the docs
+  site, or anything else over TLS: with Wi-Fi, the Bluetooth stack, LVGL
+  and its own dashboard resident, the ESP32 cannot allocate a TLS
+  session context (`MBEDTLS_ERR_SSL_ALLOC_FAILED`). Self-update has
+  therefore never once worked on this hardware. Now it does, and the
+  bridge additionally performs a SHA-256 check the panel could not do
+  for itself.
+
+  Two ordering rules make it safe. The manifest is swapped only **after**
+  every file is downloaded and its checksum verified — otherwise the
+  panel would offer an update whose download 404s or overruns its
+  55-second client timeout. And `POST /firmware/refresh` returns `202`
+  immediately rather than waiting: the panel reaches it through a
+  synchronous `http_request` on its main loop, where a blocking wait is
+  a watchdog reboot. See ADR 0024 and the new ADR 0025.
+
+  The manifest points at generation-qualified paths — the release tag
+  plus a digest of its checksums — and the previous generation stays
+  cached, so an install clicked hours after the check still downloads
+  the binary that check's MD5 describes rather than whatever landed
+  since. The digest is in the path because `gh release upload
+  --clobber` lets one tag carry different binaries at different times. The cache is re-verified against its recorded
+  checksums before a refresh skips a download and when it is adopted at
+  startup, so a file damaged after it was mirrored is repaired rather
+  than served forever behind an unchanged release tag. And because the refresh route is
+  unauthenticated, outbound GitHub calls carry a five-minute floor —
+  otherwise a caller in a loop could exhaust the anonymous quota and
+  stop real updates arriving.
+
+  **Panels already in the field do not get this automatically.** Their
+  running firmware still polls the HTTPS manifest that has never worked
+  on this hardware, so the first build carrying the new update path has
+  to be installed once by hand — the dashboard's upload form or USB.
+  After that, updates arrive on their own.
+
+  Off by one setting (`firmware.enabled = false`) for deployments that
+  must not talk to the public internet; the routes then answer the
+  project's uniform `501` envelope.
 - Panel firmware is attached to every GitHub Release —
   `cyd-scan-panel.factory.bin`, `cyd-scan-panel.ota.bin`, `manifest.json`
   and a `SHA256SUMS` to check a download against. Until now the firmware

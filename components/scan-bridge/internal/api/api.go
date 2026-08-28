@@ -72,6 +72,13 @@ type Server struct {
 	// (PII), so leaving them on disk indefinitely after every request
 	// is an unbounded local-accumulation risk.
 	KeepScanOutput bool
+	// Firmware is the panel-firmware mirror (internal/firmware, issue
+	// #111, ADR 0024) backing the /firmware routes. nil means the
+	// mirror is disabled and those routes answer 501 — main.go must
+	// leave this field untouched rather than assigning a nil *Mirror,
+	// which would produce a non-nil interface holding a nil pointer
+	// and panic on the first request.
+	Firmware FirmwareMirror
 	// MaxRequestBytes bounds the size of an inbound POST /scan request
 	// body via http.MaxBytesReader (handleScan, issue #47 hardening).
 	// Zero/negative falls back to config.DefaultMaxRequestBytes — a

@@ -130,11 +130,15 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
   [releases]: https://github.com/strausmann/paperless-scan-bridge/releases/latest
 
-!!! warning "Self-update does not work on this hardware yet"
+!!! info "Updates come from your bridge, not from this site"
 
-    The panel was built to poll `manifest.json` over HTTPS and report a
-    newer build as **Firmware Update** on its dashboard. Measured on the
-    reference unit, it has never once succeeded:
+    Once the panel knows its **Bridge URL**, it checks that bridge for a
+    newer firmware every six hours and reports one as **Firmware Update**
+    on its own dashboard. There is also a **Check for Update** button
+    that asks straight away.
+
+    The detour through the bridge is not a preference. The panel cannot
+    reach this site, or GitHub, or anything else over HTTPS:
 
     ```text
     E esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
@@ -146,32 +150,55 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     LVGL and its own dashboard, and mbedTLS wants roughly 32 KB more on
     top. This is a memory ceiling, not a certificate problem: embedding a
     root CA would make it worse, because the failure happens before any
-    certificate is examined. The dashboard shows `Firmware Update:
-    UNKNOWN` and always has.
+    certificate is examined.
 
-    Use the upload form until this changes.
+    So `scan-bridge` does that part. It asks GitHub for the latest
+    release every five hours, downloads the firmware, **checks it against
+    the release's own `SHA256SUMS`**, and only then offers it at
+    `http://<your-bridge>:18080/firmware/manifest.json`. A file that
+    fails its checksum is discarded and the bridge keeps serving the
+    release it already had. The manifest never names a build the bridge
+    cannot hand over.
 
-!!! info "What will protect an update, once it works"
+    Nothing is required of you afterwards: the mirror is on by default.
+    If your bridge must not talk to the public internet, set
+    `firmware.enabled = false` under `[firmware]` in `config.toml` and
+    use the upload form instead.
 
-    ADR 0024 moves the manifest and the firmware image to `scan-bridge`
-    itself, served over plain HTTP on your own network. That removes TLS
-    from the update path rather than working around its cost, and it
-    drops an internet dependency from a function that otherwise needs
-    nothing outside your LAN.
+!!! warning "An existing panel needs one manual update first"
 
-    The integrity guarantee is unchanged: the manifest carries the
-    firmware's MD5 and the panel verifies it **while writing**, so a
-    truncated or altered download is discarded and the running firmware
-    survives. An interrupted update cannot brick the panel.
+    This only starts working from the firmware that introduced it. A
+    panel already in the field is still running a build that polls the
+    HTTPS manifest on this site — the fetch that has never once
+    succeeded on this hardware — so it will **never** pick the new
+    version up on its own.
 
-    The residual risk moves with the source. Someone who can rewrite
-    traffic on your LAN can serve both a forged manifest and a matching
-    binary, and the MD5 check would pass — the same exposure the previous
-    design accepted on the public internet path, now limited to your own
-    network. This is why the panel **reports** updates but never installs
-    one by itself: the window that matters is the moment you press
-    install, not every six hours. The full reasoning is in ADR 0024 in
-    the repository.
+    Install it once by hand:
+
+    1. [Download `cyd-scan-panel.ota.bin`](#download-the-firmware) from
+       the release.
+    2. Open the panel's own dashboard at `http://<panel-ip>/` and use
+       the **OTA Update** upload form. (Or re-flash over USB from this
+       page — either works.)
+    3. Set the **Bridge URL** if it is not already set.
+
+    From then on the panel finds updates by itself.
+
+!!! info "What protects an update"
+
+    The integrity guarantee is the manifest's MD5, and the panel verifies
+    it **while writing**. A truncated or altered download is discarded and
+    the running firmware survives — an interrupted update cannot brick the
+    panel. Between GitHub and your bridge, the SHA-256 checksums add a
+    second, stronger check the panel is not able to do itself.
+
+    Between your bridge and the panel the traffic is plain HTTP on your
+    own network. Someone who can rewrite traffic on that network can
+    serve both a forged manifest and a matching binary, and the MD5 check
+    would pass. That is why the panel **reports** updates but never
+    installs one by itself: the window that matters is the moment you
+    press install, not every six hours. The full reasoning is in ADR 0024
+    and ADR 0025 in the repository.
 
 ## Requirements
 

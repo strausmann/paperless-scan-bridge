@@ -220,8 +220,22 @@ logger:
   # loop on every HTTP call.
   level: DEBUG
   logs:
+    # Tags, verified against the ESPHome sources for the pinned version
+    # rather than guessed:
+    #   xpt2046               touchscreen, one DEBUG line per touch
+    #   http_request.arduino  one DEBUG line per HTTP request
+    #
+    # The second one used to read `http_request.idf`, which silences
+    # nothing here: `esp32: framework: type: arduino` selects
+    # http_request_arduino.cpp, whose TAG is "http_request.arduino".
+    # The IDF tag exists only in http_request_idf.cpp. A log filter for
+    # a tag that is never emitted looks exactly like a working one until
+    # someone reads the log and wonders why it is still noisy.
+    #
+    # NOT filtered: http_request.update. Those lines are the whole
+    # record of what the update path did, and they are rare.
     xpt2046: INFO
-    http_request.idf: INFO
+    http_request.arduino: INFO
   # Response bodies are logged below (truncated to 200 characters). The
   # default 512-byte line buffer would clip those lines mid-JSON.
   tx_buffer_size: 1024
@@ -249,27 +263,89 @@ ota:
   # transfer cannot brick the panel (ADR 0023).
   - platform: http_request
 
-# Self-update (ADR 0023). Polls the same manifest.json the browser
-# installer uses — one file, two consumers: ESP Web Tools reads `parts`
-# for the USB install, this reads the `ota` block.
+# Self-update (ADR 0023, ADR 0024, issue #111). Reads the same
+# manifest.json shape the browser installer uses — one file, two
+# consumers: ESP Web Tools reads `parts` for the USB install, this reads
+# the `ota` block.
 #
 # This entity only *reports* that an update exists. Installing stays a
 # deliberate action from the dashboard; nothing here installs on its own.
-# That is the constraint that makes the missing TLS verification
-# acceptable: the exposure window is the moment an operator chooses to
-# update, not every six hours indefinitely. See ADR 0023 for why
-# `verify_ssl` cannot be enabled on this framework, and why the MD5 —
-# not TLS — is the integrity guarantee.
+# The MD5 in the manifest, not TLS, is the integrity guarantee: the OTA
+# platform compares it against what it actually wrote and discards a
+# mismatch (ADR 0023).
 #
-# The URL is a GitHub Pages one on purpose. ESPHome's docs warn that
-# GitHub *release* URLs redirect to long URLs that overflow the HTTP
-# client's response buffer; Pages URLs do not redirect.
+# `source:` below is a placeholder and is expected never to be used.
+# .invalid is reserved by RFC 2606, so a panel whose Bridge URL is unset
+# fails DNS immediately and says so, rather than hanging on a timeout or
+# quietly reaching somewhere real.
+#
+# The URL that actually gets used is set at runtime by the
+# `apply_update_source` script below, from the Bridge URL entity — the
+# manifest comes from the bridge over plain HTTP on the LAN. It has to,
+# and that is the whole of ADR 0024: this panel cannot reach GitHub, or
+# the docs site, or anything else over TLS. With Wi-Fi, Bluedroid, LVGL
+# and web_server resident there is no heap left to set up a TLS session,
+# and every attempt fails at
+#
+#   E esp-tls-mbedtls: mbedtls_ssl_setup returned -0x7F00
+#                      (MBEDTLS_ERR_SSL_ALLOC_FAILED)
+#
+# So the bridge mirrors the release from GitHub — where it has both the
+# memory and the certificate store — verifies it against the release's
+# own SHA256SUMS, and serves it here. See
+# components/scan-bridge/internal/firmware.
+#
+# The manifest the bridge serves points at a VERSIONED path --
+# /firmware/<tag>/cyd-scan-panel.ota.bin -- and the bridge keeps the
+# previous release cached. That is not decoration: perform() installs
+# with the md5 and firmware_url this entity collected at CHECK time, and
+# the install happens when a person presses the button, possibly hours
+# later. A bare /firmware/cyd-scan-panel.ota.bin would by then hand over
+# whatever release is newest, which the held md5 does not describe, and
+# the update would fail -- safely, but exactly in the days after a
+# release. The versioned path keeps the URL this panel remembered
+# pointing at the bytes it was told to expect.
+#
+# The md5 in the manifest is never rewritten by the bridge; only the
+# path is. It stays the digest CI computed from the binary it shipped.
+#
+# The check itself runs on its own FreeRTOS task (xTaskCreate in
+# ESPHome's http_request_update.cpp), not on the main loop — unlike the
+# scan, this one cannot trip the task watchdog however long it takes.
+#
+# Which raises the obvious question: can that task collide with a scan
+# over the same `http_request` component? Checked against the pinned
+# ESPHome sources rather than assumed, and it cannot.
+# HttpRequestComponent holds only read-only configuration; each request
+# gets its own HTTPClient on its own HttpContainer
+# (http_request_arduino.h), so there is no shared per-request state to
+# corrupt. And a scan blocks the main loop for its whole duration, so
+# LVGL processes no input and the button cannot be pressed while one is
+# running.
+#
+# The source URL is likewise set before the first check can happen, and
+# not by luck: `text` entities with restore_value publish their restored
+# value from their own setup() (TemplateText::setup), which fires
+# on_value -> apply_update_source. That is long before this component's
+# network-ready poll, and before wifi.on_connect, which only repeats it.
 update:
   - platform: http_request
     name: "Firmware Update"
     id: firmware_update
-    source: https://scan-bridge.strausmann.de/firmware/manifest.json
+    source: http://bridge.invalid/firmware/manifest.json
     update_interval: 6h
+
+# The panel asks every 6h; the bridge asks GitHub every 5h. The
+# asymmetry is deliberate — the bridge should always have looked more
+# recently than the panel asks, so an update is normally already
+# downloaded and verified by the time the panel sees it advertised.
+button:
+  - platform: template
+    name: "Check for Update"
+    id: check_update_button
+    icon: mdi:cloud-download-outline
+    on_press:
+      - script.execute: check_for_update
 
 wifi:
   # No `ssid:`/`password:` here on purpose — this is the whole point of
@@ -296,6 +372,12 @@ wifi:
     # the network comes back with a stale grid otherwise.
     - script.execute: refresh_profiles
     - script.execute: check_bridge_health
+    # And point the update entity at this bridge. Not at on_boot: the
+    # Bridge URL text entity restores from NVS during setup(), and this
+    # firmware deliberately does not depend on that having happened by
+    # the time on_boot runs (same reasoning as the grid_rows/grid_cols
+    # globals below). By the time Wi-Fi associates it certainly has.
+    - script.execute: apply_update_source
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -468,6 +550,11 @@ text:
     on_value:
       - script.execute: refresh_profiles
       - script.execute: check_bridge_health
+      # The firmware manifest comes from the bridge too (ADR 0024), so
+      # the update entity has to follow this value. Without it, moving
+      # the bridge to a new host left the panel checking the old one
+      # until the next reboot.
+      - script.execute: apply_update_source
   - platform: template
     name: "Bridge Token"
     id: bridge_token
@@ -1809,6 +1896,142 @@ script:
                     # above — prev/next need render_page, not a blanket
                     # disabled: false.
                     - script.execute: render_page
+
+  # ------------------------------------------------------------------
+  # Firmware updates from the bridge (ADR 0024, issue #111)
+  # ------------------------------------------------------------------
+
+  # Points the update entity at whatever bridge this panel is
+  # configured for. `source:` in the update block is a compile-time
+  # value (ESPHome validates it with cv.url and passes it to
+  # set_source_url at build time), but set_source_url is a plain public
+  # setter, so the runtime Bridge URL can override it here.
+  #
+  # No trailing-slash handling: the same concatenation as every other
+  # URL this firmware builds (`+ "/profiles"`, `+ "/ready"`,
+  # `+ "/scan"`), so a Bridge URL that works for scanning works for
+  # this.
+  - id: apply_update_source
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: "return !id(bridge_url).state.empty();"
+          then:
+            - lambda: |-
+                const std::string url = id(bridge_url).state + "/firmware/manifest.json";
+                ESP_LOGI("panel.update", "update source -> %s", url.c_str());
+                id(firmware_update).set_source_url(url);
+          else:
+            # Reset, do not merely complain. Clearing the Bridge URL has
+            # to stop the automatic 6h checks from continuing against
+            # the OLD bridge -- a host that may have been retired, or
+            # that the operator has deliberately stopped trusting. The
+            # scan path already honours an empty URL; this makes the
+            # update path match. Back to the .invalid placeholder, which
+            # fails DNS immediately and says why.
+            - lambda: |-
+                ESP_LOGW("panel.update",
+                         "update source reset: Bridge URL is empty. "
+                         "Set it on this panel's own dashboard; the firmware "
+                         "manifest is served by the bridge, not by GitHub.");
+                id(firmware_update).set_source_url("http://bridge.invalid/firmware/manifest.json");
+
+  # What the "Check for Update" button does.
+  #
+  # Two steps, and the order matters. POST /firmware/refresh only
+  # *queues* a refresh on the bridge and returns 202 immediately — it
+  # must, because this http_request call is synchronous on the main
+  # loop, and a handler that waited for a GitHub round trip plus a
+  # ~1.7 MB download would hold the loop past the 60s task watchdog and
+  # reboot the panel on the button press. So the bridge answers at once
+  # and does the work behind it.
+  #
+  # Then TWO checks, and the second one is not belt-and-braces.
+  #
+  # The bridge holds a five-minute floor between outbound GitHub calls,
+  # so that a caller in a loop on the LAN cannot burn the anonymous API
+  # quota. A press that lands inside that floor is honoured -- the bridge
+  # defers the refresh to the moment the floor expires -- but it is
+  # honoured LATE. A single check eight seconds later would read the old
+  # manifest, report "no update", and leave the newly published firmware
+  # sitting there until the regular 6h poll.
+  #
+  # There are four windows, so there are four checks:
+  #
+  #   8s     the bridge already held the release and answered at once
+  #   90s    the bridge was free to ask GitHub and has finished the
+  #          ~1.7 MB download
+  #   660s   the press landed at the START of the floor (up to 300s)
+  #          AND the deferred refresh then took its full timeout
+  #          (refreshTimeout, another 300s)
+  #   960s   that deferred refresh FAILED -- which is routine during a
+  #          release, because release.yml publishes the release before
+  #          the job that uploads the firmware -- and the bridge's
+  #          bounded retry, itself gated by the same 300s floor, is the
+  #          one that succeeds
+  #
+  # Each number is the sum of the bridge-side limits that can precede
+  # it, plus a minute. Anything earlier can legitimately still read the
+  # old manifest, and then nothing would happen until the 6h poll --
+  # which is the whole failure this button exists to avoid.
+  #
+  # The ladder stops here on purpose. Two or more consecutive bridge-side
+  # failures push the answer past 960s, and chasing every case would
+  # make this unbounded; that is what the regular 6h check is for.
+  #
+  # `delay` is scheduler-based and does not block the main loop, and
+  # `update.check` runs on its own FreeRTOS task, so none of the three
+  # costs responsiveness.
+  #
+  # A check that lands while the bridge is still downloading is harmless:
+  # the mirror only swaps the manifest once the binary is on disk and its
+  # checksum verified, so the panel just sees the previous release.
+  - id: check_for_update
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: "return id(bridge_url).state.empty();"
+          then:
+            - lambda: |-
+                ESP_LOGW("panel.update", "check skipped: Bridge URL is empty");
+            - lvgl.label.update: { id: status_label, text: "Bridge URL not set" }
+            - delay: 4s
+            - lvgl.label.update: { id: status_label, text: "idle" }
+          else:
+            - script.execute: apply_update_source
+            - lvgl.label.update: { id: status_label, text: "checking for update" }
+            - http_request.post:
+                url: !lambda "return id(bridge_url).state + \"/firmware/refresh\";"
+                capture_response: false
+                on_response:
+                  then:
+                    - lambda: |-
+                        ESP_LOGI("panel.update",
+                                 "refresh queued on the bridge: HTTP %d", response->status_code);
+                on_error:
+                  then:
+                    - lambda: |-
+                        ESP_LOGW("panel.update",
+                                 "could not reach %s/firmware/refresh -- checking the "
+                                 "cached manifest anyway",
+                                 id(bridge_url).state.c_str());
+            # Runs whether or not the POST got through: the bridge may
+            # already hold a newer release than this panel, in which
+            # case the check alone is enough.
+            - delay: 8s
+            - update.check: firmware_update
+            - lvgl.label.update: { id: status_label, text: "idle" }
+            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s,
+            # +300s = 960s. mode: restart on this script means a second
+            # press starts the sequence over rather than stacking timers.
+            - delay: 82s
+            - update.check: firmware_update
+            - delay: 570s
+            - update.check: firmware_update
+            - delay: 300s
+            - update.check: firmware_update
 
 # Polling intervals are a responsiveness decision, not just a freshness
 # one. ESPHome's http_request is synchronous: while a poll is in flight
