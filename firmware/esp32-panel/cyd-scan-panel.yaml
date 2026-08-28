@@ -2215,9 +2215,24 @@ interval:
           // triggers a check directly (see the text entity below), so
           // nothing waits on this supervisor to notice.
           if (id(bridge_url).state.empty()) {
+            // stop_poller() unconditionally, not only when the flag says
+            // the poller is running.
+            //
+            // The flag can be wrong at exactly one moment, and it is a
+            // moment that happens on every boot of a panel whose URL was
+            // cleared: TemplateText::setup publishes the restored empty
+            // value during component setup, which runs apply_update_source
+            // and sets the flag false -- and PollingComponent::call_setup
+            // then starts the poller anyway, later in the same setup
+            // pass. A guarded stop would skip it, and the panel would
+            // poll bridge.invalid every 60s forever.
+            //
+            // stop_poller cancels an interval by name, so calling it on
+            // an already-stopped poller is free. Only the log line is
+            // guarded, or this would print once a minute.
+            id(firmware_update).stop_poller();
             if (id(update_poll_running)) {
               ESP_LOGI("panel.update", "update polling stopped: no Bridge URL");
-              id(firmware_update).stop_poller();
               id(update_poll_running) = false;
             }
             return;

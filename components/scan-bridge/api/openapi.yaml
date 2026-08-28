@@ -700,9 +700,10 @@ paths:
             conclude the endpoint does not exist. Decided after the open
             fails, never before it is attempted: probing first would
             answer `503` for a request a refresh completing mid-flight
-            could have served, and one `503` costs the panel a whole
-            poll interval — up to half an hour once its checks are
-            succeeding.
+            could have served. A spurious `503` costs the panel a retry
+            cycle — a failed check puts its poll back to once a minute,
+            so a minute or two rather than the next scheduled check —
+            for nothing.
           content:
             application/json:
               schema:

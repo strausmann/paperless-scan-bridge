@@ -120,9 +120,10 @@ func (s *Server) handleFirmwareFile(w http.ResponseWriter, r *http.Request) {
 
 	// Open first, ask questions afterwards. Probing Current() up front
 	// would answer 503 for a request that a refresh completing
-	// mid-flight could have served, and a 503 costs the panel a whole
-	// poll interval — up to half an hour once its checks are
-	// succeeding. Open also returns the release it read, from
+	// mid-flight could have served, and a spurious 503 costs the panel
+	// a retry cycle: a failed check puts its poll back to once a
+	// minute, so a minute or two rather than the next scheduled
+	// check — but it is a cost for nothing. Open also returns the release it read, from
 	// one lock acquisition, so a refresh landing mid-request cannot put
 	// one generation's tag on another generation's bytes.
 	f, rel, modTime, err := s.Firmware.Open(name)
