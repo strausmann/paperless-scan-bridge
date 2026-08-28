@@ -53,10 +53,11 @@ between releases as a running list.
   `GET /firmware/{generation}/{name}`, `GET /firmware/{name}` and
   `POST /firmware/refresh`. The panel polls its bridge **every minute
   while its last check did not succeed** — never checked, or checked and
-  failed, so correcting a wrong Bridge URL shows a result almost at once
-  and a bridge that disappears is noticed within the minute — and
-  **every 30 minutes** once one succeeds, plus a **Check for Update**
-  button. With no Bridge URL set it does not poll at all. The bridge
+  failed — and **every 30 minutes** once one succeeds, plus a **Check
+  for Update** button. With no Bridge URL set it does not poll at all.
+  Correcting a wrong Bridge URL therefore shows a result almost at once;
+  a bridge that goes away is noticed at the next scheduled check, and
+  the panel then retries every minute until it is back. The bridge
   asks GitHub every 5 hours; the two cadences are independent, because
   the panel reads the bridge's cache and never reaches GitHub itself.
 

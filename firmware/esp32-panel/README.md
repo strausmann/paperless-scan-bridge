@@ -441,7 +441,9 @@ What it does:
   the last check did not succeed — never checked, or checked and failed
   — it polls every **60 s**, so an operator fixing the setting sees it
   clear within a minute. Once a check succeeds it drops to every
-  **30 min**, and it returns to 60 s if a later check fails.
+  **30 min**, and it returns to 60 s as soon as one fails — so a bridge
+  that goes away is noticed at the next scheduled check, up to half an
+  hour, and picked up again within a minute of coming back.
 
   Both halves of "did not succeed" are needed. A failed check does not
   reset the entity's state (ESPHome's update platform sets an error

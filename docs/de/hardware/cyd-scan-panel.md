@@ -135,9 +135,12 @@ ausgeschöpft hat.
 
 Der Takt richtet sich danach, wie die letzte Prüfung ausging: **jede
 Minute**, solange keine erfolgreich war, **alle 30 Minuten**, sobald
-eine es war — und wieder jede Minute, sobald eine spätere fehlschlägt.
-Ohne gesetzte Bridge URL prüft es gar nicht. Jede Prüfung ist eine
-kleine Anfrage an die eigene Bridge, nie an GitHub.
+eine es war — und wieder jede Minute, sobald eine fehlschlägt. Eine
+verschwundene Bridge fällt damit erst bei der nächsten planmäßigen
+Prüfung auf, also bis zu einer halben Stunde später, wird danach aber
+binnen einer Minute nach ihrer Rückkehr wieder gefunden. Ohne gesetzte
+Bridge URL prüft es gar nicht. Jede Prüfung ist eine kleine Anfrage an
+die eigene Bridge, nie an GitHub.
 
 Das Panel spricht nie mit GitHub. Es kann es nicht: Neben WLAN,
 Bluetooth-Stack, LVGL und dem eigenen Dashboard bleibt kein Speicher

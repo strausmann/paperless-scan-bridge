@@ -151,9 +151,12 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     has succeeded — a wrong Bridge URL, a bridge that is not up — it
     asks every **minute**, so correcting the setting shows a result
     almost at once. Once one succeeds it settles to every **30
-    minutes**, and it goes back to every minute if a later check fails,
-    so a bridge that disappears is noticed quickly rather than half an
-    hour later. With no Bridge URL set at all it does not check. Each
+    minutes**, and it goes back to every minute as soon as a check
+    fails. Note what that does and does not promise: a bridge that goes
+    away is noticed at the next scheduled check, so up to half an hour
+    later — but from that moment the panel retries every minute, so it
+    picks the bridge up promptly once it is back. With no Bridge URL set
+    at all it does not check. Each
     check is one small request to your own bridge; it never reaches
     GitHub.
 

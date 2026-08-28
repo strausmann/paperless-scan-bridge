@@ -201,10 +201,13 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   the fast cadence would otherwise make an unconfigured panel the
   noisiest one), every 60 s while a URL is set but the last check did
   not succeed — never checked, or checked and failed — and every 30
-  minutes once one has. It returns to 60 s if a later check fails, which
+  minutes once one has. It returns to 60 s as soon as one fails, which
   matters because a failure does not reset the entity's state: a panel
   pointed at a bridge that is still booting would otherwise keep the
-  slow rate exactly when it should retry. Entering a URL fires a check
+  slow rate exactly when it should retry. Note what that bounds and what
+  it does not: a bridge that goes away is noticed only at the next
+  scheduled check — up to half an hour — but is picked up again within a
+  minute of returning. Entering a URL fires a check
   at once rather than waiting for the next tick. The
   fast rate exists for the operator standing at the panel fixing that
   setting; the slow one is the steady state. Neither touches GitHub: the

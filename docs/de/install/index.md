@@ -157,9 +157,12 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     erreichbar — fragt es jede **Minute**, damit sich das Korrigieren
     der Einstellung fast sofort zeigt. Nach der ersten erfolgreichen
     Prüfung geht es auf alle **30 Minuten** herunter und kehrt zum
-    Minutentakt zurück, sobald eine spätere Prüfung fehlschlägt — eine
-    verschwundene Bridge fällt so schnell auf statt erst nach einer
-    halben Stunde. Ohne gesetzte Bridge URL prüft es gar nicht. Jede
+    Minutentakt zurück, sobald eine Prüfung fehlschlägt. Was das
+    zusagt und was nicht: Eine verschwundene Bridge fällt erst bei der
+    nächsten planmäßigen Prüfung auf, also bis zu einer halben Stunde
+    später — ab diesem Moment fragt das Panel aber jede Minute nach und
+    findet die Bridge entsprechend zügig wieder. Ohne gesetzte Bridge
+    URL prüft es gar nicht. Jede
     Prüfung ist eine kleine Anfrage an Ihre eigene Bridge und erreicht
     GitHub nie.
 
