@@ -26,9 +26,10 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
      only order. It would have failed on every boot.
   3. Two latency overclaims, in six files: "a bridge that disappears is noticed
      within the minute" and "picked up again within a minute of returning".
-     Detection takes up to a full poll interval (half an hour); recovery takes
-     the supervisor tick plus a poll interval plus the client timeout (about two
-     minutes).
+     Detection takes a full poll interval **plus the client timeout** — the
+     failing request has to time out before anyone knows it failed — so half an
+     hour and a minute; recovery takes the supervisor tick plus a poll interval
+     plus the client timeout, about two minutes.
 
 - **Root cause:** one cause, three shapes. **Every one of these was a claim
   about time or ordering that I asserted instead of computed.** In each case a
@@ -60,6 +61,14 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
 
   Deliberately not a "be more careful" rule. The pass is mechanical and short,
   and its trigger is a grep.
+
+  **A postscript that belongs in the entry.** The first version of R7 got the
+  detection formula wrong in the same way it warns about: it wrote
+  `detect = one poll interval` and omitted the client timeout, because "the
+  poll notices it" reads as an instant. A reviewer caught it on the rule's own
+  PR. Writing the chain out is necessary and not sufficient — it has to be read
+  back, asking of every line "and how long does *that* take?". The rule now says
+  so, with itself as the example.
 
 ## 2026-08-28 — A scratch file in /tmp overwrote a source file, and the commit shipped it
 

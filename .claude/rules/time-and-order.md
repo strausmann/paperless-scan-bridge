@@ -24,13 +24,22 @@ author. The only thing that catches it is doing the sum.
 of everything that must elapse before the effect is observable:
 
     detect  = one poll interval          (the failure happens between polls)
+            + client timeout             (the failing request has to time out
+                                          before anyone knows it failed)
     recover = supervisor tick            (up to 60s to observe the failure)
             + poll interval              (start_poller schedules a full one)
             + client timeout             (the check itself may run to it)
 
 Detection and recovery are different numbers. Stating one as the other is how
 `firmware/esp32-panel/README.md` promised "noticed within the minute" for
-something that takes up to half an hour.
+something that takes half an hour and a minute.
+
+**The `+ client timeout` on `detect` was itself missing from the first version
+of this rule**, and a reviewer supplied it. The chain had been written out and
+still stopped one term early, because "the poll notices it" reads as an instant
+and is not: a synchronous request that will fail does so only after its timeout.
+Writing the chain is necessary and not sufficient — read it back and ask, for
+every line, "and how long does *that* take?"
 
 ### 2. A wrapping counter is only meaningful over half its period
 
