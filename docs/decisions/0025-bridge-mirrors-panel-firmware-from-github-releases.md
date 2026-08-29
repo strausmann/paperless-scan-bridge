@@ -208,10 +208,10 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   it does not: a bridge that goes away is noticed only at the next
   scheduled check, and only once that check times out — a poll interval
   plus the client timeout, so a little over half an hour — and is picked
-  up again a minute
-  or two after returning, because the supervisor needs up to 60 s to see
-  the error and `start_poller` then schedules the first check a full
-  interval later. Entering a URL fires a check
+  up again within about
+  three minutes of returning: 60 s for the supervisor to see the error,
+  60 s until the poller it starts first fires, 55 s of client timeout —
+  175 s at worst. Entering a URL fires a check
   at once rather than waiting for the next tick. The
   fast rate exists for the operator standing at the panel fixing that
   setting; the slow one is the steady state. Neither touches GitHub: the

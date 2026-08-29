@@ -108,8 +108,8 @@ none has succeeded, **every 30 minutes** once one has, and back to every
 minute as soon as one fails. A bridge that goes away is therefore
 noticed when the next scheduled check times out — a little over half an
 hour — and picked up
-again a minute or two after returning. With no Bridge URL set it does not
-check at all. Each check is one small request to your own bridge, never
+again within about three minutes of returning. With no Bridge URL set it
+does not check at all. Each check is one small request to your own bridge, never
 to GitHub.
 
 The panel never talks to GitHub. It cannot: with Wi-Fi, the Bluetooth

@@ -444,11 +444,10 @@ What it does:
   **30 min**, and it returns to 60 s as soon as one fails — so a bridge
   that goes away is noticed when the next scheduled check runs and times
   out — a poll interval plus the 55 s client timeout, so a little over
-  half an hour — and picked up again within about two minutes of coming
-  back.
-  Two, not one: the supervisor may take up to 60 s to see the error and
-  switch the poller, and `start_poller` then schedules the first check a
-  full interval after that.
+  half an hour — and picked up again within about three minutes of
+  coming back: 60 s for the supervisor to see the error and switch the
+  poller, 60 s until the poller it starts first fires, 55 s of client
+  timeout. 175 s in the worst case.
 
   Both halves of "did not succeed" are needed. A failed check does not
   reset the entity's state (ESPHome's update platform sets an error
