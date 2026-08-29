@@ -237,5 +237,8 @@ above (they do not relax container-first / three-image constraints):
 - **R5 — Conventional Commits** (`.github/SCOPES.md`). Versioning is **release-only** semantic-release
   (tag + GitHub Release); the manual `CHANGELOG.md` (Keep a Changelog) stays hand-curated.
 - **R6 — resolve every Gemini/Copilot PR finding** (fix or reasoned false-positive).
+- **R7 — compute time and order** (`.claude/rules/time-and-order.md`): every claim about when
+  something happens, how long it takes, or in what order two components initialise carries the
+  arithmetic next to it. A cadence is not a latency.
 
 Project review agents (read-only): `.claude/agents/` — network / developer / research / security.
