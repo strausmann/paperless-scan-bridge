@@ -876,6 +876,13 @@ globals:
     type: uint32_t
     restore_value: false
     initial_value: "0"
+  # The source URL last handed to set_source_url, so apply_update_source
+  # can skip the write when nothing changed. See the note there: the
+  # setter races the update task, and the only lever available from YAML
+  # is to pull it far less often.
+  - id: update_source_applied
+    type: std::string
+    restore_value: false
   - id: grid_rows
     type: int
     restore_value: false
@@ -2139,6 +2146,27 @@ script:
             - lambda: |-
                 ESP_LOGD("panel.update", "check skipped: no Bridge URL");
 
+  # Writes the update source, and writes it as SELDOM as possible.
+  #
+  # `set_source_url` assigns a std::string on the main loop while
+  # `update_task` may be reading the same member on its own FreeRTOS
+  # task, with no synchronisation on either side (ESPHome 2026.7.4). An
+  # assignment that reallocates while the task holds a reference is
+  # undefined behaviour. There is no fix available from YAML -- the
+  # member is the component's, and the task handle that would let us see
+  # a check in flight is protected.
+  #
+  # What is available is not writing when nothing changed. This script
+  # runs on every Wi-Fi reconnect and every button press, and the value
+  # is the same almost every time; only a human editing the Bridge URL
+  # actually changes it. Guarding on that turns "a write on every
+  # reconnect, at a 60s check cadence" into "a write when someone types
+  # in the field", which is both rare and not a moment when a scheduled
+  # check is likely to be running.
+  #
+  # A mitigation, then, not a fix, and it is written down as one. If the
+  # race ever shows up in the field, the honest next step is an upstream
+  # issue, not more cleverness here.
   - id: apply_update_source
     mode: restart
     then:
@@ -2148,6 +2176,10 @@ script:
           then:
             - lambda: |-
                 const std::string url = id(bridge_url).state + "/firmware/manifest.json";
+                if (url == id(update_source_applied)) {
+                  return;  // unchanged; do not touch source_url_ at all
+                }
+                id(update_source_applied) = url;
                 ESP_LOGI("panel.update", "update source -> %s", url.c_str());
                 id(firmware_update).set_source_url(url);
                 // Hold the fast cadence until the new source has
@@ -2170,6 +2202,7 @@ script:
                          "update source reset: Bridge URL is empty. "
                          "Set it on this panel's own dashboard; the firmware "
                          "manifest is served by the bridge, not by GitHub.");
+                id(update_source_applied) = "";
                 id(firmware_update).set_source_url("http://bridge.invalid/firmware/manifest.json");
                 // Stop the poller HERE, not at the supervisor's next
                 // tick. Those are up to 60s apart, and the poller does
