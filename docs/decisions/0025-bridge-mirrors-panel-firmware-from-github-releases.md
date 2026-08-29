@@ -49,9 +49,18 @@ GitHub Releases into a local cache, verify every file against the release's own
 | `GET /firmware/{name}` | the same file of whichever generation is current |
 | `POST /firmware/refresh` | queue an immediate check; returns `202` at once |
 
-The bridge polls every **5 hours**; the panel polls the bridge every **6**. The
-asymmetry is deliberate: the bridge should always have looked more recently than
-the panel asks.
+The bridge polls GitHub every **5 hours**. That number bounds how far an
+unattended deployment may lag a release; it is not paired with the panel's own
+cadence, which reads this bridge's *cache* and never reaches GitHub. The panel
+polls every **60 s** while it has never had a successful check, **30 minutes**
+once it has, and not at all before a Bridge URL is set — see the consequences
+below.
+
+(An earlier version of this paragraph justified the five hours as "deliberately
+shorter than the panel's 6h, so the bridge always looks first". That pairing
+never held: the two cadences are independent, and treating them as coupled is
+what produced a panel that polled once every six hours in the one state where
+polling matters.)
 
 Three rules make this safe, and they are the substance of the decision rather
 than implementation detail:
@@ -73,14 +82,15 @@ than implementation detail:
    MD5 it read at check time. A bare path would hand that click whatever the
    newest generation holds by then — a different binary, failing the MD5 check
    in exactly the moments right after a release. So the served manifest has
-   each build's `ota.path` rewritten to `/firmware/{tag}/{name}`, and the
-   mirror keeps two generations: the one being served and the one it
-   replaced, named explicitly rather than picked by modification time —
-   a daemon killed between the rename and the publish leaves a newer,
+   each build's `ota.path` rewritten to `/firmware/{generation}/{name}`, and
+   the mirror keeps two generations: the one being served and the one it
+   replaced, named explicitly rather than picked by modification time — a
+   daemon killed between the rename and the publish leaves a newer,
    never-advertised directory behind, and an mtime rule would keep that
-   orphan and delete the generation panels actually hold a URL for. The `md5` beside it is **never** rewritten:
-   it is the digest CI computed from the binary it shipped, which is what makes
-   ADR 0024's "publish the digest of the file you will actually serve" hold.
+   orphan and delete the generation panels actually hold a URL for. The
+   `md5` beside it is **never** rewritten: it is the digest CI computed from
+   the binary it shipped, which is what makes ADR 0024's "publish the digest
+   of the file you will actually serve" hold.
 
 Because the manifest's `ota.path` is rewritten, the mirror is not byte-verbatim
 — but the only field it touches is a path. `parts`, which ESP Web Tools reads
@@ -186,21 +196,42 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   during a release sees the old build despite all three of its manifest
   reads. Bounded, so an unreachable GitHub does not become a poll every
   five minutes forever.
-- **Neutral / follow-ups:** the panel's "Check for Update" runs the
-  check four times — at 8 s, 90 s, 660 s and 960 s — because there are
-  four windows to cover: the bridge already held the release; it was
-  free to ask GitHub and has finished the download; the press landed at
-  the start of the five-minute floor *and* the deferred refresh took its
-  full five-minute timeout; and that refresh *failed* (routine during a
-  release) and the bounded retry, gated by the same floor, is the one
-  that succeeds. Each number is the sum of the bridge-side limits that
-  can precede it, plus a minute. A single early check would read the
-  manifest before the deferred refresh ran, report no update, and leave
-  freshly published firmware waiting for the next six-hourly poll. The
-  ladder stops at 960 s deliberately: two or more consecutive
-  bridge-side failures push the answer beyond it, and chasing every case
-  would make the sequence unbounded — that is what the regular six-hourly
-  check is for.
+- **Neutral / follow-ups:** the panel's poll is **state-dependent**:
+  not at all while no Bridge URL is set (there is nowhere to ask, and
+  the fast cadence would otherwise make an unconfigured panel the
+  noisiest one), every 60 s while a URL is set but the last check did
+  not succeed — never checked, or checked and failed — and every 30
+  minutes once one has. It returns to 60 s as soon as one fails, which
+  matters because a failure does not reset the entity's state: a panel
+  pointed at a bridge that is still booting would otherwise keep the
+  slow rate exactly when it should retry. Note what that bounds and what
+  it does not: a bridge that goes away is noticed only at the next
+  scheduled check, and only once that check times out — a poll interval
+  plus the client timeout, so a little over half an hour — and is picked
+  up again within about
+  three minutes of returning: 60 s for the supervisor to see the error,
+  60 s until the poller it starts first fires, 55 s of client timeout —
+  175 s at worst. Entering a URL fires a check
+  at once rather than waiting for the next tick. The
+  fast rate exists for the operator standing at the panel fixing that
+  setting; the slow one is the steady state. Neither touches GitHub: the
+  panel reads this bridge's cache, so its cadence is independent of the
+  five-hourly GitHub poll and of the API-call floor.
+- **Neutral / follow-ups:** "Check for Update" runs the check three
+  times, at 8 s, 90 s and 660 s. The first two cover a bridge that
+  already held the release or was free to fetch it; the third covers a
+  press that landed inside the five-minute API-call floor, so the
+  refresh was deferred and then took its own five-minute timeout. A
+  fourth rung at 960 s, for a deferred refresh that also *failed* and
+  was retried behind the same floor, is deliberately absent: that case
+  is rarer, and its absence now costs at most one 30-minute poll rather
+  than the six hours it used to.
+
+  Stated precisely because a first attempt at this reasoning was wrong.
+  It claimed the 30-minute poll covers those cases "in half the time of
+  the last rung" — 1800 s is nearly twice 960 s, so dropping both rungs
+  took the button's worst case from 16 minutes to 30. Faster steady
+  polling does not, on its own, make a rescue rung redundant.
 - **Negative:** one more piece of persistent state. The cache lives under
   `paths.state_dir`, deliberately **not** on the tmpfs the scan scratch uses —
   otherwise every reboot re-downloads ~1.7 MB and the panel gets `503` in the
@@ -211,10 +242,19 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   so the first build carrying the new update path has to be installed once by
   hand, through the dashboard's upload form or over USB. Both `/install/` pages
   say so explicitly.
-- **Neutral / follow-ups:** the panel's `update:` `source:` is now a placeholder
+- **Neutral / follow-ups:** the panel's `update:` `source:` is a placeholder
   (`http://bridge.invalid/…`, RFC 2606) overwritten at runtime from the Bridge
-  URL entity. A panel with no Bridge URL set therefore reports an update check
-  that fails DNS immediately, which is the intended, legible failure.
+  URL entity. It is a backstop, not a behaviour: a panel with no Bridge URL
+  does not check at all — every caller goes through a script that declines an
+  empty URL, and clearing the URL stops the poller in the same action rather
+  than at the supervisor's next tick.
+
+  This bullet used to say the opposite — that such a panel "reports an update
+  check that fails DNS immediately, which is the intended, legible failure".
+  That was the behaviour when the poll ran every six hours and the failure was
+  rare. At 60 s it would have made an unconfigured panel the noisiest device on
+  the network, so the design changed and this text did not, until a review
+  caught the contradiction between two paragraphs of the same document.
 
 ## References
 

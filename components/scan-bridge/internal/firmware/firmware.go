@@ -97,11 +97,20 @@ const (
 	// point the mirror at an httptest server.
 	DefaultAPIBase = "https://api.github.com"
 	// DefaultRefreshInterval is how often the mirror asks GitHub for a
-	// newer release. Deliberately shorter than the panel's own 6h
-	// update_interval: the bridge should always know slightly before
-	// the panel asks. One anonymous API call every five hours is
-	// nowhere near GitHub's 60-per-hour unauthenticated limit, which
-	// is why the mirror needs no token.
+	// newer release.
+	//
+	// It is NOT paired with the panel's own poll. The panel reads this
+	// bridge's cache, not GitHub, so the two cadences are independent
+	// and the panel may poll as often as it likes. What this number
+	// answers is a different question: how long an unattended
+	// deployment may lag a release. Five hours means at most half a
+	// working day, at one anonymous API call apiece -- nowhere near
+	// GitHub's 60-per-hour unauthenticated limit, which is why the
+	// mirror needs no token.
+	//
+	// (An earlier comment justified it as "slightly shorter than the
+	// panel's 6h check". That pairing is gone; the panel now polls
+	// every 30 minutes and would out-run any bridge interval.)
 	DefaultRefreshInterval = 5 * time.Hour
 
 	// ManifestName is the ESP Web Tools / ESPHome update manifest. It

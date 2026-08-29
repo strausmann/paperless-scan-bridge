@@ -97,8 +97,20 @@ how it behaves once configured, and what it still cannot do.
 ## Updates come from the bridge
 
 Once the panel knows its **Bridge URL** it checks that bridge for newer
-firmware every six hours and reports one as **Firmware Update** on its
-own dashboard; a **Check for Update** button asks immediately.
+firmware and reports one as **Firmware Update** on its own dashboard. A
+**Check for Update** button asks the bridge to look at GitHub at once;
+the panel reads the answer at 8 s, 90 s and 660 s. The last one covers
+the case where the bridge had to defer its GitHub call — it holds a
+five-minute floor between them — and then took its own timeout.
+
+The cadence follows how the last check went: **every minute** while
+none has succeeded, **every 30 minutes** once one has, and back to every
+minute as soon as one fails. A bridge that goes away is therefore
+noticed when the next scheduled check times out — a little over half an
+hour — and picked up
+again within about three minutes of returning. With no Bridge URL set it
+does not check at all. Each check is one small request to your own bridge, never
+to GitHub.
 
 The panel never talks to GitHub. It cannot: with Wi-Fi, the Bluetooth
 stack, LVGL and its own dashboard resident there is no memory left to

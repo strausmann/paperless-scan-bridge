@@ -425,9 +425,40 @@ What it does:
   louder than a 20px footer label. Hidden again in every terminal
   branch, the same discipline as the LED/label reset above.
 
-- Checks its bridge for newer firmware every 6h and reports one as
-  **Firmware Update** on its own dashboard; a **Check for Update**
-  button asks straight away. The manifest comes from
+- Checks its bridge for newer firmware and reports one as **Firmware
+  Update** on its own dashboard; a **Check for Update** button asks the
+  bridge to look at GitHub *immediately* and then reads the manifest at
+  8 s, 90 s and 660 s. Two separate things: the `POST
+  /firmware/refresh` goes out at once, the panel's own `update.check`
+  does not. The 660 s rung covers a press that landed inside the
+  bridge's five-minute API-call floor — pressing the button twice puts
+  the second press there — after which the deferred refresh may take its
+  own five-minute timeout.
+
+  The cadence adapts to what the panel knows. With **no Bridge URL** it
+  does not poll at all — there is nowhere to ask, and polling would only
+  resolve `bridge.invalid` once a minute forever. While a URL is set but
+  the last check did not succeed — never checked, or checked and failed
+  — it polls every **60 s**, so an operator fixing the setting sees it
+  clear within a minute. Once a check succeeds it drops to every
+  **30 min**, and it returns to 60 s as soon as one fails — so a bridge
+  that goes away is noticed when the next scheduled check runs and times
+  out — a poll interval plus the 55 s client timeout, so a little over
+  half an hour — and picked up again within about three minutes of
+  coming back: 60 s for the supervisor to see the error and switch the
+  poller, 60 s until the poller it starts first fires, 55 s of client
+  timeout. 175 s in the worst case.
+
+  Both halves of "did not succeed" are needed. A failed check does not
+  reset the entity's state (ESPHome's update platform sets an error
+  status and leaves `state_` alone), so a panel that had settled and is
+  then pointed at a bridge which is still booting would otherwise keep
+  the slow rate exactly when it should be retrying.
+
+  Entering or changing the Bridge URL fires a check immediately, so that
+  case does not wait on the supervisor either. `adaptive_update_poll` in
+  `interval:` does the switching; a poll costs one manifest read on the
+  LAN and never touches GitHub. The manifest comes from
   `<Bridge URL>/firmware/manifest.json`, not from the docs site, and
   not from GitHub — the panel cannot reach either over TLS
   (`MBEDTLS_ERR_SSL_ALLOC_FAILED`; ADR 0024). The bridge mirrors the
@@ -483,6 +514,16 @@ D/E):
   `lvgl: buffer_size:` override) have not been confirmed against real
   RAM headroom on physical hardware — if flashing reports a memory
   allocation failure, tuning the buffer size is the first thing to try.
+- **The adaptive update cadence is config-verified only.** The
+  60s-while-`UNKNOWN` / 30min-otherwise switch (`adaptive_update_poll`)
+  passes `esphome config` and `esphome compile` against this exact
+  ESPHome version, and the API it uses is real —
+  `UpdateEntity::state` is a public const reference and
+  `PollingComponent` exposes `stop_poller`/`set_update_interval`/
+  `start_poller`, both checked in the pinned sources. What has not been
+  watched on hardware is the transition itself: that the log line fires
+  once when the first check succeeds, and that the poller then really
+  runs at the slower rate rather than the faster one.
 - **Grid size and paging (B1/B2) are not hardware-verified either.**
   The templatable `x`/`y`/`width`/`height` on the 9 button slots and
   the paging buttons compile and pass `esphome config`/`esphome

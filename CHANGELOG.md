@@ -51,10 +51,15 @@ between releases as a running list.
   verifies every file against the release's own `SHA256SUMS`, and serves
   it on unauthenticated routes: `GET /firmware/manifest.json`,
   `GET /firmware/{generation}/{name}`, `GET /firmware/{name}` and
-  `POST /firmware/refresh`. The panel polls its bridge every 6 hours and
-  has a **Check for Update** button; the bridge asks GitHub every 5 —
-  deliberately sooner, so it has normally already looked by the time the
-  panel asks.
+  `POST /firmware/refresh`. The panel polls its bridge **every minute
+  while its last check did not succeed** — never checked, or checked and
+  failed — and **every 30 minutes** once one succeeds, plus a **Check
+  for Update** button. With no Bridge URL set it does not poll at all.
+  Correcting a wrong Bridge URL therefore shows a result almost at once;
+  a bridge that goes away is noticed at the next scheduled check, and
+  the panel then retries every minute until it is back. The bridge
+  asks GitHub every 5 hours; the two cadences are independent, because
+  the panel reads the bridge's cache and never reaches GitHub itself.
 
   The detour exists because the panel cannot reach GitHub, or the docs
   site, or anything else over TLS: with Wi-Fi, the Bluetooth stack, LVGL

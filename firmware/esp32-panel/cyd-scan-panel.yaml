@@ -72,6 +72,12 @@ esphome:
                    "${project_version}");
       - component.update: firmware_version
       - script.execute: relayout_grid
+      # Decide the firmware-check cadence once here, at priority -100 --
+      # after every component setup and a full minute before either the
+      # poller's first tick or the supervisor interval. On a panel whose
+      # Bridge URL was cleared, that is what stops the poller before it
+      # can ask bridge.invalid once. See sync_update_cadence.
+      - script.execute: sync_update_cadence
       # NOT refresh_profiles / check_bridge_health here any more.
       #
       # on_boot at priority -100 runs after every component's setup(),
@@ -274,10 +280,15 @@ ota:
 # platform compares it against what it actually wrote and discards a
 # mismatch (ADR 0023).
 #
-# `source:` below is a placeholder and is expected never to be used.
-# .invalid is reserved by RFC 2606, so a panel whose Bridge URL is unset
-# fails DNS immediately and says so, rather than hanging on a timeout or
-# quietly reaching somewhere real.
+# `source:` below is a placeholder and is expected never to be used --
+# nor even reached. A panel with no Bridge URL does not check at all:
+# every caller goes through `check_now`, which declines an empty URL,
+# and the poller is stopped outright in that state.
+#
+# It is .invalid (reserved by RFC 2606) anyway, as the backstop for the
+# case where something reaches it despite that: DNS fails at once and
+# says why, rather than hanging on a timeout or quietly resolving
+# somewhere real.
 #
 # The URL that actually gets used is set at runtime by the
 # `apply_update_source` script below, from the Bridge URL entity — the
@@ -333,12 +344,38 @@ update:
     name: "Firmware Update"
     id: firmware_update
     source: http://bridge.invalid/firmware/manifest.json
-    update_interval: 6h
+    # 60s is the STARTING cadence, not the steady one. The entity begins
+    # in UPDATE_STATE_UNKNOWN, and `adaptive_update_poll` below raises
+    # this to 30 minutes as soon as a check actually succeeds. Compiling
+    # the unknown-state value in means the panel is already polling at
+    # the right rate before that supervisor has run once.
+    update_interval: 60s
 
-# The panel asks every 6h; the bridge asks GitHub every 5h. The
-# asymmetry is deliberate — the bridge should always have looked more
-# recently than the panel asks, so an update is normally already
-# downloaded and verified by the time the panel sees it advertised.
+# How often the panel asks, and why it is not one number.
+#
+#   UNKNOWN   every 60s   -- no check has ever succeeded, so the panel
+#                            cannot say what it is running against. That
+#                            is the state a broken bridge URL, a
+#                            just-flashed panel or an unreachable bridge
+#                            leaves it in, and it is the state worth
+#                            leaving quickly.
+#   otherwise every 30min -- a check has succeeded; the answer is known
+#                            and only changes when a release lands.
+#
+# Switched at runtime by `adaptive_update_poll` in `interval:` below.
+#
+# Note what this cadence does NOT cost: the panel polls the BRIDGE's
+# cache, not GitHub. The bridge's own five-hourly GitHub poll and its
+# five-minute API-call floor are a separate budget entirely (ADR 0025),
+# and nothing the panel does here touches the anonymous rate limit. A
+# poll is one manifest read on the LAN.
+#
+# The earlier comment here argued a 6h panel poll against the bridge's
+# 5h GitHub poll as a deliberate asymmetry — "the bridge should always
+# have looked more recently than the panel asks". That reasoning does
+# not survive a 30-minute poll and was never the point: the panel reads
+# a cache, so asking more often than the cache refreshes costs nothing
+# and finds a new release sooner.
 button:
   - platform: template
     name: "Check for Update"
@@ -378,6 +415,16 @@ wifi:
     # the time on_boot runs (same reasoning as the grid_rows/grid_cols
     # globals below). By the time Wi-Fi associates it certainly has.
     - script.execute: apply_update_source
+    # And ask immediately -- but only if there is somewhere to ask. A
+    # PollingComponent fires its first tick one whole interval after
+    # setup, so without this the earliest check after a boot is 60s away
+    # even with a perfectly reachable bridge. `update.check` runs on its
+    # own task, so this costs the connect handler nothing.
+    #
+    # check_now carries the "is there a Bridge URL" guard, so an
+    # unconfigured panel does not resolve bridge.invalid on every single
+    # Wi-Fi connect and log the failure, having achieved nothing.
+    - script.execute: check_now
   on_disconnect:
     - lvgl.label.update:
         id: wifi_status_label
@@ -555,6 +602,14 @@ text:
       # the bridge to a new host left the panel checking the old one
       # until the next reboot.
       - script.execute: apply_update_source
+      # And ask straight away. This is the moment the whole fast cadence
+      # exists for -- someone has just typed the URL and is looking at
+      # the dashboard -- so answering now beats answering within a
+      # minute. Harmless before the network is up: update() checks
+      # network::is_connected() and skips. And harmless when the URL was
+      # CLEARED rather than set, which fires this same trigger:
+      # check_now declines.
+      - script.execute: check_now
   - platform: template
     name: "Bridge Token"
     id: bridge_token
@@ -777,6 +832,57 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"
+  # Whether the firmware-update poller is currently running.
+  # PollingComponent exposes no way to ask, and `adaptive_update_poll`
+  # has to know: it stops the poller outright when there is no Bridge
+  # URL, and must then start it again when one appears -- which the
+  # interval-value comparison alone cannot detect, because a stopped
+  # poller still reports its last interval.
+  #
+  # true, not false: PollingComponent::call_setup starts the poller, so
+  # that is the state the first supervisor tick actually finds.
+  - id: update_poll_running
+    type: bool
+    restore_value: false
+    initial_value: "true"
+  # millis() until which the fast cadence is held regardless of state.
+  #
+  # Set by apply_update_source -- so on a Bridge URL change, and also on
+  # every Wi-Fi reconnect and every press of the button, both of which
+  # run that script. That is wider than the case it was added for and
+  # harmless: a few extra minute-apart checks against a bridge on the
+  # same LAN.
+  #
+  # The case it was added for: a check already running when the source
+  # changes cannot be stopped. ESPHome refuses a second one while a task
+  # is in flight ("Update check already in progress"), and
+  # set_source_url does not abort the running task. That task may finish
+  # against the OLD bridge, publish success and clear the error status,
+  # after which the supervisor would call the NEW, never-contacted
+  # source settled and wait half an hour.
+  #
+  # The window therefore has to outlast the whole chain, not just the
+  # in-flight check:
+  #
+  #   60s  worst case until adaptive_update_poll next runs
+  # + 60s  worst case until the poller it then starts first fires
+  # + 55s  http_request client timeout for that check
+  # -----
+  #  175s, rounded up to 300 for margin
+  #
+  # An earlier version used 90s, which covered only the in-flight check
+  # and could lapse before the new source had been contacted once.
+  - id: update_fast_until_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: "0"
+  # The source URL last handed to set_source_url, so apply_update_source
+  # can skip the write when nothing changed. See the note there: the
+  # setter races the update task, and the only lever available from YAML
+  # is to pull it far less often.
+  - id: update_source_applied
+    type: std::string
+    restore_value: false
   - id: grid_rows
     type: int
     restore_value: false
@@ -1911,6 +2017,156 @@ script:
   # URL this firmware builds (`+ "/profiles"`, `+ "/ready"`,
   # `+ "/scan"`), so a Bridge URL that works for scanning works for
   # this.
+  # Decides the firmware-check cadence from what the panel knows. Called
+  # once at on_boot and every 60s thereafter.
+  #
+  # The boot call is not belt-and-braces. On a panel whose Bridge URL was
+  # cleared, apply_update_source runs during TemplateText's setup
+  # (HARDWARE, 800) and stops a poller that PollingComponent::call_setup
+  # (AFTER_WIFI, 200) then starts anyway -- registering a first tick 60s
+  # out. The supervisor interval is also 60s, so whether it stops the
+  # poller before that tick fires comes down to scheduler registration
+  # order. Running here at on_boot priority -100, after every component
+  # setup and a full minute before either timer, settles it: the poller
+  # is stopped before it can ask bridge.invalid once.
+  - id: sync_update_cadence
+    then:
+      - lambda: |-
+          // No Bridge URL means there is nothing to poll. Without this
+          // the panel would resolve bridge.invalid once a minute,
+          // forever, on any freshly flashed unit -- the fast cadence
+          // makes an unconfigured panel the NOISIEST one, which is
+          // backwards. Stop outright and wait for a URL; entering one
+          // triggers a check directly (see the text entity below), so
+          // nothing waits on this supervisor to notice.
+          if (id(bridge_url).state.empty()) {
+            // stop_poller() unconditionally, not only when the flag says
+            // the poller is running.
+            //
+            // The flag can be wrong at exactly one moment, and it is a
+            // moment that happens on every boot of a panel whose URL was
+            // cleared: TemplateText::setup publishes the restored empty
+            // value during component setup, which runs apply_update_source
+            // and sets the flag false -- and PollingComponent::call_setup
+            // then starts the poller anyway, later in the same setup
+            // pass. A guarded stop would skip it, and the panel would
+            // poll bridge.invalid every 60s forever.
+            //
+            // stop_poller cancels an interval by name, so calling it on
+            // an already-stopped poller is free. Only the log line is
+            // guarded, or this would print once a minute.
+            id(firmware_update).stop_poller();
+            if (id(update_poll_running)) {
+              ESP_LOGI("panel.update", "update polling stopped: no Bridge URL");
+              id(update_poll_running) = false;
+            }
+            return;
+          }
+
+          // Written as products, not as 60000 / 1800000: a typo in a
+          // six-digit literal is invisible, and these two numbers are
+          // the whole behaviour of this block.
+          constexpr uint32_t kUnknownMs = 60u * 1000u;        // 60s
+          constexpr uint32_t kSettledMs = 30u * 60u * 1000u;  // 30min
+
+          // The forced-fast window after a source change, cleared as
+          // soon as it lapses.
+          //
+          // Clearing matters. The comparison is a signed subtraction
+          // because millis() wraps every 49.7 days, and that is correct
+          // for a deadline within +-24.8 days of now -- but a deadline
+          // left in place and more than 24.8 days in the PAST wraps
+          // back to positive, and the panel would then hold the fast
+          // cadence for roughly half of every millis() cycle. A wall
+          // panel that runs a month without a reconnect or a button
+          // press is exactly the device that would hit it. Zeroing on
+          // expiry keeps the comparison inside the window it describes;
+          // 0 is safe as "none", since a real deadline is at least
+          // 300000.
+          bool fast_window_open = false;
+          if (id(update_fast_until_ms) != 0) {
+            if ((int32_t) (id(update_fast_until_ms) - millis()) > 0) {
+              fast_window_open = true;
+            } else {
+              id(update_fast_until_ms) = 0;
+            }
+          }
+
+          // Two ways to be "not settled", and the state alone only
+          // catches one of them.
+          //
+          // A FAILED check does not touch state_ -- http_request_update
+          // calls status_set_error and returns, leaving the previous
+          // state in place (verified in the pinned sources). So a panel
+          // that had settled and is then pointed at a bridge which is
+          // still booting keeps reporting NO_UPDATE, and the state test
+          // alone would leave it polling every 30 minutes exactly when
+          // it should be trying again.
+          //
+          // status_has_error() is the missing half, and it generalises:
+          // it also covers a bridge that goes away long after the panel
+          // settled. A successful check clears it (status_clear_error
+          // on the success path), so the fast rate ends by itself.
+          const bool settled =
+              id(firmware_update).state != update::UPDATE_STATE_UNKNOWN &&
+              !id(firmware_update).status_has_error() &&
+              !fast_window_open;
+          const uint32_t want = settled ? kSettledMs : kUnknownMs;
+
+          // The running flag is checked too, not just the interval: a
+          // stopped poller still reports whatever interval it last had,
+          // so comparing values alone would leave it stopped forever
+          // after a Bridge URL was filled in.
+          if (!id(update_poll_running) ||
+              id(firmware_update).get_update_interval() != want) {
+            ESP_LOGI("panel.update", "check cadence -> %ums (state %s, error %d)", want,
+                     LOG_STR_ARG(update::update_state_to_string(id(firmware_update).state)),
+                     id(firmware_update).status_has_error() ? 1 : 0);
+            id(firmware_update).stop_poller();
+            id(firmware_update).set_update_interval(want);
+            id(firmware_update).start_poller();
+            id(update_poll_running) = true;
+          }
+
+  # Every firmware check goes through here.
+  #
+  # There is exactly one precondition -- a Bridge URL must be set -- and
+  # putting it at each call site is how it gets forgotten: wifi.on_connect
+  # was guarded and bridge_url.on_value was not, so clearing the URL fired
+  # a check against the .invalid placeholder, the very thing the guard
+  # existed to prevent. One script, one guard, four callers.
+  - id: check_now
+    then:
+      - if:
+          condition:
+            lambda: "return !id(bridge_url).state.empty();"
+          then:
+            - update.check: firmware_update
+          else:
+            - lambda: |-
+                ESP_LOGD("panel.update", "check skipped: no Bridge URL");
+
+  # Writes the update source, and writes it as SELDOM as possible.
+  #
+  # `set_source_url` assigns a std::string on the main loop while
+  # `update_task` may be reading the same member on its own FreeRTOS
+  # task, with no synchronisation on either side (ESPHome 2026.7.4). An
+  # assignment that reallocates while the task holds a reference is
+  # undefined behaviour. There is no fix available from YAML -- the
+  # member is the component's, and the task handle that would let us see
+  # a check in flight is protected.
+  #
+  # What is available is not writing when nothing changed. This script
+  # runs on every Wi-Fi reconnect and every button press, and the value
+  # is the same almost every time; only a human editing the Bridge URL
+  # actually changes it. Guarding on that turns "a write on every
+  # reconnect, at a 60s check cadence" into "a write when someone types
+  # in the field", which is both rare and not a moment when a scheduled
+  # check is likely to be running.
+  #
+  # A mitigation, then, not a fix, and it is written down as one. If the
+  # race ever shows up in the field, the honest next step is an upstream
+  # issue, not more cleverness here.
   - id: apply_update_source
     mode: restart
     then:
@@ -1920,22 +2176,50 @@ script:
           then:
             - lambda: |-
                 const std::string url = id(bridge_url).state + "/firmware/manifest.json";
+                if (url == id(update_source_applied)) {
+                  return;  // unchanged; do not touch source_url_ at all
+                }
+                id(update_source_applied) = url;
                 ESP_LOGI("panel.update", "update source -> %s", url.c_str());
                 id(firmware_update).set_source_url(url);
+                // Hold the fast cadence until the new source has
+                // certainly been checked once -- supervisor tick, then
+                // the poll it schedules, then that check's timeout. The
+                // arithmetic is on update_fast_until_ms above.
+                id(update_fast_until_ms) = millis() + 300u * 1000u;
           else:
             # Reset, do not merely complain. Clearing the Bridge URL has
-            # to stop the automatic 6h checks from continuing against
+            # to stop the automatic checks from continuing against
             # the OLD bridge -- a host that may have been retired, or
             # that the operator has deliberately stopped trusting. The
             # scan path already honours an empty URL; this makes the
-            # update path match. Back to the .invalid placeholder, which
-            # fails DNS immediately and says why.
+            # update path match. Back to the .invalid placeholder --
+            # which nothing should now reach, since the poller stops
+            # below and check_now declines an empty URL, but which fails
+            # DNS at once and says why if anything does.
             - lambda: |-
                 ESP_LOGW("panel.update",
                          "update source reset: Bridge URL is empty. "
                          "Set it on this panel's own dashboard; the firmware "
                          "manifest is served by the bridge, not by GitHub.");
+                id(update_source_applied) = "";
                 id(firmware_update).set_source_url("http://bridge.invalid/firmware/manifest.json");
+                // Stop the poller HERE, not at the supervisor's next
+                // tick. Those are up to 60s apart, and the poller does
+                // not go through check_now -- so one poll could still
+                // fire against the placeholder in that window.
+                //
+                // Deliberately asymmetric: stopping is urgent, starting
+                // is not. Clearing the URL is how an operator says "do
+                // not talk to that host any more", and honouring it a
+                // minute later is not honouring it. Setting a URL, by
+                // contrast, already fires an immediate check through
+                // check_now, so letting the supervisor start the poller
+                // on its own schedule costs nothing visible.
+                if (id(update_poll_running)) {
+                  id(firmware_update).stop_poller();
+                  id(update_poll_running) = false;
+                }
 
   # What the "Check for Update" button does.
   #
@@ -1947,7 +2231,9 @@ script:
   # reboot the panel on the button press. So the bridge answers at once
   # and does the work behind it.
   #
-  # Then TWO checks, and the second one is not belt-and-braces.
+  # Then a short sequence of checks, and none of them is
+  # belt-and-braces -- each covers a different way the bridge can be
+  # slow. They are enumerated below.
   #
   # The bridge holds a five-minute floor between outbound GitHub calls,
   # so that a caller in a loop on the LAN cannot burn the anonymous API
@@ -1955,34 +2241,39 @@ script:
   # defers the refresh to the moment the floor expires -- but it is
   # honoured LATE. A single check eight seconds later would read the old
   # manifest, report "no update", and leave the newly published firmware
-  # sitting there until the regular 6h poll.
+  # sitting there until the next regular poll.
   #
-  # There are four windows, so there are four checks:
+  # Three checks:
   #
-  #   8s     the bridge already held the release and answered at once
-  #   90s    the bridge was free to ask GitHub and has finished the
-  #          ~1.7 MB download
-  #   660s   the press landed at the START of the floor (up to 300s)
-  #          AND the deferred refresh then took its full timeout
-  #          (refreshTimeout, another 300s)
-  #   960s   that deferred refresh FAILED -- which is routine during a
-  #          release, because release.yml publishes the release before
-  #          the job that uploads the firmware -- and the bridge's
-  #          bounded retry, itself gated by the same 300s floor, is the
-  #          one that succeeds
+  #   8s    the bridge already held the release and answered at once
+  #   90s   the bridge was free to ask GitHub and has finished the
+  #         ~1.7 MB download
+  #   660s  the press landed inside the bridge's five-minute API-call
+  #         floor, so the refresh was deferred (up to 300s) and then
+  #         took its own timeout (refreshTimeout, another 300s)
   #
-  # Each number is the sum of the bridge-side limits that can precede
-  # it, plus a minute. Anything earlier can legitimately still read the
-  # old manifest, and then nothing would happen until the 6h poll --
-  # which is the whole failure this button exists to avoid.
+  # There was a fourth at 960s, for a deferred refresh that then FAILED
+  # and had to be retried behind the same floor. It is gone, and the
+  # reasoning is worth stating precisely because a first attempt at this
+  # comment got it wrong.
   #
-  # The ladder stops here on purpose. Two or more consecutive bridge-side
-  # failures push the answer past 960s, and chasing every case would
-  # make this unbounded; that is what the regular 6h check is for.
+  # The wrong version said a 30-minute poll covers those cases "in half
+  # the time of the ladder's last rung". It does not: 1800s is nearly
+  # twice 960s, so dropping the rung made the worst case WORSE, not
+  # better. Removing both rungs took the button's worst case from 16
+  # minutes to 30.
+  #
+  # What is actually true: the 660s rung is worth keeping because the
+  # floor is hit by an ordinary action -- pressing the button twice,
+  # which is what an impatient person does, puts the second press inside
+  # it. The 960s rung covers a deferred refresh that also failed, which
+  # is rarer, and its absence now costs at most one 30-minute poll
+  # instead of the six hours it used to. That is a bounded, stated
+  # degradation rather than a hidden one.
   #
   # `delay` is scheduler-based and does not block the main loop, and
-  # `update.check` runs on its own FreeRTOS task, so none of the three
-  # costs responsiveness.
+  # `update.check` runs on its own FreeRTOS task, so neither costs
+  # responsiveness.
   #
   # A check that lands while the bridge is still downloading is harmless:
   # the mirror only swaps the manifest once the binary is on disk and its
@@ -2021,17 +2312,15 @@ script:
             # already hold a newer release than this panel, in which
             # case the check alone is enough.
             - delay: 8s
-            - update.check: firmware_update
+            - script.execute: check_now
             - lvgl.label.update: { id: status_label, text: "idle" }
-            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s,
-            # +300s = 960s. mode: restart on this script means a second
-            # press starts the sequence over rather than stacking timers.
+            # Cumulative delays: 8s, then +82s = 90s, +570s = 660s.
+            # mode: restart on this script means a second press starts
+            # the sequence over rather than stacking timers.
             - delay: 82s
-            - update.check: firmware_update
+            - script.execute: check_now
             - delay: 570s
-            - update.check: firmware_update
-            - delay: 300s
-            - update.check: firmware_update
+            - script.execute: check_now
 
 # Polling intervals are a responsiveness decision, not just a freshness
 # one. ESPHome's http_request is synchronous: while a poll is in flight
@@ -2049,6 +2338,28 @@ script:
 # light, not a heartbeat, and profiles change when someone edits a YAML
 # file and restarts the daemon — not every half minute.
 interval:
+  # Firmware-check cadence, switched by state (issue #111).
+  #
+  #   UNKNOWN   60s    no check has ever succeeded -- get out of that
+  #                    state quickly, because it is the one an operator
+  #                    is staring at while fixing a Bridge URL
+  #   otherwise 30min  the answer is known and changes only on release
+  #
+  # A PollingComponent does not re-time itself when its interval
+  # changes, so the switch is stop / set / start rather than a bare
+  # setter. Guarded by the current value, or every tick of this
+  # supervisor would restart the poller and the check would never
+  # actually come due.
+  #
+  # This runs every 60s and does no I/O -- it reads one enum and, almost
+  # always, does nothing.
+  # Runs the cadence check on a timer. The logic lives in the
+  # `sync_update_cadence` script so that on_boot can run it too -- see
+  # there for why once at boot is not optional.
+  - id: adaptive_update_poll
+    interval: 60s
+    then:
+      - script.execute: sync_update_cadence
   # The steady-state refresh. Profiles change when someone edits a YAML
   # file and restarts the daemon, not every half minute.
   - interval: 300s

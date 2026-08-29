@@ -137,10 +137,34 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
 
 !!! info "Updates kommen von Ihrer Bridge, nicht von dieser Seite"
 
-    Sobald das Panel seine **Bridge URL** kennt, fragt es dort alle sechs
-    Stunden nach neuerer Firmware und meldet sie auf dem eigenen Dashboard
-    als **Firmware Update**. Daneben gibt es eine Schaltfläche **Check for
-    Update**, die sofort nachfragt.
+    Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach
+    neuerer Firmware und meldet sie auf dem eigenen Dashboard als
+    **Firmware Update**. Daneben gibt es die Schaltfläche **Check for
+    Update**: Sie fordert die Bridge sofort auf, bei GitHub
+    nachzusehen; das Panel liest die Antwort danach dreimal, damit nicht
+    bis zur nächsten planmäßigen Prüfung gewartet werden muss.
+
+    Meist steht das Ergebnis binnen etwa anderthalb Minuten. Es kann bis
+    zu **elf Minuten** dauern: Die Bridge hält fünf Minuten zwischen
+    zwei GitHub-Aufrufen ein, ein Druck kurz nach einer anderen Prüfung
+    muss diese Frist also erst abwarten — und der Aufruf selbst darf
+    noch einmal fünf Minuten brauchen. **Erneutes Drücken startet die
+    Folge von vorn, statt sie zu beschleunigen** — wenn nichts
+    erscheint, ist Warten schneller als Drücken.
+
+    Wie oft es fragt, hängt davon ab, wie die letzte Prüfung ausging.
+    Solange keine erfolgreich war — falsche Bridge URL, Bridge nicht
+    erreichbar — fragt es jede **Minute**, damit sich das Korrigieren
+    der Einstellung fast sofort zeigt. Nach der ersten erfolgreichen
+    Prüfung geht es auf alle **30 Minuten** herunter und kehrt zum
+    Minutentakt zurück, sobald eine Prüfung fehlschlägt. Was das
+    zusagt und was nicht: Eine verschwundene Bridge fällt erst bei der
+    nächsten planmäßigen Prüfung auf, wenn deren Anfrage in ihr Zeitlimit
+    läuft — also gut eine halbe Stunde später. Ab diesem Moment fragt das
+    Panel aber jede Minute nach und findet die Bridge binnen etwa drei
+    Minuten nach ihrer Rückkehr wieder.
+    Ohne gesetzte Bridge URL prüft es gar nicht. Jede Prüfung ist eine
+    kleine Anfrage an Ihre eigene Bridge und erreicht GitHub nie.
 
     Der Umweg über die Bridge ist keine Vorliebe. Das Panel erreicht diese
     Seite nicht — und GitHub ebenso wenig, und überhaupt nichts über HTTPS:
@@ -204,8 +228,8 @@ curl -s https://scan-bridge.strausmann.de/firmware/manifest.json | grep md5
     Manifest und eine dazu passende Binärdatei ausliefern — die
     MD5-Prüfung ginge durch. Deshalb **meldet** das Panel Updates, es
     installiert aber nie eines von selbst: Das entscheidende Zeitfenster
-    ist der Moment, in dem Sie auf Installieren drücken, nicht alle sechs
-    Stunden. Die vollständige Begründung steht in ADR 0024 und ADR 0025
+    ist der Moment, in dem Sie auf Installieren drücken, nicht jede
+    Prüfung. Die vollständige Begründung steht in ADR 0024 und ADR 0025
     im Repository.
 
 ## Voraussetzungen

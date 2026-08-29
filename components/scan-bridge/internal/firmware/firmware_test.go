@@ -165,6 +165,40 @@ func genDir(t *testing.T, m *Mirror) string {
 	return filepath.Join(m.cacheDir, cur.Dir())
 }
 
+// runMirror starts m.Run and waits for it to return before the test
+// ends, failing the test if it does not within ten seconds.
+//
+// Not tidiness: t.TempDir registers its cleanup when the directory is
+// created, and t.Cleanup runs LIFO, so this one fires first and joins
+// the goroutine while the directory still exists. Without the join, a
+// Run still inside Refresh keeps creating and removing a staging
+// directory under a tree TempDir is already deleting, and the test
+// fails with "directory not empty" -- intermittently, which is the
+// worst kind.
+//
+// The ten seconds are a bound, not a guarantee: a Run that ignored its
+// context would make the test fail here rather than hang, which is the
+// useful outcome either way.
+func runMirror(t *testing.T, m *Mirror) {
+	t.Helper()
+
+	// t.Context() as the parent, matching the rest of this file: a test
+	// that times out or panics then cancels Run too, rather than
+	// relying on the cleanup below being reached.
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	go func() { m.Run(ctx); close(stopped) }()
+
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			t.Error("Run did not return after its context was cancelled")
+		}
+	})
+}
+
 func newTestMirror(t *testing.T, g *fakeGitHub) *Mirror {
 	t.Helper()
 	m, err := New(Options{
@@ -1073,10 +1107,7 @@ func TestRunReArmsATriggerThatHitsTheFloor(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	stopped := make(chan struct{})
-	go func() { m.Run(ctx); close(stopped) }()
+	runMirror(t, m)
 
 	// Run's initial refresh sets the floor.
 	waitFor(t, func() bool { _, ok := m.Current(); return ok }, "initial refresh")
@@ -1091,13 +1122,6 @@ func TestRunReArmsATriggerThatHitsTheFloor(t *testing.T) {
 		cur, ok := m.Current()
 		return ok && cur.Tag == "v2.0.0"
 	}, "the deferred refresh to run once the floor expired")
-
-	cancel()
-	select {
-	case <-stopped:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after cancellation")
-	}
 }
 
 // Continuous pressing across the whole floor must still end in exactly
@@ -1118,9 +1142,7 @@ func TestRunRefreshesOnceDespiteContinuousTriggering(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.Run(ctx)
+	runMirror(t, m)
 	waitFor(t, func() bool { _, ok := m.Current(); return ok }, "initial refresh")
 
 	g.tag = "v2.0.0"
@@ -1656,9 +1678,7 @@ func TestRunReArmsAScheduledTickThatHitsTheFloor(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.Run(ctx)
+	runMirror(t, m)
 
 	waitFor(t, func() bool { return g.apiCalls.Load() >= 1 }, "the initial refresh")
 	start := time.Now()
@@ -1698,9 +1718,7 @@ func TestRunRetriesAFailedRefreshBeforeTheNextTick(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.Run(ctx)
+	runMirror(t, m)
 
 	// Three failing attempts: the one at startup plus two retries. Two
 	// matters -- one would also happen if only the startup attempt were
@@ -1738,9 +1756,7 @@ func TestRunStopsRetryingAfterAFewFailures(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.Run(ctx)
+	runMirror(t, m)
 
 	// One initial attempt plus at most three retries. Give it well over
 	// the time four attempts need, then check it has stopped.
@@ -1778,9 +1794,7 @@ func TestRunGivesAFreshTriggerAFreshRetryBudget(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	go m.Run(ctx)
+	runMirror(t, m)
 
 	// Exhaust the budget: the startup attempt plus its retries.
 	waitFor(t, func() bool { return g.apiCalls.Load() >= 4 }, "the retry budget to be spent")

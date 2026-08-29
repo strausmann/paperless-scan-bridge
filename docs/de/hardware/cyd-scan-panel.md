@@ -124,10 +124,24 @@ kein LVGL-Speicherbudget gegen Hardware belegt.
 
 ## Updates kommen von der Bridge
 
-Sobald das Panel seine **Bridge URL** kennt, fragt es dort alle sechs
-Stunden nach neuerer Firmware und meldet sie auf dem eigenen Dashboard
-als **Firmware Update**; die Schaltfläche **Check for Update** fragt
-sofort nach.
+Sobald das Panel seine **Bridge URL** kennt, fragt es dort nach neuerer
+Firmware und meldet sie auf dem eigenen Dashboard als **Firmware
+Update**. Die Schaltfläche **Check for Update** fordert die Bridge
+sofort auf, bei GitHub nachzusehen; das Panel liest die Antwort nach
+8 s, 90 s und 660 s. Die letzte deckt den Fall ab, dass die Bridge
+ihren GitHub-Aufruf aufschieben musste — sie hält fünf Minuten
+Sperrfrist zwischen zweien ein — und danach ihr eigenes Zeitlimit
+ausgeschöpft hat.
+
+Der Takt richtet sich danach, wie die letzte Prüfung ausging: **jede
+Minute**, solange keine erfolgreich war, **alle 30 Minuten**, sobald
+eine es war — und wieder jede Minute, sobald eine fehlschlägt. Eine
+verschwundene Bridge fällt damit erst bei der nächsten planmäßigen
+Prüfung auf, wenn deren Anfrage in ihr Zeitlimit läuft — also gut eine
+halbe Stunde später —, wird danach aber
+binnen etwa drei Minuten nach ihrer Rückkehr wieder gefunden. Ohne gesetzte
+Bridge URL prüft es gar nicht. Jede Prüfung ist eine kleine Anfrage an
+die eigene Bridge, nie an GitHub.
 
 Das Panel spricht nie mit GitHub. Es kann es nicht: Neben WLAN,
 Bluetooth-Stack, LVGL und dem eigenen Dashboard bleibt kein Speicher
