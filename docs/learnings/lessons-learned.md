@@ -29,9 +29,11 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
      Detection takes **at most** a full poll interval plus the client timeout —
      the failing request may run to its timeout, or return at once on a DNS
      failure — so up to half an hour and a minute. Recovery takes at most the
-     supervisor tick plus a poll interval plus the client timeout, so up to
-     about two minutes. (Both stated as bounds, which the first two versions of
-     this very bullet were not — see the postscript.)
+     supervisor tick plus the fast poll interval plus the client timeout:
+     60 + 60 + 55 = **175 s**, so getting on for three minutes. (Bounds, not
+     durations — which the first two versions of this bullet were not. And the
+     175 was not added up until a reviewer did it: I said "about two minutes"
+     three times while the chain sat next to it. See the postscript.)
 
 - **Root cause:** one cause, three shapes. **Every one of these was a claim
   about time or ordering that I asserted instead of computed.** In each case a

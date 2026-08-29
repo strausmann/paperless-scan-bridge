@@ -27,9 +27,10 @@ of everything that must elapse before the effect is observable:
              + client timeout            (a failing request may run to its
                                           timeout — or return at once, on DNS
                                           failure or ECONNREFUSED)
-    recover <= supervisor tick           (up to 60s to observe the failure)
-             + poll interval             (start_poller schedules a full one)
-             + client timeout            (same caveat)
+    recover <= supervisor tick     60s   (to observe the failure)
+             + fast poll interval  60s   (start_poller schedules a full one)
+             + client timeout      55s   (same caveat)
+             = 175s
 
 Detection and recovery are different numbers. Stating one as the other is how
 `firmware/esp32-panel/README.md` promised "noticed within the minute" for
@@ -46,6 +47,10 @@ second added it as a certainty and thereby overstated every future claim derived
 from the rule. Writing the chain out is necessary and not sufficient. Read it
 back twice — once asking "and how long does *that* take?", once asking "and is
 that the most, the least, or the usual?"
+
+And then **add it up and write the total down.** The `= 175s` above was absent
+for three drafts, during which the prose beside it said "about two minutes" —
+a chain nobody sums is decoration.
 
 ### 2. A wrapping counter is only meaningful over half its period
 
