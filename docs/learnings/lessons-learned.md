@@ -26,10 +26,12 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
      only order. It would have failed on every boot.
   3. Two latency overclaims, in six files: "a bridge that disappears is noticed
      within the minute" and "picked up again within a minute of returning".
-     Detection takes a full poll interval **plus the client timeout** — the
-     failing request has to time out before anyone knows it failed — so half an
-     hour and a minute; recovery takes the supervisor tick plus a poll interval
-     plus the client timeout, about two minutes.
+     Detection takes **at most** a full poll interval plus the client timeout —
+     the failing request may run to its timeout, or return at once on a DNS
+     failure — so up to half an hour and a minute. Recovery takes at most the
+     supervisor tick plus a poll interval plus the client timeout, so up to
+     about two minutes. (Both stated as bounds, which the first two versions of
+     this very bullet were not — see the postscript.)
 
 - **Root cause:** one cause, three shapes. **Every one of these was a claim
   about time or ordering that I asserted instead of computed.** In each case a
