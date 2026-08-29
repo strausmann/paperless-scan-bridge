@@ -137,7 +137,8 @@ Der Takt richtet sich danach, wie die letzte Prüfung ausging: **jede
 Minute**, solange keine erfolgreich war, **alle 30 Minuten**, sobald
 eine es war — und wieder jede Minute, sobald eine fehlschlägt. Eine
 verschwundene Bridge fällt damit erst bei der nächsten planmäßigen
-Prüfung auf, also bis zu einer halben Stunde später, wird danach aber
+Prüfung auf, wenn deren Anfrage in ihr Zeitlimit läuft — also gut eine
+halbe Stunde später —, wird danach aber
 ein bis zwei Minuten nach ihrer Rückkehr wieder gefunden. Ohne gesetzte
 Bridge URL prüft es gar nicht. Jede Prüfung ist eine kleine Anfrage an
 die eigene Bridge, nie an GitHub.

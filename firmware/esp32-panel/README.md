@@ -442,8 +442,10 @@ What it does:
   — it polls every **60 s**, so an operator fixing the setting sees it
   clear within a minute. Once a check succeeds it drops to every
   **30 min**, and it returns to 60 s as soon as one fails — so a bridge
-  that goes away is noticed at the next scheduled check, up to half an
-  hour, and picked up again within about two minutes of coming back.
+  that goes away is noticed when the next scheduled check runs and times
+  out — a poll interval plus the 55 s client timeout, so a little over
+  half an hour — and picked up again within about two minutes of coming
+  back.
   Two, not one: the supervisor may take up to 60 s to see the error and
   switch the poller, and `start_poller` then schedules the first check a
   full interval after that.

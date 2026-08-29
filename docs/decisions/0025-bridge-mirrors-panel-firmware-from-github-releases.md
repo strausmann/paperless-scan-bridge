@@ -206,7 +206,9 @@ changes anywhere in the manifest is `ota.path`, per rule 3 above.
   pointed at a bridge that is still booting would otherwise keep the
   slow rate exactly when it should retry. Note what that bounds and what
   it does not: a bridge that goes away is noticed only at the next
-  scheduled check — up to half an hour — and is picked up again a minute
+  scheduled check, and only once that check times out — a poll interval
+  plus the client timeout, so a little over half an hour — and is picked
+  up again a minute
   or two after returning, because the supervisor needs up to 60 s to see
   the error and `start_poller` then schedules the first check a full
   interval later. Entering a URL fires a check
