@@ -54,9 +54,20 @@ days of now, and for nothing else.** A stored deadline left in place long after
 it lapsed wraps back to positive.
 
 So: state the valid range in the comment, and **bound the stored value so it
-cannot leave that range** — clear it on expiry, or recompute it. A comment
-reading "wrap-safe" without the range is worse than no comment: it asserts a
-property nobody has enumerated.
+cannot leave that range**. Two ways, and the shorter one is a trap:
+
+- **Recompute** the deadline instead of storing it. Nothing to age.
+- **Clear it on expiry — and test the sentinel separately, before the
+  subtraction.** Clearing alone does not help: `(int32_t)(0 - millis())` is
+  positive again after 24.8 days of uptime, so a zeroed deadline reads as
+  "in the future" exactly as the stale one did. It has to be
+  `if (deadline != 0 && (int32_t)(deadline - millis()) > 0)`, never the
+  subtraction on its own.
+
+A comment reading "wrap-safe" without the range is worse than no comment: it
+asserts a property nobody has enumerated. This paragraph is itself the example
+— its first version said only "clear it on expiry", which a reader following it
+literally would have implemented as the bug it warns about.
 
 ### 3. Cross-component setup order is not yours to assume — look it up
 
