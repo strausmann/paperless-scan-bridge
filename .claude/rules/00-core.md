@@ -45,3 +45,14 @@ change — see `docs/learnings/lessons-learned.md`, 2026-08-27.
 ## R6 — Resolve every AI review finding
 Each Gemini/Copilot PR finding is **fixed** or **replied to as a false positive with reasoning** —
 never silently ignored. Details: `pr-review.md`.
+
+## R7 — Compute time and order, never assert them
+Any claim about **when** something happens, **how long** it takes, or **in what order** two things
+run must carry the arithmetic or the ordering that produces it, written next to the claim. If you
+cannot write the chain out, you do not know the number — do not state it. A cadence is not a
+latency; a wrapping counter is meaningful only over half its period; cross-component setup order is
+the framework's to decide, so the later reader must re-assert state rather than trust a flag.
+
+Run the pass yourself, before pushing, on any diff touching a timer, interval, timeout, wrapping
+counter or `setup()`. This is R1 applied to the one class of claim where "it looks right" is
+systematically misleading. Details: `time-and-order.md`.

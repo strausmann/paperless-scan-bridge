@@ -2,6 +2,129 @@
 
 Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/error-handling.md`.
 
+## 2026-08-28 — Three bugs about time, none of which reading could catch
+
+- **What happened:** PR #113 (adaptive firmware-check cadence) took **fourteen
+  review rounds**. The bots found more than I did, and three of their findings
+  were real bugs of mine:
+
+  1. A wraparound comparison, `(int32_t)(deadline - millis()) > 0`, correct only
+     for a deadline within ±24.8 days. A stored deadline left in place after it
+     lapsed wraps back to positive, so a panel running a month without a Wi-Fi
+     reconnect would have polled at the fast rate for roughly half of every
+     49.7-day `millis()` cycle — thirty times the requests, and the touchscreen
+     stalls this firmware documents elsewhere as the cost of frequent polling.
+  2. A poller stopped in one component's `setup()` and restarted by another's.
+     `TemplateText::setup` publishes a restored empty Bridge URL, which ran the
+     reset and cleared a "running" flag; `PollingComponent::call_setup` then
+     started the poller anyway, later in the same setup pass. The supervisor's
+     guarded stop skipped it, so a panel whose URL had been cleared polled
+     `bridge.invalid` every 60s forever — exactly the behaviour the guard was
+     added to prevent. Not a race, either: ESPHome orders `setup()` by
+     descending `setup_priority`, `TemplateText` is `HARDWARE` (800) and
+     `HttpRequestUpdate` is `AFTER_WIFI` (200), so the unhelpful order is the
+     only order. It would have failed on every boot.
+  3. Two latency overclaims, in six files: "a bridge that disappears is noticed
+     within the minute" and "picked up again within a minute of returning".
+     Detection takes **at most** a full poll interval plus the client timeout —
+     the failing request may run to its timeout, or return at once on a DNS
+     failure — so up to half an hour and a minute. Recovery takes at most the
+     supervisor tick plus the fast poll interval plus the client timeout:
+     60 + 60 + 55 = **175 s**, so getting on for three minutes. (Bounds, not
+     durations — which the first two versions of this bullet were not. And the
+     175 was not added up until a reviewer did it: I said "about two minutes"
+     three times while the chain sat next to it. See the postscript.)
+
+- **Root cause:** one cause, three shapes. **Every one of these was a claim
+  about time or ordering that I asserted instead of computed.** In each case a
+  single line of arithmetic or one question about ordering would have shown it,
+  and in each case I had written a confident comment instead — `wrap-safe`,
+  `if (running) stop`, `within the minute`. The comments were not lies; they
+  were unexamined. A reviewer reads them, agrees they sound right, and moves on.
+  So did I.
+
+  The reason the bots outperformed me here is not that they are better
+  reviewers. It is that they did the sum and I did not.
+
+- **Impact:** none shipped — all three were caught in review, on a branch. The
+  cost was fourteen rounds on one PR, roughly two and a half hours of
+  push-review-fix cycles for findings that a five-minute pass over the diff
+  would have produced.
+
+- **Fix / prevention:** new rule **R7 — compute time and order, never assert
+  them** (`.claude/rules/00-core.md`, details in
+  `.claude/rules/time-and-order.md`). Every claim about when something happens,
+  how long it takes, or in what order two components initialise must carry the
+  arithmetic next to it; if the chain cannot be written out, the number is not
+  known and must not be stated. The rule names the three shapes explicitly — a
+  cadence is not a latency, a wrapping counter is meaningful only over half its
+  period, cross-component setup order belongs to the framework so the later
+  reader must re-assert state rather than trust a flag — and lists the tokens
+  in a diff that trigger the pass (`millis()`, `Ticker`, `interval:`, `delay:`,
+  `timeout`, `poller`, `setup()`, `restore_value`, any duration in prose).
+
+  Deliberately not a "be more careful" rule. The pass is mechanical and short,
+  and its trigger is a grep.
+
+  **A postscript that belongs in the entry — the rule got it wrong twice.**
+  The first version of R7 wrote `detect = one poll interval` and omitted the
+  client timeout, because "the poll notices it" reads as an instant. Corrected,
+  it then stated the timeout as a certainty — but a request failing on DNS or
+  `ECONNREFUSED` returns at once, so the sum is an upper bound and the rule
+  would have inflated every latency claim derived from it. Both were caught by
+  reviewers, on the rule's own PR.
+
+  So the rule now demands two read-backs, not one: "and how long does *that*
+  take?" for every line, and "is this the most, the least, or the usual?" for
+  the total. A bare figure is not a computed claim, it is an unlabelled one.
+  That second question is the part I keep skipping, and it is why the same
+  paragraph swung from understating to overstating within a day.
+
+## 2026-08-28 — A scratch file in /tmp overwrote a source file, and the commit shipped it
+
+**What happened.** While mutation-testing my own change to
+`internal/config/config.go`, the save step `cp internal/config/config.go
+/tmp/cfg.bak` failed with `permission denied`: `/tmp/cfg.bak` already
+existed and belonged to something else. The restore step,
+`cp /tmp/cfg.bak internal/config/config.go`, then *succeeded* — copying
+that stranger's file over the repository's. It was a `config.go` from an
+unrelated project: `fileee-mcp-server` and `gangway` imports, German
+comments, a `Config` type with none of this daemon's fields. The package
+no longer built. It was committed and pushed.
+
+**Root cause.** Two, and neither is the `cp` itself:
+
+1. A **fixed name in a shared directory** for a scratch file.
+   `/tmp/<something>.bak` is a name anything on the machine may already
+   own, and `cp` reports that by failing — which is fine, as long as
+   somebody reads it.
+2. **Committing in the same command block as a step that mutates the
+   tree.** The build and the test run happened *before* the mutation;
+   the restore and the commit happened after, with nothing in between.
+   So the one thing that would have caught it — building after
+   restoring — was never run.
+
+**Impact.** One commit on a feature branch with a source file replaced
+by an unrelated project's. Caught within minutes by the next `go build`,
+before merge. No release, no deployment.
+
+**Fix / prevention.**
+
+- Scratch copies go to a **per-invocation** directory, not a fixed name
+  in `/tmp`. A collision is then impossible rather than merely
+  reported.
+- A mutation cycle **ends with a build and the full suite**, after the
+  restore, before anything is staged. "Restore, then verify" — the
+  same discipline as "download, verify, then publish" in the code this
+  was testing.
+- Never put `git commit` in the same block as a step that rewrites
+  files. Separate the verification from the mutation, and let the
+  verification be the last thing that runs.
+
+Related: the 2026-08-27 entry on claiming a fix before making the edit.
+Both are the same shape — a command block whose later steps assume the
+earlier ones did what they were supposed to.
+
 ## 2026-08-27 — A branch cut from another feature branch duplicated a merged change
 
 - **What happened:** `/en/manage/` and `/de/manage/` shipped the "The panel is
@@ -45,6 +168,28 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   compose any text that cites it. Generalized: a reference to a SHA, URL, line
   number, file path or version in public text must be copied from a command's
   output, never from memory or expectation.
+
+## 2026-08-27 — A fix was claimed on a PR before the edit had run
+
+- **What happened:** Replying to a review finding on PR #105, the reply said
+  "behoben in `<sha>`" and named the branch head. No fix had been made: the
+  edit script had failed its own assertion moments earlier, and the finding
+  was in fact already resolved by the branch author's own commit. A public
+  correction had to follow.
+- **Root cause:** Two mistakes compounded. The branch state was read from
+  `gh pr diff`, which shows the difference against `main` and therefore the
+  *pre-fix* wording, rather than from the file on the branch. And the reply
+  was in the same command block as the edit, so it went out regardless of
+  whether the edit succeeded — the block continued past a failed Python
+  assertion because only that one interpreter exited non-zero.
+- **Impact:** A false claim of authorship and of work done, on a public PR,
+  for a second time in one session (see the SHA entry above).
+- **Fix / prevention:** Read the branch, not the diff, before asserting what
+  a branch contains — `gh pr diff` answers "what does this change" and never
+  "what does this file say now". And never put a public statement in the same
+  command block as the change it describes: run the edit, verify it landed,
+  then post. The existing rule about not naming an artifact in the step that
+  creates it extends to this — a claim about a change is such an artifact.
 
 ## 2026-08-26 — The first real end-to-end scan failed on a file mode nobody had documented
 
@@ -125,70 +270,3 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   plan-vs-ADR audit** — enumerate every ADR (by scope/topic the plan touches) and
   mark each consistent / conflicting, not just the first conflicts noticed. Guard
   added as a checklist step in `.claude/rules/decision-process.md`.
-
-## 2026-08-27 — A fix was claimed on a PR before the edit had run
-
-- **What happened:** Replying to a review finding on PR #105, the reply said
-  "behoben in `<sha>`" and named the branch head. No fix had been made: the
-  edit script had failed its own assertion moments earlier, and the finding
-  was in fact already resolved by the branch author's own commit. A public
-  correction had to follow.
-- **Root cause:** Two mistakes compounded. The branch state was read from
-  `gh pr diff`, which shows the difference against `main` and therefore the
-  *pre-fix* wording, rather than from the file on the branch. And the reply
-  was in the same command block as the edit, so it went out regardless of
-  whether the edit succeeded — the block continued past a failed Python
-  assertion because only that one interpreter exited non-zero.
-- **Impact:** A false claim of authorship and of work done, on a public PR,
-  for a second time in one session (see the SHA entry above).
-- **Fix / prevention:** Read the branch, not the diff, before asserting what
-  a branch contains — `gh pr diff` answers "what does this change" and never
-  "what does this file say now". And never put a public statement in the same
-  command block as the change it describes: run the edit, verify it landed,
-  then post. The existing rule about not naming an artifact in the step that
-  creates it extends to this — a claim about a change is such an artifact.
-
-## 2026-08-28 — A scratch file in /tmp overwrote a source file, and the commit shipped it
-
-**What happened.** While mutation-testing my own change to
-`internal/config/config.go`, the save step `cp internal/config/config.go
-/tmp/cfg.bak` failed with `permission denied`: `/tmp/cfg.bak` already
-existed and belonged to something else. The restore step,
-`cp /tmp/cfg.bak internal/config/config.go`, then *succeeded* — copying
-that stranger's file over the repository's. It was a `config.go` from an
-unrelated project: `fileee-mcp-server` and `gangway` imports, German
-comments, a `Config` type with none of this daemon's fields. The package
-no longer built. It was committed and pushed.
-
-**Root cause.** Two, and neither is the `cp` itself:
-
-1. A **fixed name in a shared directory** for a scratch file.
-   `/tmp/<something>.bak` is a name anything on the machine may already
-   own, and `cp` reports that by failing — which is fine, as long as
-   somebody reads it.
-2. **Committing in the same command block as a step that mutates the
-   tree.** The build and the test run happened *before* the mutation;
-   the restore and the commit happened after, with nothing in between.
-   So the one thing that would have caught it — building after
-   restoring — was never run.
-
-**Impact.** One commit on a feature branch with a source file replaced
-by an unrelated project's. Caught within minutes by the next `go build`,
-before merge. No release, no deployment.
-
-**Fix / prevention.**
-
-- Scratch copies go to a **per-invocation** directory, not a fixed name
-  in `/tmp`. A collision is then impossible rather than merely
-  reported.
-- A mutation cycle **ends with a build and the full suite**, after the
-  restore, before anything is staged. "Restore, then verify" — the
-  same discipline as "download, verify, then publish" in the code this
-  was testing.
-- Never put `git commit` in the same block as a step that rewrites
-  files. Separate the verification from the mutation, and let the
-  verification be the last thing that runs.
-
-Related: the 2026-08-27 entry on claiming a fix before making the edit.
-Both are the same shape — a command block whose later steps assume the
-earlier ones did what they were supposed to.
