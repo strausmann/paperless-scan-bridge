@@ -23,23 +23,29 @@ author. The only thing that catches it is doing the sum.
 "It polls every 60 s" does **not** mean "it notices within 60 s". Write the chain
 of everything that must elapse before the effect is observable:
 
-    detect  = one poll interval          (the failure happens between polls)
-            + client timeout             (the failing request has to time out
-                                          before anyone knows it failed)
-    recover = supervisor tick            (up to 60s to observe the failure)
-            + poll interval              (start_poller schedules a full one)
-            + client timeout             (the check itself may run to it)
+    detect  <= one poll interval         (the failure happens between polls)
+             + client timeout            (a failing request may run to its
+                                          timeout — or return at once, on DNS
+                                          failure or ECONNREFUSED)
+    recover <= supervisor tick           (up to 60s to observe the failure)
+             + poll interval             (start_poller schedules a full one)
+             + client timeout            (same caveat)
 
 Detection and recovery are different numbers. Stating one as the other is how
 `firmware/esp32-panel/README.md` promised "noticed within the minute" for
-something that takes half an hour and a minute.
+something that can take half an hour and a minute.
 
-**The `+ client timeout` on `detect` was itself missing from the first version
-of this rule**, and a reviewer supplied it. The chain had been written out and
-still stopped one term early, because "the poll notices it" reads as an instant
-and is not: a synchronous request that will fail does so only after its timeout.
-Writing the chain is necessary and not sufficient — read it back and ask, for
-every line, "and how long does *that* take?"
+**Note the `<=`.** A chain of maxima gives a bound, not a duration, and the
+difference is not pedantry: most of those terms have a fast path. So every
+timing claim must also say *which* number it is — at most, at least, or
+typically. A bare figure is not a computed claim, it is an unlabelled one.
+
+Both of those corrections came from reviewers, on this rule's own PR. The first
+version wrote `detect = one poll interval` and omitted the timeout entirely; the
+second added it as a certainty and thereby overstated every future claim derived
+from the rule. Writing the chain out is necessary and not sufficient. Read it
+back twice — once asking "and how long does *that* take?", once asking "and is
+that the most, the least, or the usual?"
 
 ### 2. A wrapping counter is only meaningful over half its period
 

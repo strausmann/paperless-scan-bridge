@@ -62,13 +62,19 @@ Newest first. Format & process: see [`README.md`](README.md) and `.claude/rules/
   Deliberately not a "be more careful" rule. The pass is mechanical and short,
   and its trigger is a grep.
 
-  **A postscript that belongs in the entry.** The first version of R7 got the
-  detection formula wrong in the same way it warns about: it wrote
-  `detect = one poll interval` and omitted the client timeout, because "the
-  poll notices it" reads as an instant. A reviewer caught it on the rule's own
-  PR. Writing the chain out is necessary and not sufficient — it has to be read
-  back, asking of every line "and how long does *that* take?". The rule now says
-  so, with itself as the example.
+  **A postscript that belongs in the entry — the rule got it wrong twice.**
+  The first version of R7 wrote `detect = one poll interval` and omitted the
+  client timeout, because "the poll notices it" reads as an instant. Corrected,
+  it then stated the timeout as a certainty — but a request failing on DNS or
+  `ECONNREFUSED` returns at once, so the sum is an upper bound and the rule
+  would have inflated every latency claim derived from it. Both were caught by
+  reviewers, on the rule's own PR.
+
+  So the rule now demands two read-backs, not one: "and how long does *that*
+  take?" for every line, and "is this the most, the least, or the usual?" for
+  the total. A bare figure is not a computed claim, it is an unlabelled one.
+  That second question is the part I keep skipping, and it is why the same
+  paragraph swung from understating to overstating within a day.
 
 ## 2026-08-28 — A scratch file in /tmp overwrote a source file, and the commit shipped it
 
