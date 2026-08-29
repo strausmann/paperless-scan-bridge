@@ -23,14 +23,25 @@ author. The only thing that catches it is doing the sum.
 "It polls every 60 s" does **not** mean "it notices within 60 s". Write the chain
 of everything that must elapse before the effect is observable:
 
-    detect  <= one poll interval         (the failure happens between polls)
-             + client timeout            (a failing request may run to its
-                                          timeout — or return at once, on DNS
-                                          failure or ECONNREFUSED)
-    recover <= supervisor tick     60s   (to observe the failure)
-             + fast poll interval  60s   (start_poller schedules a full one)
-             + client timeout      55s   (same caveat)
+    detect  <= settled poll interval  30min  (the failure happens between
+                                              polls, and the cadence is still
+                                              the slow one at that point)
+             + client timeout          55s    (a failing request may run to
+                                              its timeout — or return at once,
+                                              on DNS failure or ECONNREFUSED)
+             = 30min 55s
+
+    recover <= supervisor tick        60s    (to observe the failure)
+             + fast poll interval     60s    (the cadence is the fast one by
+                                              now; start_poller schedules a
+                                              full interval)
+             + client timeout         55s    (same caveat)
              = 175s
+
+Note that the two chains take **different** poll intervals — 30 min for
+detection, 60 s for recovery — because the cadence changes in between. Naming
+the term "one poll interval" in both, as the first version did, produced a chain
+whose own arithmetic contradicted its conclusion.
 
 Detection and recovery are different numbers. Stating one as the other is how
 `firmware/esp32-panel/README.md` promised "noticed within the minute" for
